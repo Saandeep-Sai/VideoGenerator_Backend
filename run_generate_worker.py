@@ -2,9 +2,10 @@ import time
 import traceback
 from generator.firebase_utils import get_pending_jobs, update_job_status
 from generator.video_generator.optimized_video_generator import VideoGenerationPipeline
+from generator.video_generator.optimized_video_generator import VideoGenerationConfig
 
-pipeline = VideoGenerationPipeline()
-
+config = VideoGenerationConfig()  # Or load from env/customize if needed
+pipeline = VideoGenerationPipeline(config)
 def run():
     print("🟢 Video worker started")
     while True:
