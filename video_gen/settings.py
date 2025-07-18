@@ -25,7 +25,8 @@ SECRET_KEY = 'django-insecure-!3sooqvdlc!lddm)@wpth#65s9u7whgcyyeo6r27*38$30(n#t
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']  # or use your render domain later
+
 
 
 # Application definition
