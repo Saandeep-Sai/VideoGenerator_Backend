@@ -118,3 +118,16 @@ def update_job_status(doc_id, status):
     initialize_firebase()
     db = firestore.client()
     db.collection("videos").document(doc_id).update({"status": status})
+
+# Add this to the bottom of your firebase_utils.py
+
+# Get job by ID
+def get_job_by_id(doc_id):
+    initialize_firebase()
+    db = firestore.client()
+    doc = db.collection("videos").document(doc_id).get()
+    if doc.exists:
+        data = doc.to_dict()
+        data["id"] = doc.id
+        return data
+    return None

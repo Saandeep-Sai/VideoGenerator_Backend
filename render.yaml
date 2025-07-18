@@ -3,11 +3,11 @@ services:
     name: video-gen-api
     env: python
     plan: free
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: python run_combined.py
     envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: video_gen.settings
       - key: FIREBASE_CREDENTIALS_BASE64
         sync: false
       - key: FIREBASE_PROJECT_ID

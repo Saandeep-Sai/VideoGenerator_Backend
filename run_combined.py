@@ -1,4 +1,3 @@
-# run_combined.py
 import multiprocessing
 import subprocess
 import os
@@ -9,10 +8,9 @@ def start_web():
     subprocess.run([
         "gunicorn",
         "video_gen.wsgi:application",
-        "--bind",
-        f"0.0.0.0:{port}",
-        "--workers",
-        "3"
+        "--bind", f"0.0.0.0:{port}",
+        "--workers", "1",             # Reduce RAM use
+        "--timeout", "180"            # Increase timeout to prevent SIGKILL
     ])
 
 def start_worker():
