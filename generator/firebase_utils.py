@@ -1,5 +1,5 @@
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from firebase_admin import credentials, firestore
 import os
 import json
 import base64
@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Initialize Firebase app
 def initialize_firebase():
     if firebase_admin._apps:
         return
@@ -24,35 +25,63 @@ def initialize_firebase():
         "projectId": project_id,
         "storageBucket": f"{project_id}.appspot.com"
     })
-def save_base64_segments_to_firestore(base64_str: str, topic: str, duration: int):
+
+# Save a new Firestore document with status 'processing'
+def save_base64_segments_to_firestore(base64_str: str, topic: str, duration: int, status="processing"):
     initialize_firebase()
     db = firestore.client()
 
-    # Create master doc
     doc_ref = db.collection("videos").document()
     doc_ref.set({
         "topic": topic,
         "duration": duration,
-        "segment_count": 0  # will update later
+        "status": status,
+        "segment_count": 0,
+        "created_at": firestore.SERVER_TIMESTAMP
     })
 
-    # Split base64 string
-    segments = split_base64_string(base64_str)
+    # If base64 provided, upload it
+    if base64_str:
+        segments = split_base64_string(base64_str)
+        segment_coll = doc_ref.collection("video_segments")
+        for i, (segment_id, content) in enumerate(segments.items(), start=1):
+            segment_coll.document(segment_id).set({
+                "segment_index": i,
+                "content": content
+            })
 
-    # Upload each segment as subcollection doc
-    segment_coll = doc_ref.collection("video_segments")
-    for i, (segment_id, content) in enumerate(segments.items(), start=1):
-        segment_coll.document(segment_id).set({
-            "segment_index": i,
-            "content": content
+        doc_ref.update({
+            "segment_count": len(segments)
         })
-
-    # Update segment count
-    doc_ref.update({"segment_count": len(segments)})
 
     return doc_ref.id
 
-def split_base64_string(b64_string, segment_size=250000):
+# Update an existing video doc with completion and optionally upload base64
+def update_video_status(doc_id, base64_data=None, status="completed", error=None):
+    initialize_firebase()
+    db = firestore.client()
+    doc_ref = db.collection("videos").document(doc_id)
+
+    update_fields = {
+        "status": status
+    }
+    if error:
+        update_fields["error"] = error
+
+    doc_ref.update(update_fields)
+
+    if base64_data:
+        segments = split_base64_string(base64_data)
+        segment_coll = doc_ref.collection("video_segments")
+        for i, (segment_id, content) in enumerate(segments.items(), start=1):
+            segment_coll.document(segment_id).set({
+                "segment_index": i,
+                "content": content
+            })
+        doc_ref.update({"segment_count": len(segments)})
+
+# Helper: split long base64 into smaller segments
+def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limit
     return {
         f"segment_{i+1}": b64_string[i:i+segment_size]
         for i in range(0, len(b64_string), segment_size)
