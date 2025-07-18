@@ -21,7 +21,7 @@ services:
       - key: DJANGO_SETTINGS_MODULE
         value: video_gen.settings
 
-  - type: web
+  - type: worker
     name: video-worker
     env: python
     plan: free
