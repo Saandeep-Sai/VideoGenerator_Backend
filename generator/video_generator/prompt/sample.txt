@@ -1,0 +1,1358 @@
+# Script 1: Array Operations and Indexing
+from manim import *
+
+class ArrayOperations(Scene):
+    def construct(self):
+        # Title
+        title = Text("Array Operations", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Create array visualization
+        array_values = [10, 25, 33, 47, 56, 78, 89]
+        array_boxes = VGroup()
+        array_labels = VGroup()
+        
+        for i, value in enumerate(array_values):
+            box = Square(side_length=0.8, color=WHITE, fill_opacity=0.2)
+            box.shift(RIGHT * (i - 3) * 1.2)
+            label = Text(str(value), font_size=24)
+            label.move_to(box.get_center())
+            array_boxes.add(box)
+            array_labels.add(label)
+        
+        # Index labels
+        index_labels = VGroup()
+        for i in range(len(array_values)):
+            idx_label = Text(str(i), font_size=16, color=YELLOW)
+            idx_label.shift(RIGHT * (i - 3) * 1.2 + DOWN * 0.8)
+            index_labels.add(idx_label)
+        
+        self.play(Create(array_boxes))
+        self.play(Write(array_labels))
+        self.play(Write(index_labels))
+        self.wait(2)
+        
+        # Array access operation
+        access_text = Text("Array Access: arr[3] = 47", font_size=24, color=GREEN)
+        access_text.to_edge(DOWN)
+        self.play(Write(access_text))
+        
+        # Highlight accessed element
+        highlight_box = Square(side_length=0.8, color=RED, stroke_width=4)
+        highlight_box.move_to(array_boxes[3].get_center())
+        self.play(Create(highlight_box))
+        self.wait(2)
+        
+        # Array insertion
+        self.play(FadeOut(access_text), FadeOut(highlight_box))
+        insert_text = Text("Array Insertion: Insert 40 at index 2", font_size=24, color=GREEN)
+        insert_text.to_edge(DOWN)
+        self.play(Write(insert_text))
+        
+        # Show insertion process
+        new_box = Square(side_length=0.8, color=WHITE, fill_opacity=0.2)
+        new_label = Text("40", font_size=24)
+        new_box.shift(RIGHT * (2 - 3) * 1.2)
+        new_label.move_to(new_box.get_center())
+        
+        # Shift elements to the right
+        for i in range(2, len(array_values)):
+            self.play(array_boxes[i].animate.shift(RIGHT * 1.2),
+                     array_labels[i].animate.shift(RIGHT * 1.2),
+                     run_time=0.5)
+        
+        self.play(Create(new_box), Write(new_label))
+        self.wait(2)
+        
+        # Array deletion
+        self.play(FadeOut(insert_text))
+        delete_text = Text("Array Deletion: Remove element at index 4", font_size=24, color=GREEN)
+        delete_text.to_edge(DOWN)
+        self.play(Write(delete_text))
+        
+        # Highlight element to delete
+        delete_highlight = Square(side_length=0.8, color=RED, stroke_width=4)
+        delete_highlight.move_to(array_boxes[4].get_center())
+        self.play(Create(delete_highlight))
+        self.wait(1)
+        
+        # Remove element and shift
+        self.play(FadeOut(array_boxes[4]), FadeOut(array_labels[4]), FadeOut(delete_highlight))
+        
+        for i in range(5, len(array_values)):
+            self.play(array_boxes[i].animate.shift(LEFT * 1.2),
+                     array_labels[i].animate.shift(LEFT * 1.2),
+                     run_time=0.5)
+        
+        self.wait(2)
+        
+        # Time complexity summary
+        complexity_text = Text("Time Complexity: Access O(1), Insert/Delete O(n)", 
+                             font_size=20, color=YELLOW)
+        complexity_text.to_edge(DOWN)
+        self.play(ReplacementTransform(delete_text, complexity_text))
+        self.wait(3)
+
+# Script 2: Linked List Implementation
+from manim import *
+
+class LinkedListVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Linked List Operations", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Create linked list nodes
+        node_values = [10, 20, 30, 40]
+        nodes = VGroup()
+        arrows = VGroup()
+        
+        for i, value in enumerate(node_values):
+            # Create node (rectangle for data, small square for pointer)
+            data_box = Rectangle(width=1, height=0.8, color=WHITE, fill_opacity=0.2)
+            pointer_box = Rectangle(width=0.4, height=0.8, color=GRAY, fill_opacity=0.3)
+            
+            # Position boxes
+            data_box.shift(RIGHT * (i * 2.5 - 3))
+            pointer_box.shift(RIGHT * (i * 2.5 - 3) + RIGHT * 0.7)
+            
+            # Add value label
+            value_label = Text(str(value), font_size=20)
+            value_label.move_to(data_box.get_center())
+            
+            # Create arrow to next node
+            if i < len(node_values) - 1:
+                arrow = Arrow(
+                    start=pointer_box.get_center() + RIGHT * 0.2,
+                    end=pointer_box.get_center() + RIGHT * 1.1,
+                    buff=0,
+                    color=YELLOW,
+                    stroke_width=3
+                )
+                arrows.add(arrow)
+            
+            node_group = VGroup(data_box, pointer_box, value_label)
+            nodes.add(node_group)
+        
+        # Add NULL pointer for last node
+        null_text = Text("NULL", font_size=16, color=RED)
+        null_text.move_to(nodes[-1][1].get_center())
+        
+        # Animate creation
+        self.play(Create(nodes))
+        self.play(Create(arrows))
+        self.play(Write(null_text))
+        self.wait(2)
+        
+        # Insertion at beginning
+        insert_text = Text("Insert 5 at beginning", font_size=24, color=GREEN)
+        insert_text.to_edge(DOWN)
+        self.play(Write(insert_text))
+        
+        # Create new node
+        new_data_box = Rectangle(width=1, height=0.8, color=WHITE, fill_opacity=0.2)
+        new_pointer_box = Rectangle(width=0.4, height=0.8, color=GRAY, fill_opacity=0.3)
+        new_value_label = Text("5", font_size=20)
+        
+        new_data_box.shift(LEFT * 5.5)
+        new_pointer_box.shift(LEFT * 5.5 + RIGHT * 0.7)
+        new_value_label.move_to(new_data_box.get_center())
+        
+        new_node = VGroup(new_data_box, new_pointer_box, new_value_label)
+        
+        # New arrow
+        new_arrow = Arrow(
+            start=new_pointer_box.get_center() + RIGHT * 0.2,
+            end=nodes[0][0].get_center() + LEFT * 0.5,
+            buff=0,
+            color=YELLOW,
+            stroke_width=3
+        )
+        
+        self.play(Create(new_node))
+        self.play(Create(new_arrow))
+        self.wait(2)
+        
+        # Deletion demonstration
+        self.play(FadeOut(insert_text))
+        delete_text = Text("Delete node with value 20", font_size=24, color=GREEN)
+        delete_text.to_edge(DOWN)
+        self.play(Write(delete_text))
+        
+        # Highlight node to delete
+        highlight = Circle(radius=0.8, color=RED, stroke_width=4)
+        highlight.move_to(nodes[1].get_center())
+        self.play(Create(highlight))
+        self.wait(1)
+        
+        # Update arrow to skip deleted node
+        new_skip_arrow = Arrow(
+            start=nodes[0][1].get_center() + RIGHT * 0.2,
+            end=nodes[2][0].get_center() + LEFT * 0.5,
+            buff=0,
+            color=YELLOW,
+            stroke_width=3
+        )
+        
+        self.play(FadeOut(nodes[1]), FadeOut(arrows[1]), FadeOut(highlight))
+        self.play(Create(new_skip_arrow))
+        self.wait(2)
+        
+        # Advantages and disadvantages
+        self.play(FadeOut(delete_text))
+        advantages_text = Text("Advantages: Dynamic size, Efficient insertion/deletion", 
+                             font_size=18, color=GREEN)
+        disadvantages_text = Text("Disadvantages: No random access, Extra memory for pointers", 
+                                font_size=18, color=RED)
+        
+        advantages_text.to_edge(DOWN).shift(UP * 0.5)
+        disadvantages_text.to_edge(DOWN)
+        
+        self.play(Write(advantages_text))
+        self.play(Write(disadvantages_text))
+        self.wait(4)
+
+# Script 3: Stack Data Structure
+from manim import *
+
+class StackVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Stack Data Structure (LIFO)", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Create stack base
+        stack_base = Rectangle(width=2, height=0.3, color=BROWN, fill_opacity=0.8)
+        stack_base.shift(DOWN * 2.5)
+        self.play(Create(stack_base))
+        
+        # Stack operations
+        stack_elements = []
+        values = [10, 20, 30, 40, 50]
+        
+        # Push operations
+        push_text = Text("PUSH Operations", font_size=24, color=GREEN)
+        push_text.to_edge(DOWN)
+        self.play(Write(push_text))
+        
+        for i, value in enumerate(values):
+            # Create stack element
+            element = Rectangle(width=1.8, height=0.5, color=WHITE, fill_opacity=0.3)
+            element.shift(DOWN * (2 - i * 0.6))
+            
+            # Add value label
+            label = Text(str(value), font_size=20)
+            label.move_to(element.get_center())
+            
+            # Push animation
+            element.shift(UP * 3)
+            label.shift(UP * 3)
+            
+            self.play(Create(element), Write(label))
+            self.play(element.animate.shift(DOWN * 3), label.animate.shift(DOWN * 3))
+            
+            stack_elements.append((element, label))
+            
+            # Show top pointer
+            if i == 0:
+                top_arrow = Arrow(
+                    start=element.get_center() + LEFT * 1.5,
+                    end=element.get_center() + LEFT * 1,
+                    buff=0,
+                    color=RED,
+                    stroke_width=4
+                )
+                top_text = Text("TOP", font_size=16, color=RED)
+                top_text.move_to(element.get_center() + LEFT * 2)
+                self.play(Create(top_arrow), Write(top_text))
+            else:
+                # Move top pointer
+                self.play(
+                    top_arrow.animate.shift(UP * 0.6),
+                    top_text.animate.shift(UP * 0.6)
+                )
+            
+            self.wait(0.5)
+        
+        self.wait(2)
+        
+        # Pop operations
+        self.play(FadeOut(push_text))
+        pop_text = Text("POP Operations", font_size=24, color=ORANGE)
+        pop_text.to_edge(DOWN)
+        self.play(Write(pop_text))
+        
+        for i in range(2):  # Pop 2 elements
+            if stack_elements:
+                element, label = stack_elements.pop()
+                
+                # Pop animation
+                self.play(
+                    element.animate.shift(UP * 3),
+                    label.animate.shift(UP * 3)
+                )
+                self.play(FadeOut(element), FadeOut(label))
+                
+                # Move top pointer down
+                if stack_elements:
+                    self.play(
+                        top_arrow.animate.shift(DOWN * 0.6),
+                        top_text.animate.shift(DOWN * 0.6)
+                    )
+                
+                self.wait(0.5)
+        
+        self.wait(2)
+        
+        # Stack applications
+        self.play(FadeOut(pop_text))
+        apps_title = Text("Stack Applications:", font_size=20, color=YELLOW)
+        apps_title.to_edge(DOWN).shift(UP * 1.5)
+        
+        apps_list = VGroup(
+            Text("• Function call management", font_size=16),
+            Text("• Expression evaluation", font_size=16),
+            Text("• Undo operations", font_size=16),
+            Text("• Browser history", font_size=16)
+        )
+        
+        apps_list.arrange(DOWN, aligned_edge=LEFT)
+        apps_list.to_edge(DOWN)
+        
+        self.play(Write(apps_title))
+        self.play(Write(apps_list))
+        self.wait(3)
+        
+        # Time complexity
+        complexity_text = Text("Time Complexity: Push O(1), Pop O(1), Peek O(1)", 
+                             font_size=18, color=PURPLE)
+        complexity_text.to_edge(DOWN).shift(UP * 0.3)
+        self.play(Write(complexity_text))
+        self.wait(3)
+
+# Script 4: Queue Data Structure
+from manim import *
+
+class QueueVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Queue Data Structure (FIFO)", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Create queue container
+        queue_container = Rectangle(width=8, height=1.5, color=GRAY, stroke_width=3)
+        queue_container.shift(DOWN * 0.5)
+        self.play(Create(queue_container))
+        
+        # Front and rear pointers
+        front_text = Text("FRONT", font_size=16, color=GREEN)
+        rear_text = Text("REAR", font_size=16, color=RED)
+        
+        front_text.move_to(queue_container.get_left() + RIGHT * 0.5 + UP * 1)
+        rear_text.move_to(queue_container.get_left() + RIGHT * 0.5 + DOWN * 1)
+        
+        front_arrow = Arrow(
+            start=front_text.get_center() + DOWN * 0.3,
+            end=queue_container.get_left() + RIGHT * 0.5,
+            buff=0,
+            color=GREEN,
+            stroke_width=3
+        )
+        
+        rear_arrow = Arrow(
+            start=rear_text.get_center() + UP * 0.3,
+            end=queue_container.get_left() + RIGHT * 0.5,
+            buff=0,
+            color=RED,
+            stroke_width=3
+        )
+        
+        self.play(Write(front_text), Write(rear_text))
+        self.play(Create(front_arrow), Create(rear_arrow))
+        self.wait(1)
+        
+        # Enqueue operations
+        enqueue_text = Text("ENQUEUE Operations", font_size=24, color=GREEN)
+        enqueue_text.to_edge(DOWN)
+        self.play(Write(enqueue_text))
+        
+        queue_elements = []
+        values = [10, 20, 30, 40, 50]
+        
+        for i, value in enumerate(values):
+            # Create queue element
+            element = Rectangle(width=1.4, height=1.2, color=WHITE, fill_opacity=0.3)
+            element.move_to(queue_container.get_left() + RIGHT * (0.8 + i * 1.5))
+            
+            # Add value label
+            label = Text(str(value), font_size=18)
+            label.move_to(element.get_center())
+            
+            # Enqueue animation from bottom
+            element.shift(DOWN * 3)
+            label.shift(DOWN * 3)
+            
+            self.play(Create(element), Write(label))
+            self.play(element.animate.shift(UP * 3), label.animate.shift(UP * 3))
+            
+            queue_elements.append((element, label))
+            
+            # Move rear pointer
+            self.play(
+                rear_arrow.animate.shift(RIGHT * 1.5),
+                rear_text.animate.shift(RIGHT * 1.5)
+            )
+            
+            self.wait(0.5)
+        
+        self.wait(2)
+        
+        # Dequeue operations
+        self.play(FadeOut(enqueue_text))
+        dequeue_text = Text("DEQUEUE Operations", font_size=24, color=ORANGE)
+        dequeue_text.to_edge(DOWN)
+        self.play(Write(dequeue_text))
+        
+        for i in range(2):  # Dequeue 2 elements
+            if queue_elements:
+                element, label = queue_elements.pop(0)
+                
+                # Dequeue animation
+                self.play(
+                    element.animate.shift(UP * 3),
+                    label.animate.shift(UP * 3)
+                )
+                self.play(FadeOut(element), FadeOut(label))
+                
+                # Move front pointer
+                self.play(
+                    front_arrow.animate.shift(RIGHT * 1.5),
+                    front_text.animate.shift(RIGHT * 1.5)
+                )
+                
+                self.wait(0.5)
+        
+        self.wait(2)
+        
+        # Queue applications
+        self.play(FadeOut(dequeue_text))
+        apps_title = Text("Queue Applications:", font_size=20, color=YELLOW)
+        apps_title.to_edge(DOWN).shift(UP * 1.5)
+        
+        apps_list = VGroup(
+            Text("• Process scheduling", font_size=16),
+            Text("• BFS algorithm", font_size=16),
+            Text("• Print job management", font_size=16),
+            Text("• Buffer for data streams", font_size=16)
+        )
+        
+        apps_list.arrange(DOWN, aligned_edge=LEFT)
+        apps_list.to_edge(DOWN)
+        
+        self.play(Write(apps_title))
+        self.play(Write(apps_list))
+        self.wait(3)
+        
+        # Time complexity
+        complexity_text = Text("Time Complexity: Enqueue O(1), Dequeue O(1)", 
+                             font_size=18, color=PURPLE)
+        complexity_text.to_edge(DOWN).shift(UP * 0.3)
+        self.play(Write(complexity_text))
+        self.wait(3)
+
+# Script 5: Binary Search Tree
+from manim import *
+
+class BinarySearchTree(Scene):
+    def construct(self):
+        # Title
+        title = Text("Binary Search Tree", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # BST property explanation
+        property_text = Text("Left < Root < Right", font_size=20, color=YELLOW)
+        property_text.shift(UP * 2.5)
+        self.play(Write(property_text))
+        self.wait(1)
+        
+        # Create BST nodes
+        root_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+        root_label = Text("50", font_size=16)
+        root_label.move_to(root_circle.get_center())
+        root_node = VGroup(root_circle, root_label)
+        
+        # Left subtree
+        left_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+        left_circle.shift(LEFT * 2 + DOWN * 1.5)
+        left_label = Text("30", font_size=16)
+        left_label.move_to(left_circle.get_center())
+        left_node = VGroup(left_circle, left_label)
+        
+        # Right subtree
+        right_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+        right_circle.shift(RIGHT * 2 + DOWN * 1.5)
+        right_label = Text("70", font_size=16)
+        right_label.move_to(right_circle.get_center())
+        right_node = VGroup(right_circle, right_label)
+        
+        # Create connections
+        left_line = Line(root_circle.get_center(), left_circle.get_center(), color=YELLOW)
+        right_line = Line(root_circle.get_center(), right_circle.get_center(), color=YELLOW)
+        
+        # Animate tree creation
+        self.play(Create(root_node))
+        self.wait(0.5)
+        
+        self.play(Create(left_line), Create(left_node))
+        self.wait(0.5)
+        
+        self.play(Create(right_line), Create(right_node))
+        self.wait(1)
+        
+        # Add more nodes
+        nodes_data = [
+            (20, LEFT * 3 + DOWN * 3, left_circle),
+            (40, LEFT * 1 + DOWN * 3, left_circle),
+            (60, RIGHT * 1 + DOWN * 3, right_circle),
+            (80, RIGHT * 3 + DOWN * 3, right_circle)
+        ]
+        
+        nodes = [root_node, left_node, right_node]
+        lines = [left_line, right_line]
+        
+        for value, position, parent in nodes_data:
+            circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+            circle.move_to(position)
+            label = Text(str(value), font_size=16)
+            label.move_to(circle.get_center())
+            node = VGroup(circle, label)
+            
+            line = Line(parent.get_center(), circle.get_center(), color=YELLOW)
+            
+            self.play(Create(line), Create(node))
+            nodes.append(node)
+            lines.append(line)
+            self.wait(0.3)
+        
+        self.wait(2)
+        
+        # Search operation
+        search_text = Text("Search for 40", font_size=24, color=GREEN)
+        search_text.to_edge(DOWN)
+        self.play(Write(search_text))
+        
+        # Highlight search path
+        search_path = [0, 1, 5]  # indices of nodes in search path
+        for i in search_path:
+            highlight = Circle(radius=0.4, color=RED, stroke_width=4)
+            highlight.move_to(nodes[i].get_center())
+            self.play(Create(highlight))
+            self.wait(0.8)
+            if i != search_path[-1]:
+                self.play(FadeOut(highlight))
+        
+        self.wait(2)
+        
+        # Insert operation
+        self.play(FadeOut(search_text))
+        insert_text = Text("Insert 35", font_size=24, color=GREEN)
+        insert_text.to_edge(DOWN)
+        self.play(Write(insert_text))
+        
+        # Show insertion path
+        insert_path = [0, 1, 5]  # path to insert 35
+        for i in insert_path:
+            highlight = Circle(radius=0.4, color=BLUE, stroke_width=4)
+            highlight.move_to(nodes[i].get_center())
+            self.play(Create(highlight))
+            self.wait(0.5)
+            self.play(FadeOut(highlight))
+        
+        # Add new node
+        new_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+        new_circle.shift(LEFT * 0.5 + DOWN * 4.5)
+        new_label = Text("35", font_size=16)
+        new_label.move_to(new_circle.get_center())
+        new_node = VGroup(new_circle, new_label)
+        new_line = Line(nodes[5][0].get_center(), new_circle.get_center(), color=YELLOW)
+        
+        self.play(Create(new_line), Create(new_node))
+        self.wait(2)
+        
+        # Time complexity
+        self.play(FadeOut(insert_text))
+        complexity_text = Text("Average Time Complexity: O(log n)", font_size=20, color=PURPLE)
+        worst_case_text = Text("Worst Case: O(n) for skewed tree", font_size=18, color=RED)
+        
+        complexity_text.to_edge(DOWN).shift(UP * 0.5)
+        worst_case_text.to_edge(DOWN)
+        
+        self.play(Write(complexity_text))
+        self.play(Write(worst_case_text))
+        self.wait(3)
+
+# Script 6: Hash Table
+from manim import *
+
+class HashTableVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Hash Table Data Structure", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Hash function explanation
+        hash_text = Text("Hash Function: key % table_size", font_size=20, color=YELLOW)
+        hash_text.shift(UP * 2.5)
+        self.play(Write(hash_text))
+        self.wait(1)
+        
+        # Create hash table
+        table_size = 7
+        table_boxes = VGroup()
+        index_labels = VGroup()
+        
+        for i in range(table_size):
+            box = Rectangle(width=1.5, height=0.8, color=WHITE, fill_opacity=0.2)
+            box.shift(DOWN * (i - 3) * 1.1)
+            
+            index_label = Text(str(i), font_size=18, color=GRAY)
+            index_label.move_to(box.get_left() + LEFT * 0.5)
+            
+            table_boxes.add(box)
+            index_labels.add(index_label)
+        
+        self.play(Create(table_boxes))
+        self.play(Write(index_labels))
+        self.wait(1)
+        
+        # Hash table operations
+        keys_values = [(22, "Apple"), (15, "Banana"), (29, "Cherry"), (8, "Date")]
+        
+        for key, value in keys_values:
+            # Show hash calculation
+            calc_text = Text(f"Hash({key}) = {key} % {table_size} = {key % table_size}", 
+                           font_size=18, color=GREEN)
+            calc_text.to_edge(DOWN)
+            self.play(Write(calc_text))
+            
+            # Calculate hash index
+            hash_index = key % table_size
+            
+            # Highlight target box
+            highlight = Rectangle(width=1.5, height=0.8, color=RED, stroke_width=4)
+            highlight.move_to(table_boxes[hash_index].get_center())
+            self.play(Create(highlight))
+            
+            # Insert key-value pair
+            kv_text = Text(f"{key}:{value}", font_size=12)
+            kv_text.move_to(table_boxes[hash_index].get_center())
+            self.play(Write(kv_text))
+            
+            self.play(FadeOut(highlight))
+            self.wait(1)
+            self.play(FadeOut(calc_text))
+        
+        self.wait(2)
+        
+        # Collision handling
+        collision_text = Text("Collision Handling", font_size=24, color=ORANGE)
+        collision_text.to_edge(DOWN)
+        self.play(Write(collision_text))
+        
+        # Insert another key that causes collision
+        collision_key = 36  # 36 % 7 = 1, same as 15
+        collision_calc = Text(f"Hash({collision_key}) = {collision_key} % {table_size} = {collision_key % table_size}", 
+                            font_size=18, color=ORANGE)
+        collision_calc.to_edge(DOWN).shift(UP * 0.5)
+        self.play(Write(collision_calc))
+        
+        # Show collision at index 1
+        collision_highlight = Rectangle(width=1.5, height=0.8, color=ORANGE, stroke_width=4)
+        collision_highlight.move_to(table_boxes[1].get_center())
+        self.play(Create(collision_highlight))
+        
+        # Linear probing
+        probe_text = Text("Linear Probing: Find next empty slot", font_size=16, color=PURPLE)
+        probe_text.to_edge(DOWN).shift(UP * 1)
+        self.play(Write(probe_text))
+        
+        # Move to next available slot
+        self.play(collision_highlight.animate.move_to(table_boxes[2].get_center()))
+        
+        # Insert at new position
+        collision_kv = Text(f"{collision_key}:Fig", font_size=12)
+        collision_kv.move_to(table_boxes[2].get_center())
+        self.play(Write(collision_kv))
+        
+        self.play(FadeOut(collision_highlight))
+        self.wait(2)
+        
+        # Search operation
+        self.play(FadeOut(collision_text), FadeOut(collision_calc), FadeOut(probe_text))
+        search_text = Text("Search for key 29", font_size=24, color=GREEN)
+        search_text.to_edge(DOWN)
+        self.play(Write(search_text))
+        
+        # Show search process
+        search_index = 29 % table_size
+        search_highlight = Rectangle(width=1.5, height=0.8, color=GREEN, stroke_width=4)
+        search_highlight.move_to(table_boxes[search_index].get_center())
+        self.play(Create(search_highlight))
+        
+        found_text = Text("Found: 29:Cherry", font_size=18, color=GREEN)
+        found_text.to_edge(DOWN).shift(UP * 0.5)
+        self.play(Write(found_text))
+        self.wait(2)
+        
+        # Time complexity
+        self.play(FadeOut(search_text), FadeOut(found_text), FadeOut(search_highlight))
+        complexity_text = Text("Average Time Complexity: O(1)", font_size=20, color=PURPLE)
+        worst_case_text = Text("Worst Case: O(n) with many collisions", font_size=18, color=RED)
+        
+        complexity_text.to_edge(DOWN).shift(UP * 0.5)
+        worst_case_text.to_edge(DOWN)
+        
+        self.play(Write(complexity_text))
+        self.play(Write(worst_case_text))
+        self.wait(3)
+
+# Script 7: Heap Data Structure
+from manim import *
+
+class HeapVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Max Heap Data Structure", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Heap property
+        property_text = Text("Max Heap Property: Parent ≥ Children", font_size=20, color=YELLOW)
+        property_text.shift(UP * 2.5)
+        self.play(Write(property_text))
+        self.wait(1)
+        
+        # Create heap as binary tree
+        heap_values = [90, 80, 70, 60, 50, 40, 30]
+        circles = VGroup()
+        labels = VGroup()
+        lines = VGroup()
+        
+        # Node positions (level-wise)
+        positions = [
+            UP * 0.5,  # root
+            LEFT * 2 + DOWN * 1.5,  # level 1 left
+            RIGHT * 2 + DOWN * 1.5,  # level 1 right
+            LEFT * 3 + DOWN * 3,  # level 2 leftmost
+            LEFT * 1 + DOWN * 3,  # level 2 left-middle
+            RIGHT * 1 + DOWN * 3,  # level 2 right-middle
+            RIGHT * 3 + DOWN * 3   # level 2 rightmost
+        ]
+        
+        # Create nodes
+        for i, (value, pos) in enumerate(zip(heap_values, positions)):
+            circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+            circle.move_to(pos)
+            label = Text(str(value), font_size=16)
+            label.move_to(circle.get_center())
+            
+            circles.add(circle)
+            labels.add(label)
+        
+        # Create connections
+        connections = [(0, 1), (0, 2), (1, 3), (1, 4), (2, 5), (2, 6)]
+        for parent, child in connections:
+            line = Line(circles[parent].get_center(), circles[child].get_center(), color=YELLOW)
+            lines.add(line)
+        
+        # Animate heap creation
+        self.play(Create(circles[0]), Write(labels[0]))
+        self.wait(0.5)
+        
+        for i in range(1, len(heap_values)):
+            parent_idx = (i - 1) // 2
+            line = Line(circles[parent_idx].get_center(), circles[i].get_center(), color=YELLOW)
+            self.play(Create(line), Create(circles[i]), Write(labels[i]))
+            self.wait(0.3)
+        
+        self.wait(2)
+        
+        # Array representation
+        array_text = Text("Array Representation:", font_size=20, color=GREEN)
+        array_text.shift(DOWN * 2.5)
+        self.play(Write(array_text))
+        
+        # Show array
+        array_boxes = VGroup()
+        array_labels = VGroup()
+        
+        for i, value in enumerate(heap_values):
+            box = Rectangle(width=0.8, height=0.6, color=WHITE, fill_opacity=0.2)
+            box.shift(RIGHT * (i - 3) * 1 + DOWN * 3.5)
+            label = Text(str(value), font_size=14)
+            label.move_to(box.get_center())
+            
+            array_boxes.add(box)
+            array_labels.add(label)
+        
+        self.play(Create(array_boxes))
+        self.play(Write(array_labels))
+        self.wait(2)
+        
+        # Insertion operation
+        self.play(FadeOut(array_text))
+        insert_text = Text("Insert 85", font_size=24, color=GREEN)
+        insert_text.to_edge(DOWN)
+        self.play(Write(insert_text))
+        
+        # Add new element at end
+        new_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+        new_circle.shift(LEFT * 4.5 + DOWN * 3)
+        new_label = Text("85", font_size=16)
+        new_label.move_to(new_circle.get_center())
+        
+        # Connect to parent
+        parent_line = Line(circles[3].get_center(), new_circle.get_center(), color=YELLOW)
+        
+        self.play(Create(parent_line), Create(new_circle), Write(new_label))
+        self.wait(1)
+        
+        # Bubble up process
+        bubble_text = Text("Bubble Up: 85 > 60", font_size=18, color=ORANGE)
+        bubble_text.to_edge(DOWN).shift(UP * 0.5)
+        self.play(Write(bubble_text))
+        
+        # Swap with parent
+        self.play(
+            new_circle.animate.move_to(circles[3].get_center()),
+            new_label.animate.move_to(circles[3].get_center()),
+            circles[3].animate.move_to(new_circle.get_center()),
+            labels[3].animate.move_to(new_circle.get_center())
+        )
+        
+        self.wait(1)
+        
+        # Continue bubble up
+        bubble_text2 = Text("Bubble Up: 85 > 80", font_size=18, color=ORANGE)
+        self.play(ReplacementTransform(bubble_text, bubble_text2))
+        
+        # Swap with grandparent
+        self.play(
+            new_circle.animate.move_to(circles[1].get_center()),
+            new_label.animate.move_to(circles[1].get_center()),
+            circles[1].animate.move_to(new_circle.get_center()),
+            labels[1].animate.move_to(new_circle.get_center())
+        )
+        
+        self.wait(2)
+        
+        # Applications
+        self.play(FadeOut(insert_text), FadeOut(bubble_text2))
+        apps_title = Text("Heap Applications:", font_size=20, color=YELLOW)
+        apps_title.to_edge(DOWN).shift(UP * 1.5)
+        
+        apps_list = VGroup(
+            Text("• Priority Queue", font_size=16),
+            Text("• Heap Sort", font_size=16),
+            Text("• Dijkstra's Algorithm", font_size=16),
+            Text("• Huffman Coding", font_size=16)
+        )
+        
+        apps_list.arrange(DOWN, aligned_edge=LEFT)
+        apps_list.to_edge(DOWN)
+        
+        self.play(Write(apps_title))
+        self.play(Write(apps_list))
+        self.wait(3)
+
+# Script 8: Graph Data Structure
+from manim import *
+
+class GraphVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Graph Data Structure", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Graph definition
+        definition = Text("Graph = Vertices + Edges", font_size=20, color=YELLOW)
+        definition.shift(UP * 2.5)
+        self.play(Write(definition))
+        self.wait(1)
+        
+        # Create vertices
+        vertices = VGroup()
+        vertex_labels = VGroup()
+        vertex_positions = [
+            UP * 1 + LEFT * 2,      # A
+            UP * 1 + RIGHT * 2,     # B
+            DOWN * 1 + LEFT * 2,    # C
+            DOWN * 1 + RIGHT * 2,   # D
+            UP * 0.5,               # E
+        ]
+        vertex_names = ["A", "B", "C", "D", "E"]
+        
+        for i, (pos, name) in enumerate(zip(vertex_positions, vertex_names)):
+            circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+            circle.move_to(pos)
+            label = Text(name, font_size=16, color=BLACK)
+            label.move_to(circle.get_center())
+            
+            vertices.add(circle)
+            vertex_labels.add(label)
+        
+        # Create edges
+        edges = VGroup()
+        edge_connections = [(0, 1), (0, 2), (1, 3), (2, 3), (0, 4), (1, 4)]
+        
+        for start, end in edge_connections:
+            line = Line(vertices[start].get_center(), vertices[end].get_center(), color=YELLOW)
+            edges.add(line)
+        
+        # Animate graph creation
+        self.play(Create(vertices), Write(vertex_labels))
+        self.wait(1)
+        self.play(Create(edges))
+        self.wait(2)
+        
+        # Graph traversal - DFS
+        dfs_text = Text("Depth-First Search (DFS)", font_size=24, color=GREEN)
+        dfs_text.to_edge(DOWN)
+        self.play(Write(dfs_text))
+        
+        # DFS traversal order: A -> B -> D -> C -> E
+        dfs_order = [0, 1, 3, 2, 4]
+        visited_circles = VGroup()
+        
+        for i, vertex_idx in enumerate(dfs_order):
+            # Highlight current vertex
+            highlight = Circle(radius=0.4, color=RED, stroke_width=4)
+            highlight.move_to(vertices[vertex_idx].get_center())
+            self.play(Create(highlight))
+            
+            # Mark as visited
+            visited_circle = Circle(radius=0.3, color=GREEN, fill_opacity=0.5)
+            visited_circle.move_to(vertices[vertex_idx].get_center())
+            visited_circles.add(visited_circle)
+            
+            self.play(Create(visited_circle))
+            self.play(FadeOut(highlight))
+            self.wait(0.8)
+        
+        self.wait(2)
+        
+        # Clear DFS visualization
+        self.play(FadeOut(visited_circles))
+        
+        # BFS traversal
+        self.play(FadeOut(dfs_text))
+        bfs_text = Text("Breadth-First Search (BFS)", font_size=24, color=BLUE)
+        bfs_text.to_edge(DOWN)
+        self.play(Write(bfs_text))
+        
+        # BFS traversal order: A -> B -> C -> E -> D
+        bfs_order = [0, 1, 2, 4, 3]
+        visited_circles_bfs = VGroup()
+        
+        for i, vertex_idx in enumerate(bfs_order):
+            # Highlight current vertex
+            highlight = Circle(radius=0.4, color=BLUE, stroke_width=4)
+            highlight.move_to(vertices[vertex_idx].get_center())
+            self.play(Create(highlight))
+            
+            # Mark as visited
+            visited_circle = Circle(radius=0.3, color=BLUE, fill_opacity=0.5)
+            visited_circle.move_to(vertices[vertex_idx].get_center())
+            visited_circles_bfs.add(visited_circle)
+            
+            self.play(Create(visited_circle))
+            self.play(FadeOut(highlight))
+            self.wait(0.8)
+        
+        self.wait(2)
+        
+        # Graph representations
+        self.play(FadeOut(bfs_text), FadeOut(visited_circles_bfs))
+        
+        # Adjacency Matrix
+        matrix_title = Text("Adjacency Matrix", font_size=20, color=ORANGE)
+        matrix_title.shift(LEFT * 3 + DOWN * 2)
+        self.play(Write(matrix_title))
+        
+        # Create adjacency matrix
+        matrix = [[0, 1, 1, 0, 1],
+                  [1, 0, 0, 1, 1],
+                  [1, 0, 0, 1, 0],
+                  [0, 1, 1, 0, 0],
+                  [1, 1, 0, 0, 0]]
+        
+        matrix_grid = VGroup()
+        for i in range(5):
+            for j in range(5):
+                cell = Rectangle(width=0.3, height=0.3, color=WHITE, fill_opacity=0.2)
+                cell.shift(LEFT * 3 + DOWN * 2.8 + RIGHT * j * 0.35 + DOWN * i * 0.35)
+                cell_label = Text(str(matrix[i][j]), font_size=12)
+                cell_label.move_to(cell.get_center())
+                matrix_grid.add(VGroup(cell, cell_label))
+        
+        self.play(Create(matrix_grid))
+        self.wait(2)
+        
+        # Adjacency List
+        list_title = Text("Adjacency List", font_size=20, color=PURPLE)
+        list_title.shift(RIGHT * 3 + DOWN * 2)
+        self.play(Write(list_title))
+        
+        adj_list = VGroup(
+            Text("A: [B, C, E]", font_size=12),
+            Text("B: [A, D, E]", font_size=12),
+            Text("C: [A, D]", font_size=12),
+            Text("D: [B, C]", font_size=12),
+            Text("E: [A, B]", font_size=12)
+        )
+        
+        adj_list.arrange(DOWN, aligned_edge=LEFT)
+        adj_list.shift(RIGHT * 3 + DOWN * 2.8)
+        
+        self.play(Write(adj_list))
+        self.wait(3)
+
+# Script 9: Trie Data Structure
+from manim import *
+
+class TrieVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Trie Data Structure", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Trie definition
+        definition = Text("Trie = Prefix Tree for String Storage", font_size=20, color=YELLOW)
+        definition.shift(UP * 2.5)
+        self.play(Write(definition))
+        self.wait(1)
+        
+        # Words to insert
+        words = ["CAT", "CAR", "CARD", "CARE", "CAREFUL"]
+        
+        # Create root node
+        root_circle = Circle(radius=0.2, color=WHITE, fill_opacity=0.3)
+        root_circle.shift(UP * 1.5)
+        root_label = Text("ROOT", font_size=10)
+        root_label.move_to(root_circle.get_center() + DOWN * 0.5)
+        
+        self.play(Create(root_circle), Write(root_label))
+        self.wait(1)
+        
+        # Insert words one by one
+        current_text = Text("Inserting words:", font_size=20, color=GREEN)
+        current_text.to_edge(DOWN)
+        self.play(Write(current_text))
+        
+        # Node storage for dynamic creation
+        nodes = {"": root_circle}  # prefix -> node
+        node_labels = {"": root_label}
+        edges = []
+        
+        for word_idx, word in enumerate(words):
+            word_text = Text(f"Insert: {word}", font_size=18, color=ORANGE)
+            word_text.to_edge(DOWN).shift(UP * 0.5)
+            self.play(Write(word_text))
+            
+            current_prefix = ""
+            current_node = root_circle
+            
+            for char_idx, char in enumerate(word):
+                new_prefix = current_prefix + char
+                
+                if new_prefix not in nodes:
+                    # Create new node
+                    new_circle = Circle(radius=0.2, color=WHITE, fill_opacity=0.3)
+                    
+                    # Position calculation
+                    level = char_idx + 1
+                    branch_offset = (ord(char) - ord('A')) * 0.8 - 2
+                    
+                    x_pos = branch_offset * (0.8 ** level)
+                    y_pos = 1.5 - level * 0.8
+                    
+                    new_circle.move_to(RIGHT * x_pos + UP * y_pos)
+                    
+                    # Create label
+                    char_label = Text(char, font_size=12, color=BLACK)
+                    char_label.move_to(new_circle.get_center())
+                    
+                    # Create edge
+                    edge = Line(current_node.get_center(), new_circle.get_center(), color=YELLOW)
+                    
+                    # Animate creation
+                    self.play(Create(edge), Create(new_circle), Write(char_label))
+                    
+                    nodes[new_prefix] = new_circle
+                    node_labels[new_prefix] = char_label
+                    edges.append(edge)
+                    
+                    self.wait(0.3)
+                
+                current_node = nodes[new_prefix]
+                current_prefix = new_prefix
+            
+            # Mark end of word
+            end_marker = Text("*", font_size=16, color=RED)
+            end_marker.move_to(current_node.get_center() + DOWN * 0.3)
+            self.play(Write(end_marker))
+            
+            self.play(FadeOut(word_text))
+            self.wait(0.5)
+        
+        self.wait(2)
+        
+        # Search operation
+        self.play(FadeOut(current_text))
+        search_text = Text("Search: CAR", font_size=24, color=GREEN)
+        search_text.to_edge(DOWN)
+        self.play(Write(search_text))
+        
+        # Highlight search path
+        search_word = "CAR"
+        search_path = [""]
+        
+        for char in search_word:
+            search_path.append(search_path[-1] + char)
+        
+        # Animate search
+        for i in range(1, len(search_path)):
+            prefix = search_path[i]
+            if prefix in nodes:
+                highlight = Circle(radius=0.3, color=GREEN, stroke_width=4)
+                highlight.move_to(nodes[prefix].get_center())
+                self.play(Create(highlight))
+                self.wait(0.5)
+                if i < len(search_path) - 1:
+                    self.play(FadeOut(highlight))
+        
+        found_text = Text("Found!", font_size=18, color=GREEN)
+        found_text.to_edge(DOWN).shift(UP * 0.5)
+        self.play(Write(found_text))
+        self.wait(2)
+        
+        # Prefix search
+        self.play(FadeOut(search_text), FadeOut(found_text))
+        prefix_text = Text("Find all words with prefix 'CAR'", font_size=20, color=BLUE)
+        prefix_text.to_edge(DOWN)
+        self.play(Write(prefix_text))
+        
+        # Highlight all words starting with CAR
+        car_words = ["CAR", "CARD", "CARE"]
+        highlights = VGroup()
+        
+        for car_word in car_words:
+            if car_word in nodes:
+                highlight = Circle(radius=0.3, color=BLUE, stroke_width=4)
+                highlight.move_to(nodes[car_word].get_center())
+                highlights.add(highlight)
+        
+        self.play(Create(highlights))
+        self.wait(2)
+        
+        # Applications
+        self.play(FadeOut(prefix_text), FadeOut(highlights))
+        apps_title = Text("Trie Applications:", font_size=20, color=YELLOW)
+        apps_title.to_edge(DOWN).shift(UP * 1.5)
+        
+        apps_list = VGroup(
+            Text("• Autocomplete", font_size=16),
+            Text("• Spell checker", font_size=16),
+            Text("• IP routing", font_size=16),
+            Text("• Dictionary lookup", font_size=16)
+        )
+        
+        apps_list.arrange(DOWN, aligned_edge=LEFT)
+        apps_list.to_edge(DOWN)
+        
+        self.play(Write(apps_title))
+        self.play(Write(apps_list))
+        self.wait(3)
+
+# Script 10: Segment Tree
+from manim import *
+
+class SegmentTreeVisualization(Scene):
+    def construct(self):
+        # Title
+        title = Text("Segment Tree", font_size=48, color=BLUE)
+        title.to_edge(UP)
+        self.play(Write(title))
+        self.wait(1)
+        
+        # Purpose
+        purpose_text = Text("Efficient Range Queries and Updates", font_size=20, color=YELLOW)
+        purpose_text.shift(UP * 2.5)
+        self.play(Write(purpose_text))
+        self.wait(1)
+        
+        # Original array
+        array_values = [1, 3, 5, 7, 9, 11]
+        array_text = Text("Array: [1, 3, 5, 7, 9, 11]", font_size=18, color=GREEN)
+        array_text.shift(UP * 2)
+        self.play(Write(array_text))
+        self.wait(1)
+        
+        # Build segment tree (sum tree)
+        build_text = Text("Building Segment Tree (Sum)", font_size=20, color=ORANGE)
+        build_text.to_edge(DOWN)
+        self.play(Write(build_text))
+        
+        # Tree structure for sum segment tree
+        # Tree values: [36, 9, 27, 4, 5, 16, 11, 1, 3, 0, 0, 7, 9, 0, 0]
+        tree_values = [36, 9, 27, 4, 5, 16, 11, 1, 3, 0, 0, 7, 9, 0, 0]
+        
+        # Create nodes (only non-zero values)
+        nodes = VGroup()
+        node_labels = VGroup()
+        lines = VGroup()
+        
+        # Node positions
+        positions = [
+            UP * 0.5,                    # root (36)
+            LEFT * 2 + DOWN * 1,         # left child (9)
+            RIGHT * 2 + DOWN * 1,        # right child (27)
+            LEFT * 3 + DOWN * 2,         # (4)
+            LEFT * 1 + DOWN * 2,         # (5)
+            RIGHT * 1 + DOWN * 2,        # (16)
+            RIGHT * 3 + DOWN * 2,        # (11)
+            LEFT * 3.5 + DOWN * 3,       # (1)
+            LEFT * 2.5 + DOWN * 3,       # (3)
+            RIGHT * 0.5 + DOWN * 3,      # (7)
+            RIGHT * 1.5 + DOWN * 3,      # (9)
+        ]
+        
+        displayed_values = [36, 9, 27, 4, 5, 16, 11, 1, 3, 7, 9]
+        
+        # Create nodes
+        for i, (value, pos) in enumerate(zip(displayed_values, positions)):
+            circle = Circle(radius=0.25, color=WHITE, fill_opacity=0.3)
+            circle.move_to(pos)
+            label = Text(str(value), font_size=12)
+            label.move_to(circle.get_center())
+            
+            nodes.add(circle)
+            node_labels.add(label)
+        
+        # Create connections
+        connections = [
+            (0, 1), (0, 2),  # root to children
+            (1, 3), (1, 4),  # left subtree
+            (2, 5), (2, 6),  # right subtree
+            (3, 7), (3, 8),  # leaf level
+            (5, 9), (5, 10)
+        ]
+        
+        for parent, child in connections:
+            line = Line(nodes[parent].get_center(), nodes[child].get_center(), color=YELLOW)
+            lines.add(line)
+        
+        # Animate tree construction
+        self.play(Create(nodes), Write(node_labels))
+        self.play(Create(lines))
+        self.wait(2)
+        
+        # Range query
+        self.play(FadeOut(build_text))
+        query_text = Text("Range Query: Sum(1, 3) = ?", font_size=24, color=GREEN)
+        query_text.to_edge(DOWN)
+        self.play(Write(query_text))
+        
+        # Highlight nodes involved in query
+        query_nodes = [0, 1, 2, 4, 5, 9]  # nodes that contribute to sum(1,3)
+        highlights = VGroup()
+        
+        for node_idx in [1, 4, 9]:  # key nodes for range [1,3]
+            highlight = Circle(radius=0.35, color=GREEN, stroke_width=4)
+            highlight.move_to(nodes[node_idx].get_center())
+            highlights.add(highlight)
+        
+        self.play(Create(highlights))
+        
+        # Show calculation
+        calc_text = Text("5 + 7 + 9 = 21", font_size=18, color=GREEN)
+        calc_text.to_edge(DOWN).shift(UP * 0.5)
+        self.play(Write(calc_text))
+        self.wait(2)
+        
+        # Update operation
+        self.play(FadeOut(query_text), FadeOut(calc_text), FadeOut(highlights))
+        update_text = Text("Update: Change index 2 from 5 to 6", font_size=20, color=ORANGE)
+        update_text.to_edge(DOWN)
+        self.play(Write(update_text))
+        
+        # Show update propagation
+        update_path = [4, 1, 0]  # path from leaf to root
+        update_highlights = VGroup()
+        
+        for node_idx in update_path:
+            highlight = Circle(radius=0.35, color=ORANGE, stroke_width=4)
+            highlight.move_to(nodes[node_idx].get_center())
+            update_highlights.add(highlight)
+        
+        self.play(Create(update_highlights))
+        
+        # Update values
+        new_values = [6, 10, 37]  # new values after update
+        for i, (node_idx, new_val) in enumerate(zip(update_path, new_values)):
+            new_label = Text(str(new_val), font_size=12)
+            new_label.move_to(nodes[node_idx].get_center())
+            self.play(ReplacementTransform(node_labels[node_idx], new_label))
+            node_labels[node_idx] = new_label
+        
+        self.wait(2)
+        
+        # Time complexity
+        self.play(FadeOut(update_text), FadeOut(update_highlights))
+        complexity_title = Text("Time Complexity:", font_size=20, color=PURPLE)
+        complexity_title.to_edge(DOWN).shift(UP * 1)
+        
+        complexity_list = VGroup(
+            Text("• Build: O(n)", font_size=16),
+            Text("• Query: O(log n)", font_size=16),
+            Text("• Update: O(log n)", font_size=16)
+        )
+        
+        complexity_list.arrange(DOWN, aligned_edge=LEFT)
+        complexity_list.to_edge(DOWN)
+        
+        self.play(Write(complexity_title))
+        self.play(Write(complexity_list))
+        self.wait(3)
+        
+        # Applications
+        apps_text = Text("Applications: Range sum, Range minimum/maximum, Range updates", 
+                        font_size=16, color=YELLOW)
+        apps_text.to_edge(DOWN).shift(DOWN * 0.5)
+        self.play(Write(apps_text))
+        self.wait(3)
+
+
+#Script 11: Preventing text overflowing
+from manim import *
+class TextOverFlow(Scene):
+    text = Text("Some long heading...", font_size=48)
+    text.scale_to_fit_width(config.frame_width - 1)
+    text.to_edge(UP)

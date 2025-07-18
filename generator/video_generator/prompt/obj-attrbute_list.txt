@@ -1,0 +1,157 @@
+ALLOWED MANIM OBJECTS AND ATTRIBUTES
+-------------------------------------
+
+1. BASIC OBJECT TYPES
+- Mobject
+- VMobject
+
+    Common Attributes:
+    - color
+    - opacity
+    - name
+
+    Positioning:
+    - move_to()
+    - shift()
+    - to_edge()
+    - to_corner()
+    - next_to()
+    - align_to()
+
+    Transformations:
+    - scale()
+    - rotate()
+    - flip()
+    - set_width()
+    - set_height()
+
+2. VECTOR OBJECT ATTRIBUTES (VMobject only)
+    Fill:
+    - fill_color
+    - fill_opacity
+
+    Stroke:
+    - stroke_color
+    - stroke_opacity
+    - stroke_width
+
+    Background Stroke:
+    - background_stroke_color
+    - background_stroke_width
+    - background_stroke_opacity
+
+3. ANIMATION CLASSES (Used inside self.play)
+    Creation:
+    - Create()
+    - Write()
+    - DrawBorderThenFill()
+    - FadeIn()
+
+    Destruction:
+    - FadeOut()
+    - FadeOutAndShift()
+
+    Transformation:
+    - Transform()
+    - ReplacementTransform()
+    - TransformFromCopy()
+
+    Movement:
+    - ApplyMethod()
+    - MoveAlongPath()
+    - MoveToTarget()
+
+    Emphasis:
+    - Indicate()
+    - Flash()
+    - FocusOn()
+    - Wiggle()
+    - Circumscribe()
+
+4. GEOMETRY OBJECTS
+- Circle
+- Dot
+- Rectangle
+- Square
+- Line
+- DashedLine
+- Arrow
+- Vector
+- Polygon
+- Triangle
+- Ellipse
+- Arc
+- Elbow
+
+    Common Geometry Attributes:
+    - radius
+    - width
+    - height
+    - start
+    - end
+    - buff
+    - angle
+
+5. TEXT AND MARKUP OBJECTS
+- Text
+- MarkupText
+- BulletedList
+- Title
+
+    Text Attributes:
+    - text
+    - font
+    - font_size
+    - slant
+    - weight
+    - line_spacing
+    - t2c
+
+6. GROUPING & CONTAINERS
+- Group
+- VGroup
+- Brace
+- SurroundingRectangle
+- ScreenRectangle
+
+    Group Methods:
+    - add()
+    - remove()
+    - arrange()
+    - arrange_in_grid()
+
+7. PLOTS & AXES
+- Axes
+- NumberPlane
+- NumberLine
+- BarChart
+- ParametricFunction
+- Graph
+
+8. VALUE TRACKING
+- ValueTracker
+- DecimalNumber
+- add_updater()
+- always_redraw()
+- TracedPath
+
+9. CAMERA & SCENE METHODS
+- self.camera.frame
+    - move_to()
+    - scale()
+    - set_width()
+    - set_height()
+    - save_state()
+    - restore()
+
+- self (Scene)
+    - add()
+    - remove()
+    - play()
+    - wait()
+    - add_foreground_mobject()
+
+------------------------------------------------------
+NOTE:
+- Do NOT use any object or method not listed above.
+- Do NOT use Code, ImageMobject, or any file-based assets.
