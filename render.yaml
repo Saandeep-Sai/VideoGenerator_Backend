@@ -8,14 +8,17 @@ services:
       pip install -r requirements.txt
     startCommand: python run_combined.py
     envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: video_gen.settings
+      - key: FIREBASE_CREDENTIALS_BASE64
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_2
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      - key: FIREBASE_CREDENTIALS_BASE64
+      - key: DJANGO_SECRET_KEY
         sync: false
-      # Add any others you need, e.g.
-      - key: DEBUG
-        value: "True"
+      - key: DJANGO_SETTINGS_MODULE
+        value: video_gen.settings
