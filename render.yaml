@@ -19,8 +19,8 @@ services:
       - key: DJANGO_SETTINGS_MODULE
         value: generator.settings
 
-  - type: web  # simulate background worker
-    name: video-generator-fake-worker
+  - type: web
+    name: video-worker
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"

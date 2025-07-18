@@ -105,7 +105,8 @@ def get_pending_jobs():
     initialize_firebase()
     db = firestore.client()
 
-    jobs = db.collection("videos").where("status", "==", "pending").limit(1).stream()
+    jobs = db.collection("videos").where(filter=("status", "==", "pending")).limit(1).stream()
+
     for doc in jobs:
         data = doc.to_dict()
         data["id"] = doc.id
