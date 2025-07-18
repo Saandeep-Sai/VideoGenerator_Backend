@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn generator.wsgi:application --bind 0.0.0.0:10000"
+    startCommand: "gunicorn video_gen.wsgi:application --bind 0.0.0.0:10000"
     envVars:
       - key: FIREBASE_CREDENTIALS_BASE64
         sync: false
@@ -19,7 +19,7 @@ services:
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: DJANGO_SETTINGS_MODULE
-        value: generator.settings
+        value: video_gen.settings
 
   - type: web
     name: video-worker
@@ -41,4 +41,4 @@ services:
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: DJANGO_SETTINGS_MODULE
-        value: generator.settings
+        value: video_gen.settings
