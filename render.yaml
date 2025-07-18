@@ -12,6 +12,8 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: DJANGO_SECRET_KEY
