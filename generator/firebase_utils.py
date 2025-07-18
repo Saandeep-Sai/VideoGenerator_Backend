@@ -86,3 +86,34 @@ def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limi
         f"segment_{i+1}": b64_string[i:i+segment_size]
         for i in range(0, len(b64_string), segment_size)
     }
+# Create a new job in Firestore with 'pending' status
+def create_job(topic, duration):
+    initialize_firebase()
+    db = firestore.client()
+
+    doc_ref = db.collection("videos").document()
+    doc_ref.set({
+        "topic": topic,
+        "duration": duration,
+        "status": "pending",
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
+    return doc_ref.id
+
+# Fetch one pending job from Firestore
+def get_pending_jobs():
+    initialize_firebase()
+    db = firestore.client()
+
+    jobs = db.collection("videos").where("status", "==", "pending").limit(1).stream()
+    for doc in jobs:
+        data = doc.to_dict()
+        data["id"] = doc.id
+        return data
+    return None
+
+# Update status of an existing job
+def update_job_status(doc_id, status):
+    initialize_firebase()
+    db = firestore.client()
+    db.collection("videos").document(doc_id).update({"status": status})
