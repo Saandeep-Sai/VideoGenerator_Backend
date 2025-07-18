@@ -1267,7 +1267,7 @@ def validate_segment_alignment(segments: List[NarrationSegment]) -> bool:
     return True
 
 
-class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
+class   :
     """High-performance video generation pipeline with parallel processing using Gemini."""
     
     def __init__(self, config: VideoGenerationConfig):
