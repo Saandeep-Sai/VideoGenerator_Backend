@@ -28,17 +28,20 @@ def run():
                 topic = job['topic']
                 duration = int(job['duration'])
 
+                print(f"🎬 Starting generation for topic: {topic} ({duration}s)")
                 pipeline.generate_video_full_parallel(topic, duration, firestore_doc_id=job['id'])
 
                 update_job_status(job['id'], "completed")
                 print(f"✅ Job {job['id']} completed")
 
             else:
+                print("⏳ No pending jobs. Sleeping...")
                 time.sleep(5)
         except Exception as e:
             print("❌ Worker error:", e)
             traceback.print_exc()
             time.sleep(5)
+
 
 if __name__ == "__main__":
     run()
