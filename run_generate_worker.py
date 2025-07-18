@@ -28,7 +28,7 @@ def run():
                 duration = int(job['duration'])
 
                 print(f"🎬 Starting generation for topic: {topic} ({duration}s)")
-                pipeline.generate_video_full_parallel(topic, duration, firestore_doc_id=job['id'])
+                pipeline.generate_video_full_parallel(topic, duration)
 
                 update_job_status(job['id'], "completed")
                 print(f"✅ Job {job['id']} completed")
