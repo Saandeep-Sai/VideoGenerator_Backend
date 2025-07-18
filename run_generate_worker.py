@@ -41,8 +41,7 @@ def run():
                     print("🚀 Starting video generation...")
                     final_video_path = pipeline.generate_video_full_parallel(
                         topic,
-                        duration,
-                        firestore_doc_id=job_id
+                        duration
                     )
                     print(f"✅ Video generated: {final_video_path}")
 
