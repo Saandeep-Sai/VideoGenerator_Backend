@@ -7,7 +7,6 @@ import tempfile
 import time
 from dataclasses import dataclass , asdict
 from pathlib import Path
-import torch
 from typing import List, Optional, Tuple
 from pydub import AudioSegment
 import torchaudio as ta
@@ -96,7 +95,7 @@ class VideoGenerationPipeline:
         self.tts_model = None
         self.tts_available = False
         self.output_dir = Path(config.output_dir)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu"
         
         self._setup_directories()
         self._validate_dependencies()
@@ -1451,8 +1450,6 @@ Generate the complete narration script now:
                     
                     if wav_tensor.dim() > 1:
                         wav_tensor = wav_tensor.squeeze()
-                    if wav_tensor.device.type != "cpu":
-                        wav_tensor = wav_tensor.cpu()
                     
                     # Save and convert
                     wav_path = temp_dir / f"segment_{i:03d}.wav"
