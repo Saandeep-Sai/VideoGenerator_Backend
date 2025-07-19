@@ -1,9 +1,8 @@
 import os
 import time
 import traceback
-import time
-import traceback
 import base64
+import asyncio  # Added import
 from generator.firebase_utils import (
     get_pending_jobs,
     update_job_status,
@@ -39,9 +38,10 @@ def run():
 
                 try:
                     print("🚀 Starting video generation...")
-                    final_video_path = pipeline.generate_video_full_parallel(
-                        topic,
-                        duration
+                    # Get the asyncio event loop
+                    loop = asyncio.get_event_loop()
+                    final_video_path = loop.run_until_complete(
+                        pipeline.generate_video_full_parallel(topic, duration)
                     )
                     print(f"✅ Video generated: {final_video_path}")
 
