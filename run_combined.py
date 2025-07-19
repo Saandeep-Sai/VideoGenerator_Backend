@@ -10,7 +10,7 @@ def start_web():
         "video_gen.wsgi:application",
         "--bind", f"0.0.0.0:{port}",
         "--workers", "1",             # Reduce RAM use
-        "--timeout", "180"            # Increase timeout to prevent SIGKILL
+        "--timeout", "3600"            # Increase timeout to prevent SIGKILL
     ])
 
 def start_worker():
