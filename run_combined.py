@@ -1,10 +1,18 @@
-import multiprocessing
 import subprocess
-import os
 import threading
+import os
 import time
 
-def start_web():
+def start_worker():
+    time.sleep(10)  # Allow web server to bind before launching worker
+    print("🛠️ Starting background video worker...")
+    subprocess.run(["python", "run_generate_worker.py"])
+
+if __name__ == "__main__":
+    # 🧵 Start background worker in daemon thread
+    threading.Thread(target=start_worker, daemon=True).start()
+
+    # 🌐 Start Django web server (must be in main thread)
     port = os.environ.get("PORT", "8000")
     print(f"🌐 Starting Django web server on port {port}")
     subprocess.run([
@@ -14,13 +22,3 @@ def start_web():
         "--workers", "1",
         "--timeout", "3600"
     ])
-
-def start_worker():
-    time.sleep(15)  # Give web server time to start up before running worker
-    print("🛠️ Starting background video worker...")
-    subprocess.run(["python", "run_generate_worker.py"])
-
-if __name__ == "__main__":
-    # Start web server in main thread (Render expects this)
-    threading.Thread(target=start_worker, daemon=True).start()
-    start_web()
