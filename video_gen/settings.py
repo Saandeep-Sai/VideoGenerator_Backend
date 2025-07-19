@@ -24,10 +24,9 @@ from dotenv import load_dotenv
 load_dotenv()
 import os
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-
+SECRET_KEY = "django-insecure-!3sooqvdlc!lddm)@wpth#65s9u7whgcyyeo6r27*38$30(n#t"
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']  # or use your render domain later
 
