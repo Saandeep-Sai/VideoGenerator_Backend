@@ -3,12 +3,17 @@ import time
 import traceback
 import base64
 import asyncio
+import logging
 from generator.firebase_utils import (
     get_pending_jobs,
     update_job_status,
     update_video_status
 )
 from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline, VideoGenerationConfig
+
+# ✅ Setup logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ✅ Load from environment
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -22,7 +27,7 @@ config = VideoGenerationConfig(
 pipeline = OptimizedVideoGenerationPipeline(config)
 
 async def run():
-    print("🟢 Video worker started")
+    logger.info("🟢 Video worker started")
     while True:
         try:
             job = get_pending_jobs()
@@ -31,18 +36,18 @@ async def run():
                 topic = job.get("topic", "")
                 duration = int(job.get("duration", 60))
 
-                print(f"\n⚙️  Processing job: {job_id}")
-                print(f"📚 Topic: {topic}, ⏱️ Duration: {duration} seconds")
+                logger.info(f"\n⚙️  Processing job: {job_id}")
+                logger.info(f"📚 Topic: {topic}, ⏱️ Duration: {duration} seconds")
 
                 update_job_status(job_id, "processing")
 
                 try:
-                    print("🚀 Starting video generation...")
+                    logger.info("🚀 Starting video generation...")
                     final_video_path = await pipeline.generate_video_full_parallel(
                         topic,
                         duration
                     )
-                    print(f"✅ Video generated: {final_video_path}")
+                    logger.info(f"✅ Video generated: {final_video_path}")
 
                     # Convert video to base64 and upload to Firestore
                     with open(final_video_path, "rb") as video_file:
@@ -50,19 +55,19 @@ async def run():
                         encoded_video = base64.b64encode(video_data).decode("utf-8")
 
                     update_video_status(job_id, base64_data=encoded_video, status="completed")
-                    print(f"📤 Uploaded video segments and marked job {job_id} as completed")
+                    logger.info(f"📤 Uploaded video segments and marked job {job_id} as completed")
 
                 except Exception as e:
-                    print(f"❌ Error during video generation for job {job_id}: {e}")
+                    logger.info(f"❌ Error during video generation for job {job_id}: {e}")
                     traceback.print_exc()
                     update_video_status(job_id, base64_data=None, status="failed", error=str(e))
 
             else:
-                print("⏳ No pending jobs. Sleeping 5s...")
+                logger.info("⏳ No pending jobs. Sleeping 5s...")
                 await asyncio.sleep(5)
 
         except Exception as e:
-            print("❌ Worker loop crashed:", e)
+            logger.info(f"❌ Worker loop crashed: {e}")
             traceback.print_exc()
             await asyncio.sleep(5)
 
