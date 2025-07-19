@@ -1,8 +1,6 @@
 import os
 import time
 import traceback
-import time
-import traceback
 import base64
 import asyncio
 from generator.firebase_utils import (
@@ -10,20 +8,20 @@ from generator.firebase_utils import (
     update_job_status,
     update_video_status
 )
-from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline,VideoGenerationConfig
+from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline, VideoGenerationConfig
 
 # ✅ Load from environment
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ✅ Provide required arguments
+# ✅ Configure pipeline
 config = VideoGenerationConfig(
     gemini_api_key=GEMINI_API_KEY,
     groq_api_key=GROQ_API_KEY
 )
 pipeline = OptimizedVideoGenerationPipeline(config)
 
-def run():
+async def run():
     print("🟢 Video worker started")
     while True:
         try:
@@ -40,13 +38,13 @@ def run():
 
                 try:
                     print("🚀 Starting video generation...")
-                    final_video_path = pipeline.generate_video_full_parallel(
+                    final_video_path = await pipeline.generate_video_full_parallel(
                         topic,
                         duration
                     )
                     print(f"✅ Video generated: {final_video_path}")
 
-                    # Convert video to base64 and update Firestore using existing utility
+                    # Convert video to base64 and upload to Firestore
                     with open(final_video_path, "rb") as video_file:
                         video_data = video_file.read()
                         encoded_video = base64.b64encode(video_data).decode("utf-8")
@@ -61,11 +59,12 @@ def run():
 
             else:
                 print("⏳ No pending jobs. Sleeping 5s...")
-                time.sleep(5)
+                await asyncio.sleep(5)
 
         except Exception as e:
             print("❌ Worker loop crashed:", e)
             traceback.print_exc()
-            time.sleep(5)
+            await asyncio.sleep(5)
+
 if __name__ == "__main__":
     asyncio.run(run())
