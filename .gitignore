@@ -1,2 +1,56 @@
+# Environment variables
 .env
-generator/__pycache__
+.env.local
+.env.*.local
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Django
+db.sqlite3
+*.log
+local_settings.py
+
+# Generated video content (output from pipeline)
+output/
+temp/
+cache/
+initial_video/
+
+# Media files (generated)
+*.mp4
+*.mp3
+*.mp2
+*.wav
+*.avi
+*.mov
+
+# Manim intermediate files
+*.svg
+media/
+partial_movie_files/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
