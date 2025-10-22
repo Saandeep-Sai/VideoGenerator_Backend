@@ -137,7 +137,7 @@ class VideoGenerationPipeline:
                 max_output_tokens=self.config.gemini_max_tokens,
             )
             
-            model_name = 'gemini-2.5-pro'  # Use more stable model
+            model_name = 'gemini-2.5-flash'  # Use more stable model
 
             self.gemini_model = genai.GenerativeModel(
                 model_name,
@@ -905,7 +905,7 @@ def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gem
         from pydub import AudioSegment
         
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
@@ -1094,7 +1094,7 @@ def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, 
         
         # Configure Gemini
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         correction_prompt = f"""
 You are a Manim script debugging expert. The following Python script has an error:
@@ -1293,7 +1293,7 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         try:
             import google.generativeai as genai
             genai.configure(api_key=self.config.gemini_api_key)
-            self.gemini_client = genai.GenerativeModel('gemini-2.5-pro')
+            self.gemini_client = genai.GenerativeModel('gemini-2.5-flash')
             logger.info("✅ Gemini client initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize Gemini client: {e}")
