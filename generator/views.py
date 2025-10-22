@@ -1,8 +1,21 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from datetime import datetime
 from .serializers import VideoRequestSerializer
 from .firebase_utils import create_job, get_job_by_id
+
+class HealthCheckView(APIView):
+    """
+    Health check endpoint for Render monitoring.
+    Returns 200 OK if the service is running.
+    """
+    def get(self, request):
+        return Response({
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "service": "video-generator"
+        }, status=status.HTTP_200_OK)
 
 class GenerateVideoView(APIView):
     def post(self, request):
