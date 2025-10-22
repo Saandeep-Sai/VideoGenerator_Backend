@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python run_combined.py
+    healthCheckPath: /api/health/
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: video_gen.settings
@@ -20,5 +21,6 @@ services:
         sync: false
       - key: DJANGO_SECRET_KEY
         sync: false
-      - key: DJANGO_SETTINGS_MODULE
-        value: video_gen.settings
+      - key: PORT
+        value: "10000"
+

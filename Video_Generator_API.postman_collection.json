@@ -1,0 +1,240 @@
+{
+	"info": {
+		"_postman_id": "video-generator-api-collection",
+		"name": "Video Generator API",
+		"description": "API collection for video generation service with async processing, rate limiting, and health checks",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/health/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"health",
+						""
+					]
+				},
+				"description": "Check if the service is healthy and ready to accept requests. Used by Render for health monitoring."
+			},
+			"response": []
+		},
+		{
+			"name": "Generate Video - Async",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Save job_id from response for status checking",
+							"if (pm.response.code === 202) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"job_id\", jsonData.job_id);",
+							"    console.log(\"Job ID saved: \" + jsonData.job_id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"topic\": \"Explain how photosynthesis works\",\n    \"num_segments\": 8\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/generate/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"generate",
+						""
+					]
+				},
+				"description": "Start an async video generation job. Returns immediately with a job_id that can be used to check status.\n\n**Parameters:**\n- `topic` (required): The topic/subject for the video\n- `num_segments` (optional): Number of video segments to generate (default: 16, min: 4, max: 20)"
+			},
+			"response": []
+		},
+		{
+			"name": "Check Job Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/status/{{job_id}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"status",
+						"{{job_id}}",
+						""
+					]
+				},
+				"description": "Check the status of a video generation job.\n\n**Possible statuses:**\n- `pending`: Job is queued but not started\n- `processing`: Job is currently being processed\n- `completed`: Job finished successfully\n- `failed`: Job encountered an error\n\n**Response includes:**\n- Current status\n- Progress percentage (if available)\n- Current step being executed\n- Download URL (when completed)\n- Error message (if failed)"
+			},
+			"response": []
+		},
+		{
+			"name": "Generate Video - Quick Test (Cancer)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 202) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"job_id\", jsonData.job_id);",
+							"    console.log(\"Job ID saved: \" + jsonData.job_id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"topic\": \"Explanation about cancer\",\n    \"num_segments\": 4\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/generate/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"generate",
+						""
+					]
+				},
+				"description": "Quick test with 4 segments (~3-4 minutes generation time)"
+			},
+			"response": []
+		},
+		{
+			"name": "Generate Video - Medium (AI)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 202) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"job_id\", jsonData.job_id);",
+							"    console.log(\"Job ID saved: \" + jsonData.job_id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"topic\": \"How artificial intelligence is transforming healthcare\",\n    \"num_segments\": 8\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/generate/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"generate",
+						""
+					]
+				},
+				"description": "Medium length video with 8 segments (~6-7 minutes generation time)"
+			},
+			"response": []
+		},
+		{
+			"name": "Generate Video - Full (Climate)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 202) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"job_id\", jsonData.job_id);",
+							"    console.log(\"Job ID saved: \" + jsonData.job_id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"topic\": \"Understanding climate change and its global impact\",\n    \"num_segments\": 16\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/generate/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"generate",
+						""
+					]
+				},
+				"description": "Full length video with 16 segments (~12-14 minutes generation time)"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "job_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
