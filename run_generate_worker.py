@@ -46,7 +46,9 @@ async def run():
     
     while True:
         try:
+            logger.info("⏳ Polling Firebase for pending jobs...")
             job = get_pending_jobs()
+            logger.info(f"📊 Query result: {job if job else 'No pending jobs found'}")
             if job:
                 consecutive_errors = 0  # Reset error counter on successful job fetch
                 
@@ -89,6 +91,7 @@ async def run():
 
             else:
                 # No jobs - sleep and continue
+                logger.info("😴 No jobs available, sleeping for 10 seconds...")
                 await asyncio.sleep(10)
 
         except Exception as e:
