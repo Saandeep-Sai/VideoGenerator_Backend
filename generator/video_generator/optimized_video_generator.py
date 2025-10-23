@@ -627,9 +627,18 @@ Begin your response now.
         logger.info(f"🛠️ Compiling Manim script for Segment {segment_index if segment_index is not None else '?'}")
 
         try:
+            # Set up environment for headless rendering (Render compatibility)
+            env = os.environ.copy()
+            
+            # Force headless mode for Render/cloud environments
+            if not os.environ.get('DISPLAY'):
+                env['DISPLAY'] = ':99'  # Virtual display
+                env['QT_QPA_PLATFORM'] = 'offscreen'  # Qt headless mode
+                logger.info("🖥️ Running in headless mode (no display detected)")
+            
             process = subprocess.run(
-                ["manim", filename, "Scene", "-qh", "--format", "mp4", "--fps", "60"],
-                capture_output=True, text=True, cwd=temp_path
+                ["manim", filename, "Scene", "-qh", "--format", "mp4", "--fps", "60", "--disable_caching"],
+                capture_output=True, text=True, cwd=temp_path, env=env
             )
 
         except Exception as e:
@@ -1272,7 +1281,19 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
     
     def __init__(self, config: VideoGenerationConfig):
         super().__init__(config)
-        self.max_workers = min(6, mp.cpu_count())  # Limit based on CPU cores
+        
+        # Detect cloud environment (Render) - use conservative settings
+        is_cloud = os.environ.get('PORT') == '10000' or not os.environ.get('DISPLAY')
+        
+        if is_cloud:
+            # Conservative settings for Render free tier (512MB RAM, shared CPU)
+            self.max_workers = 2  # Reduced to avoid OOM on free tier
+            logger.info("☁️ Cloud environment detected - using conservative worker count (2)")
+        else:
+            # Local development - more aggressive parallelization
+            self.max_workers = min(8, mp.cpu_count())
+            logger.info(f"💻 Local environment detected - using {self.max_workers} workers")
+        
         self.gpu_workers = 2 if self.device == "cuda" else 1
         self.memory_limit = psutil.virtual_memory().total * 0.8  # Use 80% of RAM
         

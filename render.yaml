@@ -3,9 +3,27 @@ services:
     name: video-gen-api
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    
+    # Install system dependencies for Manim + FFmpeg
+    buildCommand: |
+      apt-get update && apt-get install -y \
+        ffmpeg \
+        libcairo2-dev \
+        libpango1.0-dev \
+        python3-dev \
+        pkg-config \
+        texlive \
+        texlive-latex-extra \
+        texlive-fonts-extra \
+        texlive-xetex \
+        cm-super \
+        dvipng && \
+      pip install --upgrade pip && \
+      pip install -r requirements.txt
+    
     startCommand: python run_combined.py
     healthCheckPath: /api/health/
+    
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: video_gen.settings
