@@ -4,24 +4,10 @@ services:
     env: python
     plan: free
     
-    # Install system dependencies for Manim + FFmpeg
-    buildCommand: |
-      apt-get update && apt-get install -y \
-        ffmpeg \
-        libcairo2-dev \
-        libpango1.0-dev \
-        python3-dev \
-        pkg-config \
-        texlive \
-        texlive-latex-extra \
-        texlive-fonts-extra \
-        texlive-xetex \
-        cm-super \
-        dvipng && \
-      pip install --upgrade pip && \
-      pip install -r requirements.txt
+    # API only - no video processing on Render
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     
-    startCommand: python run_combined.py
+    startCommand: python run_api_only.py
     healthCheckPath: /api/health/
     
     envVars:
