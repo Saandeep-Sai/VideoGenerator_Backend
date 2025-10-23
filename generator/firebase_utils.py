@@ -102,15 +102,28 @@ def create_job(topic, duration):
 
 # Fetch one pending job from Firestore
 def get_pending_jobs():
+    import logging
+    logger = logging.getLogger(__name__)
+    
     initialize_firebase()
     db = firestore.client()
+
+    # Debug: Log all videos to see what's actually in Firebase
+    all_videos = db.collection("videos").limit(5).stream()
+    logger.info("🔍 DEBUG: All recent videos in Firebase:")
+    for v in all_videos:
+        vdata = v.to_dict()
+        logger.info(f"  - ID: {v.id}, Status: {vdata.get('status')}, Topic: {vdata.get('topic')}")
 
     jobs = db.collection("videos").where("status", "==", "pending").limit(1).stream()
 
     for doc in jobs:
         data = doc.to_dict()
         data["id"] = doc.id
+        logger.info(f"✅ Found pending job: {doc.id}")
         return data
+    
+    logger.info("❌ No pending jobs found")
     return None
 
 # Update status of an existing job
