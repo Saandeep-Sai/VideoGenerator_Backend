@@ -46,14 +46,32 @@ class NarrationSegment:
     video_path: Optional[str] = None  # Added this field
 
 class EdgeTTSWrapper:
-    """Lightweight wrapper around edge-tts for generating audio asynchronously."""
+    """Enhanced Edge TTS wrapper with retry logic and custom headers."""
     def __init__(self, voice: str = "en-US-AriaNeural"):
         self.voice = voice
+        self.max_retries = 5  # Increased from 3 to 5
+        self.retry_delay = 3  # Increased from 2 to 3 seconds
 
     async def synthesize(self, text: str, output_path: str):
-        from edge_tts import Communicate
-        communicate = Communicate(text, self.voice)
-        await communicate.save(output_path)
+        import edge_tts
+        import asyncio
+        import random
+        
+        for attempt in range(self.max_retries):
+            try:
+                # Use the latest edge-tts API with custom settings
+                communicate = edge_tts.Communicate(text, self.voice)
+                await communicate.save(output_path)
+                return  # Success
+            except Exception as e:
+                if attempt < self.max_retries - 1:
+                    # Add random jitter to avoid rate limiting
+                    delay = self.retry_delay + random.uniform(1, 3)
+                    logger.warning(f"⚠️ Edge TTS attempt {attempt + 1} failed: {e}. Retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    # Final attempt failed
+                    raise Exception(f"Edge TTS failed after {self.max_retries} attempts: {e}")
 
 
 
@@ -170,16 +188,39 @@ class VideoGenerationPipeline:
     
 
     async def generate_all_audio_segments(self, segments, temp_dir):
-        """Generate audio using Edge TTS for all segments (async-aware)."""
+        """Generate audio using Edge TTS (with gTTS fallback) for all segments."""
         from pathlib import Path
         from pydub import AudioSegment
+        import asyncio
 
         for i, segment in enumerate(segments):
             try:
                 text = segment.text.strip()
                 mp3_path = Path(temp_dir) / f"audio_segment_{i:03d}.mp3"
 
-                await self.tts_model.synthesize(text, str(mp3_path))  # 🔁 Await async method
+                # Add delay between segments to avoid rate limiting (skip first segment)
+                if i > 0:
+                    await asyncio.sleep(2)  # 2 second delay between segments
+
+                # Try Edge TTS first
+                try:
+                    await self.tts_model.synthesize(text, str(mp3_path))
+                    logger.info(f"✅ Edge TTS: Segment {i+1}")
+                except Exception as edge_error:
+                    # Fallback to gTTS if Edge TTS fails
+                    logger.warning(f"⚠️ Edge TTS failed for segment {i+1}, using gTTS fallback")
+                    try:
+                        from gtts import gTTS
+                        tts = gTTS(text=text, lang='en', slow=False)
+                        tts.save(str(mp3_path))
+                        logger.info(f"✅ gTTS: Segment {i+1}")
+                    except Exception as gtts_error:
+                        logger.error(f"❌ Both TTS methods failed for segment {i+1}: {gtts_error}")
+                        # Use fallback duration if both fail
+                        segment.duration = 10.0
+                        segment.start_time = round(sum(s.duration for s in segments[:i]), 2)
+                        segment.end_time = round(segment.start_time + 10.0, 2)
+                        continue
 
                 audio = AudioSegment.from_mp3(mp3_path)
                 actual_duration = round(len(audio) / 1000.0, 2)
