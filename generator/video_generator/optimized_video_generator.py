@@ -49,8 +49,8 @@ class EdgeTTSWrapper:
     """Enhanced Edge TTS wrapper with retry logic and custom headers."""
     def __init__(self, voice: str = "en-US-AriaNeural"):
         self.voice = voice
-        self.max_retries = 5  # Increased from 3 to 5
-        self.retry_delay = 3  # Increased from 2 to 3 seconds
+        self.max_retries = 2  # Reduced from 5 to 2 for faster failures
+        self.retry_delay = 2  # Reduced from 3 to 2 seconds
 
     async def synthesize(self, text: str, output_path: str):
         import edge_tts
@@ -91,7 +91,7 @@ class VideoGenerationConfig:
     gemini_max_tokens: int = 8192
     max_generation_attempts: int = 3
     max_correction_attempts: int = 10
-    batch_size: int = 3  # Process scripts in smaller batches
+    batch_size: int = 6  # Process 6 segments in parallel (optimized for 4-core ARM)
 
     def __post_init__(self):
         if not self.gemini_api_key:
@@ -678,7 +678,7 @@ Begin your response now.
                 logger.info("🖥️ Running in headless mode (no display detected)")
             
             process = subprocess.run(
-                ["manim", filename, "Scene", "-qh", "--format", "mp4", "--fps", "60", "--disable_caching"],
+                ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30", "--disable_caching"],
                 capture_output=True, text=True, cwd=temp_path, env=env
             )
 
@@ -690,7 +690,7 @@ Begin your response now.
 
         # Expected output file path
         if segment_index is not None:
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" /f"Segment{segment_index:03d}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p30" /f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
@@ -1028,7 +1028,7 @@ Use ONLY the provided allowed objects and colors.
 {allowed_attributes}
 
 🎨 ALLOWED COLORS:
-{allowed_colors}
+{allowed_colors} 
 
 📚 REFERENCE SAMPLES:
 {samples}
