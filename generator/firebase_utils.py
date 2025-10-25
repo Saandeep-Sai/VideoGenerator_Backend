@@ -58,6 +58,9 @@ def save_base64_segments_to_firestore(base64_str: str, topic: str, duration: int
 
 # Update an existing video doc with completion and optionally upload base64
 def update_video_status(doc_id, base64_data=None, status="completed", error=None):
+    import logging
+    logger = logging.getLogger(__name__)
+    
     initialize_firebase()
     db = firestore.client()
     doc_ref = db.collection("videos").document(doc_id)
@@ -69,16 +72,22 @@ def update_video_status(doc_id, base64_data=None, status="completed", error=None
         update_fields["error"] = error
 
     doc_ref.update(update_fields)
+    logger.info(f"✅ Updated job {doc_id} status to: {status}")
 
     if base64_data:
+        logger.info(f"📦 Splitting base64 video data (size: {len(base64_data)} chars)")
         segments = split_base64_string(base64_data)
         segment_coll = doc_ref.collection("video_segments")
+        
         for i, (segment_id, content) in enumerate(segments.items(), start=1):
             segment_coll.document(segment_id).set({
                 "segment_index": i,
                 "content": content
             })
+            logger.info(f"  ✅ Uploaded segment {i}/{len(segments)} ({len(content)} chars)")
+        
         doc_ref.update({"segment_count": len(segments)})
+        logger.info(f"✅ Video uploaded to Firebase in {len(segments)} segments")
 
 # Helper: split long base64 into smaller segments
 def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limit
