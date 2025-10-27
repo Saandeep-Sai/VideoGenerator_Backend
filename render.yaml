@@ -3,13 +3,13 @@ services:
     name: video-gen-api
     env: python
     plan: free
-    
+
     # API only - no video processing on Render
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    
+
     startCommand: python run_api_only.py
     healthCheckPath: /api/health/
-    
+
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: video_gen.settings
@@ -27,4 +27,3 @@ services:
         sync: false
       - key: PORT
         value: "10000"
-
