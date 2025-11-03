@@ -1801,8 +1801,9 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
         scripts = [s.strip() for s in scripts if s.strip()]
 
         if len(scripts) < len(segments):
-            logger.warning(f"⚠️ Gemini returned {len(scripts)} scripts for {len(segments)} segments. Falling back to per-segment generation.")
-            return await self._generate_script_for_each_segment(segments)
+            logger.warning(f"⚠️ Gemini returned {len(scripts)} scripts for {len(segments)} segments.")
+            logger.info(f"🎯 Smart Recovery: Saving {len(scripts)} valid scripts, generating remaining {len(segments) - len(scripts)} scripts...")
+            return await self._smart_continue_generation(segments, scripts)
 
         # Save each script
         for i, segment in enumerate(segments):
@@ -1820,6 +1821,91 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
                 script_path.write_text(fallback_script, encoding="utf-8")
                 segment.script_path = str(script_path)
 
+        return segments
+    
+    async def _smart_continue_generation(self, segments: List[NarrationSegment], partial_scripts: List[str]) -> List[NarrationSegment]:
+        """
+        Smart continuation: Save already-generated scripts, then generate only the missing ones.
+        This avoids wasting time re-generating scripts Gemini already created.
+        """
+        num_valid = len(partial_scripts)
+        num_total = len(segments)
+        
+        logger.info(f"💾 Saving {num_valid} scripts that Gemini already generated...")
+        
+        # Save the valid scripts we already have
+        from pydub import AudioSegment
+        for i in range(num_valid):
+            try:
+                segment = segments[i]
+                
+                # Update duration from actual audio file
+                if segment.audio_path and Path(segment.audio_path).exists():
+                    audio = AudioSegment.from_file(segment.audio_path)
+                    actual_duration = round(len(audio) / 1000.0, 2)
+                    segment.duration = actual_duration
+                
+                raw_script = partial_scripts[i]
+                cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
+                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                script_path.write_text(cleaned_script, encoding="utf-8")
+                segment.script_path = str(script_path)
+                logger.info(f"✅ Saved partial script: segment_{i:03d}.py")
+            except Exception as e:
+                logger.error(f"❌ Failed to save partial script {i}: {e}")
+                fallback_script = self._generate_fallback_script(segment, i, segment.duration)
+                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                script_path.write_text(fallback_script, encoding="utf-8")
+                segment.script_path = str(script_path)
+        
+        # Generate ONLY the missing scripts (segments num_valid to num_total-1)
+        logger.info(f"🔁 Generating remaining {num_total - num_valid} scripts (segments {num_valid+1} to {num_total})...")
+        
+        for i in range(num_valid, num_total):
+            segment = segments[i]
+            
+            # Update duration from actual audio file
+            if segment.audio_path and Path(segment.audio_path).exists():
+                audio = AudioSegment.from_file(segment.audio_path)
+                actual_duration = round(len(audio) / 1000.0, 2)
+                segment.duration = actual_duration
+                logger.info(f"🎯 Segment {i+1}: Using actual audio duration {actual_duration:.2f}s")
+            
+            # Build prompt for this single segment
+            prompt = f"""
+You are a senior Manim Community Python developer.
+
+Generate one valid Manim script for this segment:
+- Must run EXACTLY for {segment.duration:.2f} seconds.
+- Calculate total run_time of all animations.
+- Add self.wait(...) at the end if needed.
+- Use only plain Text or MarkupText (only <b>, <i>, <u> allowed).
+- DO NOT use <code> or unsupported tags.
+- Do NOT wrap in markdown — output ONLY raw Python code.
+
+Segment Details:
+Class Name: Segment{i:03d}
+Narration: "{segment.text}"
+Visuals: {segment.visual_description}
+"""
+            
+            try:
+                response = self.gemini_client.generate_content(prompt)
+                raw_script = response.text.strip()
+                cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
+                
+                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                script_path.write_text(cleaned_script, encoding="utf-8")
+                segment.script_path = str(script_path)
+                logger.info(f"✅ Continuation script saved: segment_{i:03d}.py")
+            except Exception as e:
+                logger.error(f"❌ Failed to generate segment {i+1}: {e}")
+                fallback_script = self._generate_fallback_script(segment, i, segment.duration)
+                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                script_path.write_text(fallback_script, encoding="utf-8")
+                segment.script_path = str(script_path)
+        
+        logger.info(f"✅ Smart continuation complete: All {num_total} scripts ready!")
         return segments
     
     async def _generate_script_for_each_segment(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
