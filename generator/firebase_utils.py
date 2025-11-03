@@ -89,6 +89,26 @@ def update_video_status(doc_id, base64_data=None, status="completed", error=None
         doc_ref.update({"segment_count": len(segments)})
         logger.info(f"✅ Video uploaded to Firebase in {len(segments)} segments")
 
+# Update job status with video URL (for Oracle Object Storage)
+def update_video_status_with_url(doc_id, video_url, status="completed", error=None):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    initialize_firebase()
+    db = firestore.client()
+    doc_ref = db.collection("videos").document(doc_id)
+
+    update_fields = {
+        "status": status,
+        "video_url": video_url
+    }
+    if error:
+        update_fields["error"] = error
+
+    doc_ref.update(update_fields)
+    logger.info(f"✅ Updated job {doc_id} status to: {status}")
+    logger.info(f"📹 Video URL: {video_url}")
+
 # Helper: split long base64 into smaller segments
 def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limit
     return {

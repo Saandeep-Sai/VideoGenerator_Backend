@@ -9,9 +9,10 @@ import sys
 from generator.firebase_utils import (
     get_pending_jobs,
     update_job_status,
-    update_video_status
+    update_video_status_with_url
 )
 from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline, VideoGenerationConfig
+from generator.oracle_storage import OracleStorageClient
 
 # ✅ Setup logger with better formatting
 logging.basicConfig(
@@ -34,6 +35,9 @@ config = VideoGenerationConfig(
     groq_api_key=GROQ_API_KEY
 )
 pipeline = OptimizedVideoGenerationPipeline(config)
+
+# ✅ Initialize Oracle Storage Client
+oracle_storage = OracleStorageClient()
 
 logger.info("=" * 60)
 logger.info("🎬 VIDEO GENERATION WORKER INITIALIZED")
@@ -73,20 +77,20 @@ async def run():
                     )
                     logger.info(f"✅ Video generated successfully: {final_video_path}")
 
-                    # Convert video to base64 and upload to Firestore
-                    logger.info("📤 Uploading video to Firebase...")
-                    with open(final_video_path, "rb") as video_file:
-                        video_data = video_file.read()
-                        encoded_video = base64.b64encode(video_data).decode("utf-8")
+                    # Upload video to Oracle Object Storage
+                    logger.info("📤 Uploading video to Oracle Object Storage...")
+                    video_url = oracle_storage.upload_video(final_video_path, job_id)
+                    logger.info(f"✅ Video uploaded: {video_url}")
 
-                    update_video_status(job_id, base64_data=encoded_video, status="completed")
+                    # Update Firestore with video URL
+                    update_video_status_with_url(job_id, video_url, status="completed")
                     logger.info(f"✅ Job {job_id} completed successfully!")
                     logger.info("=" * 60)
 
                 except Exception as e:
                     logger.error(f"❌ Error during video generation for job {job_id}: {e}")
                     logger.error(traceback.format_exc())
-                    update_video_status(job_id, base64_data=None, status="failed", error=str(e))
+                    update_video_status_with_url(job_id, video_url="", status="failed", error=str(e))
                     logger.info("=" * 60)
 
             else:
