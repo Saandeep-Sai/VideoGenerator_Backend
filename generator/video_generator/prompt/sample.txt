@@ -1,191 +1,217 @@
-# Script 1: Array Operations and Indexing
+# EXAMPLE 1: Dynamic Title Introduction (FOLLOW THIS PATTERN!)
 from manim import *
 
-class ArrayOperations(Scene):
+class DynamicIntro(Scene):
     def construct(self):
-        # Title
-        title = Text("Array Operations", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
+        # Dynamic title entry with Write animation
+        title = Text("Welcome to AI", font_size=56, color=BLUE)
+        self.play(Write(title, run_time=1.5))  # ✅ Write instead of FadeIn
         
-        # Create array visualization
-        array_values = [10, 25, 33, 47, 56, 78, 89]
-        array_boxes = VGroup()
-        array_labels = VGroup()
+        # Move title up with animation
+        self.play(title.animate.shift(UP*2.5), run_time=0.8)  # ✅ Movement
         
-        for i, value in enumerate(array_values):
-            box = Square(side_length=0.8, color=WHITE, fill_opacity=0.2)
-            box.shift(RIGHT * (i - 3) * 1.2)
-            label = Text(str(value), font_size=24)
-            label.move_to(box.get_center())
-            array_boxes.add(box)
-            array_labels.add(label)
+        # Subtitle grows from center
+        subtitle = Text("The Future is Now", font_size=36, color=YELLOW)
+        subtitle.next_to(title, DOWN, buff=0.5)
+        self.play(GrowFromCenter(subtitle, run_time=1))  # ✅ GrowFromCenter
         
-        # Index labels
-        index_labels = VGroup()
-        for i in range(len(array_values)):
-            idx_label = Text(str(i), font_size=16, color=YELLOW)
-            idx_label.shift(RIGHT * (i - 3) * 1.2 + DOWN * 0.8)
-            index_labels.add(idx_label)
+        # Emphasize with circumscribe
+        self.play(Circumscribe(subtitle, color=RED, run_time=1.2))  # ✅ Emphasis
+        self.wait(0.5)
         
-        self.play(Create(array_boxes))
-        self.play(Write(array_labels))
-        self.play(Write(index_labels))
-        self.wait(2)
-        
-        # Array access operation
-        access_text = Text("Array Access: arr[3] = 47", font_size=24, color=GREEN)
-        access_text.to_edge(DOWN)
-        self.play(Write(access_text))
-        
-        # Highlight accessed element
-        highlight_box = Square(side_length=0.8, color=RED, stroke_width=4)
-        highlight_box.move_to(array_boxes[3].get_center())
-        self.play(Create(highlight_box))
-        self.wait(2)
-        
-        # Array insertion
-        self.play(FadeOut(access_text), FadeOut(highlight_box))
-        insert_text = Text("Array Insertion: Insert 40 at index 2", font_size=24, color=GREEN)
-        insert_text.to_edge(DOWN)
-        self.play(Write(insert_text))
-        
-        # Show insertion process
-        new_box = Square(side_length=0.8, color=WHITE, fill_opacity=0.2)
-        new_label = Text("40", font_size=24)
-        new_box.shift(RIGHT * (2 - 3) * 1.2)
-        new_label.move_to(new_box.get_center())
-        
-        # Shift elements to the right
-        for i in range(2, len(array_values)):
-            self.play(array_boxes[i].animate.shift(RIGHT * 1.2),
-                     array_labels[i].animate.shift(RIGHT * 1.2),
-                     run_time=0.5)
-        
-        self.play(Create(new_box), Write(new_label))
-        self.wait(2)
-        
-        # Array deletion
-        self.play(FadeOut(insert_text))
-        delete_text = Text("Array Deletion: Remove element at index 4", font_size=24, color=GREEN)
-        delete_text.to_edge(DOWN)
-        self.play(Write(delete_text))
-        
-        # Highlight element to delete
-        delete_highlight = Square(side_length=0.8, color=RED, stroke_width=4)
-        delete_highlight.move_to(array_boxes[4].get_center())
-        self.play(Create(delete_highlight))
-        self.wait(1)
-        
-        # Remove element and shift
-        self.play(FadeOut(array_boxes[4]), FadeOut(array_labels[4]), FadeOut(delete_highlight))
-        
-        for i in range(5, len(array_values)):
-            self.play(array_boxes[i].animate.shift(LEFT * 1.2),
-                     array_labels[i].animate.shift(LEFT * 1.2),
-                     run_time=0.5)
-        
-        self.wait(2)
-        
-        # Time complexity summary
-        complexity_text = Text("Time Complexity: Access O(1), Insert/Delete O(n)", 
-                             font_size=20, color=YELLOW)
-        complexity_text.to_edge(DOWN)
-        self.play(ReplacementTransform(delete_text, complexity_text))
-        self.wait(3)
+        # Creative exit
+        self.play(
+            Uncreate(title, run_time=1),  # ✅ Uncreate instead of FadeOut
+            FadeOut(subtitle, shift=DOWN*2)  # ✅ FadeOut with movement
+        )
 
-# Script 2: Linked List Implementation
+# EXAMPLE 2: List with Sequential Animations (COPY THIS ENERGY!)
 from manim import *
 
-class LinkedListVisualization(Scene):
+class EnergeticList(Scene):
     def construct(self):
-        # Title
-        title = Text("Linked List Operations", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
+        # Title with writing effect
+        title = Text("3 Key Benefits", font_size=48)
+        self.play(Write(title, run_time=1.2))
+        self.play(title.animate.shift(UP*2.5).scale(0.8), run_time=0.7)  # ✅ Move + Scale
         
-        # Create linked list nodes
-        node_values = [10, 20, 30, 40]
-        nodes = VGroup()
-        arrows = VGroup()
+        # Create list items
+        items = VGroup(
+            Text("• Speed", color=GREEN, font_size=36),
+            Text("• Accuracy", color=BLUE, font_size=36),
+            Text("• Efficiency", color=YELLOW, font_size=36)
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
         
-        for i, value in enumerate(node_values):
-            # Create node (rectangle for data, small square for pointer)
-            data_box = Rectangle(width=1, height=0.8, color=WHITE, fill_opacity=0.2)
-            pointer_box = Rectangle(width=0.4, height=0.8, color=GRAY, fill_opacity=0.3)
-            
-            # Position boxes
-            data_box.shift(RIGHT * (i * 2.5 - 3))
-            pointer_box.shift(RIGHT * (i * 2.5 - 3) + RIGHT * 0.7)
-            
-            # Add value label
-            value_label = Text(str(value), font_size=20)
-            value_label.move_to(data_box.get_center())
-            
-            # Create arrow to next node
-            if i < len(node_values) - 1:
-                arrow = Arrow(
-                    start=pointer_box.get_center() + RIGHT * 0.2,
-                    end=pointer_box.get_center() + RIGHT * 1.1,
-                    buff=0,
-                    color=YELLOW,
-                    stroke_width=3
-                )
-                arrows.add(arrow)
-            
-            node_group = VGroup(data_box, pointer_box, value_label)
-            nodes.add(node_group)
-        
-        # Add NULL pointer for last node
-        null_text = Text("NULL", font_size=16, color=RED)
-        null_text.move_to(nodes[-1][1].get_center())
-        
-        # Animate creation
-        self.play(Create(nodes))
-        self.play(Create(arrows))
-        self.play(Write(null_text))
-        self.wait(2)
-        
-        # Insertion at beginning
-        insert_text = Text("Insert 5 at beginning", font_size=24, color=GREEN)
-        insert_text.to_edge(DOWN)
-        self.play(Write(insert_text))
-        
-        # Create new node
-        new_data_box = Rectangle(width=1, height=0.8, color=WHITE, fill_opacity=0.2)
-        new_pointer_box = Rectangle(width=0.4, height=0.8, color=GRAY, fill_opacity=0.3)
-        new_value_label = Text("5", font_size=20)
-        
-        new_data_box.shift(LEFT * 5.5)
-        new_pointer_box.shift(LEFT * 5.5 + RIGHT * 0.7)
-        new_value_label.move_to(new_data_box.get_center())
-        
-        new_node = VGroup(new_data_box, new_pointer_box, new_value_label)
-        
-        # New arrow
-        new_arrow = Arrow(
-            start=new_pointer_box.get_center() + RIGHT * 0.2,
-            end=nodes[0][0].get_center() + LEFT * 0.5,
-            buff=0,
-            color=YELLOW,
-            stroke_width=3
+        # Items appear with stagger effect
+        self.play(
+            AnimationGroup(
+                *[GrowFromCenter(item) for item in items],
+                lag_ratio=0.4,  # ✅ Sequential with lag
+                run_time=2
+            )
         )
         
-        self.play(Create(new_node))
-        self.play(Create(new_arrow))
-        self.wait(2)
+        # Highlight each item with pulse
+        for item in items:
+            self.play(Indicate(item, scale_factor=1.3, color=WHITE), run_time=0.6)  # ✅ Emphasis
         
-        # Deletion demonstration
-        self.play(FadeOut(insert_text))
-        delete_text = Text("Delete node with value 20", font_size=24, color=GREEN)
-        delete_text.to_edge(DOWN)
-        self.play(Write(delete_text))
+        self.wait(0.5)
         
-        # Highlight node to delete
-        highlight = Circle(radius=0.8, color=RED, stroke_width=4)
-        highlight.move_to(nodes[1].get_center())
+        # Exit with coordination
+        self.play(
+            ShrinkToCenter(title),  # ✅ Creative exit
+            *[FadeOut(item, shift=LEFT*2) for item in items],  # ✅ Exit with movement
+            run_time=1.5
+        )
+
+# EXAMPLE 3: Shape Transformation (USE THIS FOR CONCEPTS!)
+from manim import *
+
+class TransformationDemo(Scene):
+    def construct(self):
+        # Start with circle - draw border then fill
+        circle = Circle(radius=1.5, color=BLUE, fill_opacity=0.3)
+        self.play(DrawBorderThenFill(circle, run_time=1.2))  # ✅ DrawBorderThenFill
+        
+        # Add label with growth
+        label1 = Text("Input", font_size=32)
+        label1.next_to(circle, DOWN, buff=0.5)
+        self.play(GrowFromEdge(label1, edge=UP, run_time=0.8))  # ✅ GrowFromEdge
+        
+        self.wait(0.3)
+        
+        # Transform to square
+        square = Square(side_length=2.5, color=GREEN, fill_opacity=0.3)
+        label2 = Text("Process", font_size=32, color=GREEN)
+        label2.next_to(square, DOWN, buff=0.5)
+        
+        self.play(
+            Transform(circle, square, run_time=1.5),  # ✅ Transform animation
+            ReplacementTransform(label1, label2, run_time=1.5)
+        )
+        
+        # Rotate and scale
+        self.play(
+            circle.animate.rotate(PI/4).scale(1.2),  # ✅ Rotation + scaling
+            run_time=1.2
+        )
+        
+        # Flash for emphasis
+        self.play(Flash(circle, color=YELLOW, line_length=0.5, run_time=0.8))  # ✅ Flash
+        
+        self.wait(0.5)
+        
+        # Exit by uncreating
+        self.play(
+            Uncreate(circle, run_time=1.2),  # ✅ Uncreate
+            FadeOut(label2, shift=DOWN)
+        )
+
+# EXAMPLE 4: Text Emphasis with Movement (ENERGY AND DYNAMICS!)
+from manim import *
+
+class DynamicText(Scene):
+    def construct(self):
+        # Main point written dramatically
+        main_text = Text("Machine Learning", font_size=52, color=BLUE)
+        self.play(Write(main_text, run_time=1.8))  # ✅ Write animation
+        
+        # Scale up for impact
+        self.play(main_text.animate.scale(1.3), run_time=0.7)  # ✅ Scale up
+        
+        # Move to corner
+        self.play(main_text.animate.to_edge(UP).scale(0.7), run_time=0.9)  # ✅ Movement
+        
+        # Supporting text grows from center
+        point1 = Text("Learns from data", font_size=32, color=GREEN)
+        point2 = Text("Improves over time", font_size=32, color=YELLOW)
+        point3 = Text("Makes predictions", font_size=32, color=RED)
+        
+        points = VGroup(point1, point2, point3).arrange(DOWN, buff=0.6)
+        
+        # Animate points one by one
+        for point in points:
+            self.play(GrowFromCenter(point), run_time=0.9)  # ✅ GrowFromCenter
+            self.play(Wiggle(point, scale_value=1.15), run_time=0.5)  # ✅ Wiggle for emphasis
+            self.wait(0.2)
+        
+        self.wait(0.5)
+        
+        # All points get circumscribed
+        self.play(Circumscribe(points, color=WHITE, run_time=1.5))  # ✅ Circumscribe group
+        
+        # Creative group exit
+        self.play(
+            ShrinkToCenter(main_text),  # ✅ ShrinkToCenter
+            *[FadeOut(p, shift=DOWN*2) for p in points],  # ✅ FadeOut with movement
+            run_time=1.3
+        )
+
+# EXAMPLE 5: Comparison with Dynamic Columns
+from manim import *
+
+class ComparisonScene(Scene):
+    def construct(self):
+        # Title appears with writing
+        title = Text("Traditional vs AI", font_size=44)
+        self.play(Write(title, run_time=1.3))
+        self.play(title.animate.shift(UP*3), run_time=0.7)
+        
+        # Left column (Traditional)
+        trad_header = Text("Traditional", font_size=32, color=RED)
+        trad_header.shift(LEFT*3 + UP*1.5)
+        trad_items = VGroup(
+            Text("• Manual rules", font_size=24),
+            Text("• Fixed logic", font_size=24),
+            Text("• Limited scale", font_size=24)
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
+        trad_items.next_to(trad_header, DOWN, buff=0.5).shift(LEFT*3)
+        
+        # Right column (AI)
+        ai_header = Text("AI Approach", font_size=32, color=GREEN)
+        ai_header.shift(RIGHT*3 + UP*1.5)
+        ai_items = VGroup(
+            Text("• Learns patterns", font_size=24),
+            Text("• Adapts logic", font_size=24),
+            Text("• Massive scale", font_size=24)
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
+        ai_items.next_to(ai_header, DOWN, buff=0.5).shift(RIGHT*3)
+        
+        # Animate left side with stagger
+        self.play(GrowFromEdge(trad_header, edge=LEFT, run_time=0.8))
+        self.play(
+            AnimationGroup(
+                *[GrowFromCenter(item) for item in trad_items],
+                lag_ratio=0.3,
+                run_time=1.5
+            )
+        )
+        
+        # Animate right side with stagger
+        self.play(GrowFromEdge(ai_header, edge=RIGHT, run_time=0.8))
+        self.play(
+            AnimationGroup(
+                *[GrowFromCenter(item) for item in ai_items],
+                lag_ratio=0.3,
+                run_time=1.5
+            )
+        )
+        
+        # Emphasize AI side
+        self.play(Indicate(ai_header, scale_factor=1.3, color=YELLOW), run_time=0.8)
+        self.play(Flash(ai_items, color=YELLOW), run_time=0.7)
+        
+        self.wait(0.5)
+        
+        # Exit everything
+        self.play(
+            Uncreate(title),
+            FadeOut(trad_header, shift=LEFT*2),
+            FadeOut(ai_header, shift=RIGHT*2),
+            *[ShrinkToCenter(item) for item in trad_items],
+            *[ShrinkToCenter(item) for item in ai_items],
+            run_time=1.5
+        )
         self.play(Create(highlight))
         self.wait(1)
         

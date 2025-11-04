@@ -92,12 +92,18 @@ class VideoGenerationConfig:
     max_generation_attempts: int = 3
     max_correction_attempts: int = 10
     batch_size: int = 6  # Process 6 segments in parallel (optimized for 4-core ARM)
-
+    aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
+    
     def __post_init__(self):
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is required.")
         if self.use_groq_for_correction and not self.groq_api_key:
             raise ValueError("GROQ_API_KEY is required when correction is enabled.")
+        
+        # Validate aspect ratio
+        valid_ratios = ["16:9", "9:16", "1:1", "4:3", "21:9"]
+        if self.aspect_ratio not in valid_ratios:
+            raise ValueError(f"aspect_ratio must be one of {valid_ratios}, got {self.aspect_ratio}")
 
     def to_dict(self):
         """Converts the dataclass instance to a dictionary."""
@@ -124,9 +130,14 @@ class VideoGenerationPipeline:
                 self.samples = f.read()
             with open('./generator/video_generator/prompt/obj-attrbute_list.txt','r') as f:
                 self.allowed_attributes = f.read()
-        except FileNotFoundError:
+            with open('./generator/video_generator/prompt/MANIM_ANIMATION_REFERENCE.txt', 'r') as f:
+                self.animation_reference = f.read()
+            logger.info("✅ Loaded animation reference guide")
+        except FileNotFoundError as e:
+            logger.warning(f"⚠️ Missing prompt file: {e}. Using defaults.")
             self.samples = "No samples provided."
             self.allowed_attributes = "No attribute list provided."
+            self.animation_reference = "No animation reference provided."
         
         self.allowed_colors = "BLUE, RED, GREEN, YELLOW, WHITE, ORANGE, PINK, PURPLE, TEAL, GOLD, MAROON, GRAY"
 
@@ -677,8 +688,23 @@ Begin your response now.
                 env['QT_QPA_PLATFORM'] = 'offscreen'  # Qt headless mode
                 logger.info("🖥️ Running in headless mode (no display detected)")
             
+            # Aspect ratio configuration
+            aspect_ratios = {
+                "16:9": {"width": 1920, "height": 1080},  # YouTube, landscape
+                "9:16": {"width": 1080, "height": 1920},  # Shorts, TikTok, Reels
+                "1:1": {"width": 1080, "height": 1080},   # Instagram square
+                "4:3": {"width": 1440, "height": 1080},   # Traditional
+                "21:9": {"width": 2560, "height": 1080}   # Ultrawide
+            }
+            
+            ratio_config = aspect_ratios.get(self.config.aspect_ratio, aspect_ratios["16:9"])
+            resolution = f"{ratio_config['width']}x{ratio_config['height']}"
+            
+            logger.info(f"📐 Using aspect ratio: {self.config.aspect_ratio} ({resolution})")
+            
             process = subprocess.run(
-                ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30", "--disable_caching"],
+                ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30", 
+                 "--resolution", resolution, "--disable_caching"],
                 capture_output=True, text=True, cwd=temp_path, env=env
             )
 
@@ -1586,15 +1612,18 @@ Generate the complete narration script now:
             with open('./generator/video_generator/prompt/sample.txt', 'r') as f:
                 samples = f.read()
         except FileNotFoundError:
-            logger.warning("⚠️ sample.txt not found. Continuing without sample.")
-            samples = ""
+            logger.warning("⚠️ sample.txt not found. Using instance variable.")
+            samples = self.samples
 
         try:
             with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r') as f:
                 allowed_attributes = f.read()
         except FileNotFoundError:
-            logger.warning("⚠️ obj-attrbute_list.txt not found. Continuing without attribute list.")
-            allowed_attributes = ""
+            logger.warning("⚠️ obj-attrbute_list.txt not found. Using instance variable.")
+            allowed_attributes = self.allowed_attributes
+        
+        # Use animation reference from instance variable
+        animation_reference = self.animation_reference
 
         allowed_colors = "WHITE, BLUE, GREEN, RED, YELLOW, PINK, ORANGE, PURPLE, GOLD, GRAY"
 
@@ -1677,22 +1706,331 @@ edefined objects and their strictly allowed attributes.**
 11. ** Do not use any images like .png, .jpeg, .svg or any sort of image formats , if needed created the images with vectors.
 
 12. ** Only use from manim import *, nothing else , and use only if needed.
+
+13. **ASPECT RATIO: This video is in {self.config.aspect_ratio} format.**
+   - Design layouts appropriate for this aspect ratio
+   - Position objects considering the screen dimensions
+   - For 9:16 (vertical): Stack elements vertically, use full height
+   - For 16:9 (horizontal): Use width, arrange side-by-side when possible
+   - For 1:1 (square): Center elements, balanced composition
 ---
 
-### 📏 TIMING INSTRUCTIONS
+### 📏 PERFECT TIMING & ALIGNMENT RULES (CRITICAL!)
 
-* Calculate the total `run_time` of all animated objects (`.animate(run_time=...)`, `.fade_in(...)`, `.write(...)`, etc.).
-* Then, use `self.wait(...)` at the end to ensure:
+**TIMING PRECISION:**
+* Your animation timing MUST match audio duration EXACTLY (±0.05s tolerance)
+* Track cumulative time: `total_time = 0`
+* After each animation: `total_time += run_time`
+* Use precise waits: `self.wait(audio_duration - total_time)`
+* NEVER go over the audio duration - animations will be cut off!
 
-  ```
-  Total Animation Time + Wait Time ≈ Audio Duration
-  ```
-* Example:
-  If audio duration is `5.0s` and animations take `3.7s`, use `self.wait(1.3)`.
+**Example Perfect Timing:**
+```python
+def construct(self):
+    # Audio duration: 8.5 seconds
+    total_time = 0
+    
+    # Animation 1: 1.5s
+    title = Text("Hello")
+    self.play(Write(title, run_time=1.5))
+    total_time += 1.5
+    
+    # Animation 2: 0.8s
+    self.play(title.animate.shift(UP*2), run_time=0.8)
+    total_time += 0.8
+    
+    # Animation 3: 1.2s
+    text = Text("World")
+    self.play(GrowFromCenter(text, run_time=1.2))
+    total_time += 1.2
+    
+    # Animation 4: 1.0s
+    self.play(Indicate(text, run_time=1.0))
+    total_time += 1.0
+    
+    # Animation 5: 1.5s exit
+    self.play(FadeOut(title), Uncreate(text), run_time=1.5)
+    total_time += 1.5
+    
+    # Final wait to match exact duration
+    # total_time = 6.0, need 2.5 more seconds
+    self.wait(8.5 - total_time)  # = 2.5
+```
+
+**ALIGNMENT PRECISION:**
+* Use `.next_to()`, `.align_to()`, `.arrange()` for perfect positioning
+* Center important content: `.move_to(ORIGIN)` or `.to_edge(UP)`
+* Consistent spacing: Use `buff=0.5` between related items
+* Grid layouts: Use `arrange(DOWN, buff=0.3)` for lists
+* Avoid overlapping text - check positions carefully
+
+**Positioning Best Practices:**
+```python
+# Center title at top
+title = Text("Title")
+title.to_edge(UP, buff=0.5)
+
+# Position text below title
+subtitle = Text("Subtitle")
+subtitle.next_to(title, DOWN, buff=0.3)
+
+# Create aligned list
+items = VGroup(
+    Text("Item 1"),
+    Text("Item 2"),
+    Text("Item 3")
+).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
+items.move_to(ORIGIN)
+
+# Side-by-side comparison
+left_item = Text("Left")
+right_item = Text("Right")
+left_item.to_edge(LEFT, buff=1)
+right_item.to_edge(RIGHT, buff=1)
+```
 
 ---
 
-### 📚 FORMATTING INSTRUCTIONS (STRICT)
+### 🎬 ANIMATION VARIETY RULES (ABSOLUTELY MANDATORY - WILL BE REJECTED IF NOT FOLLOWED)
+
+**⚠️ CRITICAL WARNING: FadeIn/FadeOut ONLY animations will be REJECTED!**
+
+You MUST use diverse, dynamic animations. Each segment MUST include:
+1. ✅ At least ONE Write() or GrowFromCenter() for entry
+2. ✅ At least ONE movement animation (.animate.shift() or .animate.scale())
+3. ✅ At least ONE emphasis animation (Circumscribe, Indicate, or Flash)
+4. ✅ At least ONE creative exit (Uncreate, ShrinkToCenter, or FadeOut with shift)
+
+**STRICTLY FORBIDDEN:**
+❌ Using ONLY FadeIn() and FadeOut() for all animations
+❌ Static objects that just appear and disappear
+❌ No movement or transformation between entry and exit
+❌ Boring, repetitive patterns
+
+---
+
+### 🎨 REQUIRED ANIMATION TECHNIQUES (USE THESE!)
+
+**1. DYNAMIC ENTRY (Pick 1-2 per segment):**
+
+```python
+# Text appearing with writing effect (HIGHLY RECOMMENDED)
+title = Text("Your Title")
+self.play(Write(title, run_time=1.5))
+
+# Objects growing from center with energy
+circle = Circle(radius=2)
+self.play(GrowFromCenter(circle, run_time=1))
+
+# Drawing outlines then filling (professional look)
+rect = Rectangle(width=4, height=2)
+self.play(DrawBorderThenFill(rect, run_time=1.2))
+
+# Spinning in with rotation
+shape = Square()
+self.play(SpinInFromNothing(shape, angle=PI))
+```
+
+**2. MOVEMENT & TRANSFORMATION (REQUIRED - Add movement!):**
+
+```python
+# Move objects around the screen (ESSENTIAL for dynamic feel)
+self.play(title.animate.shift(UP*2), run_time=0.8)
+self.play(text.animate.shift(DOWN*1.5), run_time=0.8)
+
+# Scale for emphasis
+self.play(obj.animate.scale(1.3), run_time=0.6)
+
+# Rotate for visual interest
+self.play(shape.animate.rotate(PI/4), run_time=0.7)
+
+# Transform between objects (morphing effect)
+circle = Circle()
+square = Square()
+self.play(Transform(circle, square, run_time=1.2))
+
+# Combine multiple movements
+self.play(
+    obj.animate.shift(RIGHT*2).scale(1.5).rotate(PI/6),
+    run_time=1.5
+)
+```
+
+**3. EMPHASIS & ATTENTION (Pick 1-2 to highlight key content):**
+
+```python
+# Draw attention circle around important text
+self.play(Circumscribe(important_text, color=YELLOW, run_time=1))
+
+# Pulse effect to emphasize
+self.play(Indicate(key_point, color=YELLOW, scale_factor=1.3))
+
+# Flash effect for impact
+self.play(Flash(highlight, color=RED, line_length=0.4))
+
+# Wiggle for playful emphasis
+self.play(Wiggle(obj, scale_value=1.2, run_time=0.8))
+```
+
+**4. SEQUENTIAL ANIMATIONS (For lists/multiple items):**
+
+```python
+# Items appearing one by one with stagger
+items = VGroup(item1, item2, item3)
+self.play(
+    AnimationGroup(
+        *[GrowFromCenter(item) for item in items],
+        lag_ratio=0.3,
+        run_time=2
+    )
+)
+
+# Write text items sequentially
+self.play(
+    AnimationGroup(
+        Write(line1),
+        Write(line2),
+        Write(line3),
+        lag_ratio=0.5
+    )
+)
+```
+
+**5. CREATIVE EXITS (NOT just FadeOut!):**
+
+```python
+# Uncreate - reverse of drawing (satisfying)
+self.play(Uncreate(shape, run_time=1))
+
+# Shrink away
+self.play(ShrinkToCenter(obj, run_time=0.8))
+
+# Fade with movement
+self.play(FadeOut(text, shift=DOWN*2))
+
+# Multiple objects exiting with coordination
+self.play(
+    Uncreate(title),
+    ShrinkToCenter(circle),
+    FadeOut(text, shift=LEFT*3),
+    run_time=1.5
+)
+```
+
+---
+
+### 📋 COMPLETE SCENE EXAMPLES (FOLLOW THESE PATTERNS!)
+
+**Example 1: Professional Introduction**
+```python
+def construct(self):
+    # 1. Dynamic Entry
+    title = Text("Introduction to AI", font_size=48)
+    self.play(Write(title, run_time=1.5))
+    
+    # 2. Movement
+    self.play(title.animate.shift(UP*2.5), run_time=0.8)
+    
+    # 3. Add content with growth
+    subtitle = Text("The Future is Here", font_size=32, color=BLUE)
+    subtitle.next_to(title, DOWN, buff=0.5)
+    self.play(GrowFromCenter(subtitle, run_time=1))
+    
+    # 4. Emphasis
+    self.play(Circumscribe(subtitle, color=YELLOW, run_time=1))
+    
+    # 5. Creative exit
+    self.play(
+        Uncreate(title),
+        FadeOut(subtitle, shift=DOWN),
+        run_time=1.2
+    )
+```
+
+**Example 2: List with Energy**
+```python
+def construct(self):
+    # Title with writing effect
+    title = Text("3 Key Benefits")
+    self.play(Write(title, run_time=1))
+    self.play(title.animate.shift(UP*2.5).scale(0.8), run_time=0.7)
+    
+    # List items appearing sequentially
+    items = VGroup(
+        Text("1. Speed", color=GREEN),
+        Text("2. Accuracy", color=BLUE),
+        Text("3. Efficiency", color=YELLOW)
+    ).arrange(DOWN, buff=0.5)
+    
+    self.play(
+        AnimationGroup(
+            *[GrowFromCenter(item) for item in items],
+            lag_ratio=0.4,
+            run_time=2.5
+        )
+    )
+    
+    # Highlight each item
+    for item in items:
+        self.play(Indicate(item, scale_factor=1.2), run_time=0.6)
+    
+    # Exit with coordination
+    self.play(
+        ShrinkToCenter(title),
+        *[FadeOut(item, shift=DOWN) for item in items],
+        run_time=1.5
+    )
+```
+
+**Example 3: Transformation Scene**
+```python
+def construct(self):
+    # Start with shape
+    circle = Circle(radius=1.5, color=BLUE)
+    self.play(DrawBorderThenFill(circle, run_time=1))
+    
+    # Transform to another shape
+    square = Square(side_length=2.5, color=GREEN)
+    self.play(Transform(circle, square, run_time=1.5))
+    
+    # Add rotation and scale
+    self.play(
+        circle.animate.rotate(PI/4).scale(1.2),
+        run_time=1
+    )
+    
+    # Add text with flash
+    label = Text("Evolution", font_size=36)
+    label.next_to(circle, DOWN)
+    self.play(Write(label))
+    self.play(Flash(circle, color=YELLOW))
+    
+    # Exit
+    self.play(
+        Uncreate(circle),
+        FadeOut(label, shift=DOWN),
+        run_time=1.2
+    )
+```
+
+---
+
+### ⚡ MANDATORY CHECKLIST FOR EACH SEGMENT:
+
+Before submitting your script, verify:
+- [ ] Uses Write() or GrowFromCenter() for at least ONE entry
+- [ ] Includes .animate.shift() or .animate.scale() for movement
+- [ ] Has Circumscribe(), Indicate(), or Flash() for emphasis
+- [ ] Uses Uncreate(), ShrinkToCenter(), or FadeOut(shift=) for exits
+- [ ] Objects MOVE and TRANSFORM, not just appear/disappear
+- [ ] Animation variety - not repetitive
+- [ ] Total timing matches audio duration
+
+**IF YOUR SCRIPT ONLY USES FadeIn/FadeOut, IT WILL BE REJECTED!**
+
+---
+
+### � TIMING INSTRUCTIONS
 
 * ❌ Do **not** wrap any code in triple backticks (no markdown).
 * ❌ Do **not** include explanations, comments, or headings.
@@ -1716,6 +2054,28 @@ Use the following sample programs as reference for:
 
 ---
 
+### 📚 COMPREHENSIVE ANIMATION REFERENCE & TECHNIQUES
+
+**You have access to ALL of these powerful animation methods. USE THEM to create astonishing videos!**
+
+This is your complete animation toolkit. Study these techniques and apply them creatively:
+
+```
+{animation_reference}
+```
+
+**Key Takeaways from Reference:**
+- ✅ Use Write(), GrowFromCenter(), DrawBorderThenFill() for dynamic entries
+- ✅ Add movement with .animate.shift(), .animate.scale(), .animate.rotate()
+- ✅ Emphasize with Circumscribe(), Indicate(), Flash(), Wiggle()
+- ✅ Use AnimationGroup with lag_ratio for sequential effects
+- ✅ Apply rate_func for smooth, rush_into, rush_from motion
+- ✅ Position with .next_to(), .to_edge(), .arrange() for perfect alignment
+- ✅ Transform objects with Transform(), ReplacementTransform()
+- ✅ Create professional templates from Section 11 of reference
+
+---
+
 ### 🎨 ALLOWED OBJECTS AND ATTRIBUTES (STRICT)
 
 Use **only** the following Manim objects, and only with the attributes explicitly listed below.
@@ -1732,9 +2092,24 @@ Use **only** the following Manim objects, and only with the attributes explicitl
 You must **only** use the following Manim color constants (case-sensitive).
 Do not use hex, RGB, or custom colors.
 
+❌ DO NOT USE: BROWN, TAN, BEIGE (these colors don't exist in Manim)
+
 ```
 {allowed_colors}
 ```
+
+---
+
+### 📦 REQUIRED IMPORTS
+
+**EVERY script MUST start with these imports:**
+
+```python
+from manim import *
+import random  # Required if using random values
+```
+
+❌ Never use random.uniform() or random.choice() without importing random first!
 
 ---
 
@@ -2043,6 +2418,63 @@ Visuals: {segment.visual_description}
             remaining_time = max(0.1, {duration} - 2.5)
             self.wait(remaining_time)'''
 
+    async def _generate_emergency_fallback_video(self, segment: NarrationSegment, index: int) -> str:
+        """
+        Generate an ultra-simple emergency fallback video when all else fails.
+        This creates a basic black screen video with the exact duration needed.
+        """
+        output_dir = Path(self.config.output_dir) / f"segment_{index:03d}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"Segment{index:03d}.mp4"
+        
+        # Create ultra-simple script with just text and timing
+        fallback_script = f'''from manim import *
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Ultra-simple fallback
+        text = Text("Segment {index+1}", font_size=48, color=WHITE)
+        self.add(text)
+        self.wait({segment.duration:.2f})
+'''
+        
+        script_path = Path(self.config.temp_dir) / f"segment_{index:03d}_emergency.py"
+        script_path.write_text(fallback_script, encoding="utf-8")
+        
+        # Render with Manim
+        try:
+            await self._render_manim_segment(script_path, index, output_path)
+            logger.info(f"✅ Emergency fallback video created: {output_path}")
+            return str(output_path)
+        except Exception as e:
+            logger.error(f"❌ Emergency fallback also failed: {e}")
+            # Last resort: create black video with FFmpeg
+            return await self._create_black_video_ffmpeg(segment.duration, output_path)
+    
+    async def _create_black_video_ffmpeg(self, duration: float, output_path: Path) -> str:
+        """Create a simple black video using FFmpeg as absolute last resort."""
+        cmd = [
+            'ffmpeg', '-y',
+            '-f', 'lavfi',
+            '-i', f'color=black:s=1920x1080:d={duration:.2f}',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            str(output_path)
+        ]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+        
+        if output_path.exists():
+            logger.info(f"✅ Created black fallback video: {output_path}")
+            return str(output_path)
+        else:
+            raise Exception("Failed to create black video with FFmpeg")
+
     #
 # You should replace the existing _parallel_video_generation_fixed
 # function with this corrected version.
@@ -2086,15 +2518,34 @@ Visuals: {segment.visual_description}
 
             results = await asyncio.gather(*video_tasks)
 
+            failed_segments = []
             for result in results:
                 if result['success']:
                     segments[result['index']].video_path = result['video_path']
                 else:
                     error_message = result.get('error', 'Unknown error')
                     logger.error(f"❌ Video rendering failed for segment {result['index']+1}: {error_message}")
-                    raise RuntimeError(f"Video rendering failed for segment {result['index']+1}: {error_message}")
+                    failed_segments.append(result['index'])
+                    
+                    # Generate ultra-simple fallback video instead of crashing
+                    try:
+                        logger.warning(f"🔄 Creating fallback video for segment {result['index']+1}")
+                        fallback_path = await self._generate_emergency_fallback_video(
+                            segments[result['index']], 
+                            result['index']
+                        )
+                        segments[result['index']].video_path = fallback_path
+                        logger.info(f"✅ Fallback video created for segment {result['index']+1}")
+                    except Exception as fallback_error:
+                        logger.error(f"❌ Even fallback failed for segment {result['index']+1}: {fallback_error}")
+                        # As last resort, skip this segment
+                        continue
 
-            logger.info("✅ All segments rendered successfully.")
+            if failed_segments:
+                logger.warning(f"⚠️ {len(failed_segments)} segment(s) used fallback videos: {[i+1 for i in failed_segments]}")
+            else:
+                logger.info("✅ All segments rendered successfully.")
+            
             return segments
 
     def _write_concat_list_file(self, segment_paths: List[str], concat_path: str):
@@ -2240,8 +2691,8 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="Explanation about cancer", 
-            duration=180
+            topic="Time", 
+            duration=60
         )
 
         
