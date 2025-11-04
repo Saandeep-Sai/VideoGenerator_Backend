@@ -702,8 +702,14 @@ Begin your response now.
             
             logger.info(f"📐 Using aspect ratio: {self.config.aspect_ratio} ({resolution})")
             
+            # Determine class name to render
+            class_name = f"Segment{segment_index:03d}" if segment_index is not None else "Scene"
+            
+            # Use quality setting from config
+            quality_flag = f"-q{self.config.manim_quality}"
+            
             process = subprocess.run(
-                ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30", 
+                ["manim", filename, class_name, quality_flag, "--format", "mp4", "--fps", "30", 
                  "--resolution", resolution, "--disable_caching"],
                 capture_output=True, text=True, cwd=temp_path, env=env
             )
@@ -716,7 +722,17 @@ Begin your response now.
 
         # Expected output file path
         if segment_index is not None:
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p30" /f"Segment{segment_index:03d}.mp4"
+            # Map quality flags to output directory names (Manim's naming convention)
+            quality_dirs = {
+                "l": "480p30",      # Low quality
+                "m": "720p30",      # Medium quality  
+                "h": "1080p60",     # High quality
+                "p": "1440p60",     # 2K quality
+                "k": "2160p60",     # 4K quality
+            }
+            quality_dir = quality_dirs.get(self.config.manim_quality, "480p30")
+            
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / quality_dir / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
