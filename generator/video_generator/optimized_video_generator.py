@@ -634,7 +634,7 @@ Begin your response now.
             script_content = Path(segment.script_path).read_text(encoding="utf-8")
 
             for attempt in range(self.config.max_correction_attempts):
-                video_path, error = self.create_video_file(script_content, filename=f"segment_{i:03d}.py")
+                video_path, error = self.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
 
                 if video_path:
                     segment.video_path = video_path
@@ -646,7 +646,7 @@ Begin your response now.
                 if attempt == self.config.max_correction_attempts - 1:
                     logger.warning(f"❗ All Gemini & Groq corrections failed — regenerating from scratch...")
                     script_content = self._regenerate_script_from_scratch(segment, i + 1)
-                    video_path, error = self.create_video_file(script_content, filename=f"segment_{i:03d}.py")
+                    video_path, error = self.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
 
                     if video_path:
                         segment.video_path = video_path
@@ -702,17 +702,18 @@ Begin your response now.
             
             logger.info(f"📐 Using aspect ratio: {self.config.aspect_ratio} ({resolution})")
             
-            # Determine class name to render
-            class_name = f"Segment{segment_index:03d}" if segment_index is not None else "Scene"
+            # Build Manim command - ALWAYS use "Scene" as class name (working logic from test_health_check.py)
+            cmd = ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30"]
             
-            # Use quality setting from config
-            quality_flag = f"-q{self.config.manim_quality}"
+            # Add custom resolution for non-16:9 aspect ratios
+            if self.config.aspect_ratio != "16:9":
+                cmd.extend(["--resolution", resolution])
             
-            process = subprocess.run(
-                ["manim", filename, class_name, quality_flag, "--format", "mp4", "--fps", "30", 
-                 "--resolution", resolution, "--disable_caching"],
-                capture_output=True, text=True, cwd=temp_path, env=env
-            )
+            cmd.append("--disable_caching")
+            
+            logger.info(f"🎬 Running: {' '.join(cmd)}")
+            
+            process = subprocess.run(cmd, capture_output=True, text=True, cwd=temp_path, env=env)
 
         except Exception as e:
             return None, f"❌ Manim execution error: {str(e)}"
@@ -720,39 +721,14 @@ Begin your response now.
         if process.returncode != 0:
             return None, f"❌ Manim failed with code {process.returncode}:\n{process.stderr}"
 
-        # Expected output file path
+        # Expected output file path (working logic from test_health_check.py)
         if segment_index is not None:
-            # Map quality flags to output directory names (Manim's naming convention)
-            quality_dirs = {
-                "l": "480p30",      # Low quality
-                "m": "720p30",      # Medium quality  
-                "h": "1080p60",     # High quality
-                "p": "1440p60",     # 2K quality
-                "k": "2160p60",     # 4K quality
-            }
-            quality_dir = quality_dirs.get(self.config.manim_quality, "480p30")
-            
-            # Try multiple possible paths (Manim's folder naming can vary)
-            possible_paths = [
-                temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / quality_dir / f"Segment{segment_index:03d}.mp4",
-                temp_path / "media" / "videos" / filename.replace('.py', '') / quality_dir / f"Segment{segment_index:03d}.mp4",
-                temp_path / "media" / "videos" / filename / quality_dir / f"Segment{segment_index:03d}.mp4",
-            ]
-            
-            for expected_path in possible_paths:
-                if expected_path.exists():
-                    logger.info(f"✅ Found expected video: {expected_path}")
-                    return str(expected_path), None
-            
-            # If none found, search recursively
-            logger.warning(f"⚠️ Expected paths not found, searching recursively...")
-            video_files = list((temp_path / "media").glob(f"**/*Segment{segment_index:03d}.mp4"))
-            if video_files:
-                found_path = video_files[0]
-                logger.info(f"✅ Found video via search: {found_path}")
-                return str(found_path), None
-            
-            return None, f"❌ Expected video not found. Tried paths: {[str(p) for p in possible_paths]}"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p30" / f"Segment{segment_index:03d}.mp4"
+            if expected_path.exists():
+                logger.info(f"✅ Found expected video: {expected_path}")
+                return str(expected_path), None
+            else:
+                return None, f"❌ Expected video not found at {expected_path}"
 
         # Fallback: find any mp4 in media
         video_files = list((temp_path / "media").glob("**/*.mp4"))
