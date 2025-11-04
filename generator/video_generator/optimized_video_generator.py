@@ -732,12 +732,27 @@ Begin your response now.
             }
             quality_dir = quality_dirs.get(self.config.manim_quality, "480p30")
             
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / quality_dir / f"Segment{segment_index:03d}.mp4"
-            if expected_path.exists():
-                logger.info(f"✅ Found expected video: {expected_path}")
-                return str(expected_path), None
-            else:
-                return None, f"❌ Expected video not found at {expected_path}"
+            # Try multiple possible paths (Manim's folder naming can vary)
+            possible_paths = [
+                temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / quality_dir / f"Segment{segment_index:03d}.mp4",
+                temp_path / "media" / "videos" / filename.replace('.py', '') / quality_dir / f"Segment{segment_index:03d}.mp4",
+                temp_path / "media" / "videos" / filename / quality_dir / f"Segment{segment_index:03d}.mp4",
+            ]
+            
+            for expected_path in possible_paths:
+                if expected_path.exists():
+                    logger.info(f"✅ Found expected video: {expected_path}")
+                    return str(expected_path), None
+            
+            # If none found, search recursively
+            logger.warning(f"⚠️ Expected paths not found, searching recursively...")
+            video_files = list((temp_path / "media").glob(f"**/*Segment{segment_index:03d}.mp4"))
+            if video_files:
+                found_path = video_files[0]
+                logger.info(f"✅ Found video via search: {found_path}")
+                return str(found_path), None
+            
+            return None, f"❌ Expected video not found. Tried paths: {[str(p) for p in possible_paths]}"
 
         # Fallback: find any mp4 in media
         video_files = list((temp_path / "media").glob("**/*.mp4"))
