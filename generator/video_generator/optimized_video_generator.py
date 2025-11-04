@@ -144,6 +144,52 @@ class VideoGenerationPipeline:
     def _setup_directories(self) -> None:
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
         Path(self.config.temp_dir).mkdir(parents=True, exist_ok=True)
+        Path("intro").mkdir(parents=True, exist_ok=True)
+
+    def _get_aspect_ratio_config(self) -> str:
+        """Generate Manim aspect ratio configuration code based on config.aspect_ratio."""
+        aspect_ratio_configs = {
+            "16:9": {
+                "frame_width": 16,
+                "frame_height": 9,
+                "pixel_width": 1920,
+                "pixel_height": 1080
+            },
+            "9:16": {
+                "frame_width": 9,
+                "frame_height": 16,
+                "pixel_width": 1080,
+                "pixel_height": 1920
+            },
+            "1:1": {
+                "frame_width": 1,
+                "frame_height": 1,
+                "pixel_width": 1080,
+                "pixel_height": 1080
+            },
+            "4:3": {
+                "frame_width": 4,
+                "frame_height": 3,
+                "pixel_width": 1440,
+                "pixel_height": 1080
+            },
+            "21:9": {
+                "frame_width": 21,
+                "frame_height": 9,
+                "pixel_width": 2560,
+                "pixel_height": 1080
+            }
+        }
+        
+        config = aspect_ratio_configs.get(self.config.aspect_ratio, aspect_ratio_configs["16:9"])
+        
+        return f"""# Aspect Ratio Configuration: {self.config.aspect_ratio}
+config.frame_width = {config['frame_width']}
+config.frame_height = {config['frame_height']}
+config.pixel_width = {config['pixel_width']}
+config.pixel_height = {config['pixel_height']}
+
+"""
 
     def _validate_dependencies(self) -> None:
         try:
@@ -441,22 +487,27 @@ Continue for all segments. Output ONLY scripts with separators.
     def _generate_individual_script(self, segment: NarrationSegment, segment_number: int) -> str:
         """Generate a single script for one segment with retry logic."""
         
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
         # Simplified prompt to avoid blocking
         prompt = f"""Create a Manim script for this segment:
 
 Duration: {segment.duration} seconds
 Content: {segment.text}
 Visual: {segment.visual_description}
+Aspect Ratio: {self.config.aspect_ratio}
 
 Requirements:
 - Use class name: GeneratedAnimation{segment_number}
 - Duration exactly {segment.duration} seconds
 - Simple, clean animations
 - No external assets
+- Design for {self.config.aspect_ratio} aspect ratio
 
 Output format:
 from manim import *
 
+{aspect_ratio_config}
 class GeneratedAnimation{segment_number}(Scene):
     def construct(self):
         # Your animation code
@@ -477,6 +528,10 @@ class GeneratedAnimation{segment_number}(Scene):
                 
                 if response.parts and response.text:
                     script_content = self._clean_script(response.text)
+                    # Inject aspect ratio config if not present
+                    if "config.frame_width" not in script_content:
+                        aspect_config = self._get_aspect_ratio_config()
+                        script_content = script_content.replace("from manim import *", f"from manim import *\n\n{aspect_config}")
                     if self._validate_script(script_content):
                         return script_content
                 
@@ -494,8 +549,10 @@ class GeneratedAnimation{segment_number}(Scene):
 
     def _create_fallback_script(self, segment: NarrationSegment, segment_number: int) -> str:
         """Create a simple fallback script when generation fails."""
+        aspect_config = self._get_aspect_ratio_config()
         return f"""from manim import *
 
+{aspect_config}
 class GeneratedAnimation{segment_number}(Scene):
     def construct(self):
         # Fallback animation
@@ -590,6 +647,7 @@ Begin your response now.
         Fully regenerate a fresh Manim script using Gemini.
         Uses the original narration, visuals, and audio duration.
         """
+        aspect_config = self._get_aspect_ratio_config()
         prompt = f"""
     You are a Manim Python expert.
     Rewrite a complete script for this segment from scratch.
@@ -597,8 +655,12 @@ Begin your response now.
     - Class name must be: GeneratedAnimation{segment_number}
     - Use ONLY 'from manim import *'
     - Must match exact duration: {segment.duration:.2f} seconds
+    - Aspect Ratio: {self.config.aspect_ratio}
     - Visuals: {segment.visual_description}
     - Narration: {segment.text}
+    
+    Include this aspect ratio config after imports:
+    {aspect_config}
 
     Output ONLY raw Python code. No markdown, no explanations.
         """
@@ -613,7 +675,12 @@ Begin your response now.
         try:
             response = self.gemini_model.generate_content(prompt, safety_settings=safety_settings)
             raw_script = response.text.strip()
-            return self._clean_script(raw_script)
+            cleaned_script = self._clean_script(raw_script)
+            # Inject aspect ratio config if not present
+            if "config.frame_width" not in cleaned_script:
+                aspect_config = self._get_aspect_ratio_config()
+                cleaned_script = cleaned_script.replace("from manim import *", f"from manim import *\n\n{aspect_config}")
+            return cleaned_script
         except Exception as e:
             logger.warning(f"⚠️ Last-resort regeneration failed for segment {segment_number}: {e}")
             return self._create_fallback_script(segment, segment_number)
@@ -703,13 +770,8 @@ Begin your response now.
             logger.info(f"📐 Using aspect ratio: {self.config.aspect_ratio} ({resolution})")
             
             # Build Manim command - ALWAYS use "Scene" as class name (working logic from test_health_check.py)
-            cmd = ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30"]
-            
-            # Add custom resolution for non-16:9 aspect ratios
-            if self.config.aspect_ratio != "16:9":
-                cmd.extend(["--resolution", resolution])
-            
-            cmd.append("--disable_caching")
+            # Aspect ratio is now handled in the script itself via config.frame_width/height
+            cmd = ["manim", filename, "Scene", "-ql", "--format", "mp4", "--fps", "30", "--disable_caching"]
             
             logger.info(f"🎬 Running: {' '.join(cmd)}")
             
@@ -737,6 +799,23 @@ Begin your response now.
         latest = max(video_files, key=os.path.getctime)
         logger.warning(f"⚠️ Using fallback video path: {latest}")
         return str(latest), None
+
+    def _find_intro_video(self) -> Optional[str]:
+        """Find intro video in the intro folder."""
+        intro_dir = Path("intro")
+        if not intro_dir.exists():
+            return None
+        
+        # Look for common video formats
+        for ext in ['.mp4', '.mov', '.avi', '.mkv']:
+            intro_files = list(intro_dir.glob(f"*{ext}"))
+            if intro_files:
+                intro_path = str(intro_files[0].absolute())
+                logger.info(f"✅ Found intro video: {intro_path}")
+                return intro_path
+        
+        logger.info("ℹ️ No intro video found in intro/ folder")
+        return None
 
     def synchronize_audio_video(self, video_file: str, audio_file: str, output_file: str) -> str:
         """Synchronize video and audio files."""
@@ -795,9 +874,17 @@ Begin your response now.
                     logger.error(f"❌ Segment {i+1} missing video or audio")
                     raise RuntimeError(f"Segment {i+1} is incomplete")
 
-            # Step 6: Final concatenation
+            # Step 6: Check for intro video and prepare final concatenation
+            intro_path = self._find_intro_video()
             concat_list_path = temp_dir / "concat_list.txt"
+            
             with open(concat_list_path, "w") as f:
+                # Add intro video first if it exists
+                if intro_path:
+                    logger.info(f"🎬 Adding intro video: {intro_path}")
+                    f.write(f"file '{intro_path}'\n")
+                
+                # Add all segment clips
                 for clip in final_clips:
                     f.write(f"file '{clip}'\n")
 
@@ -809,7 +896,7 @@ Begin your response now.
                 "-i", str(concat_list_path), "-c", "copy", final_output_path
             ]
 
-            logger.info("🎞️ Concatenating all segments...")
+            logger.info("🎞️ Concatenating all segments..." + (" (with intro)" if intro_path else ""))
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
             logger.info(f"✅ Final video ready: {final_output_path}")
 
@@ -992,6 +1079,17 @@ def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gem
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
+        aspect_ratio = segment_data.get('aspect_ratio', "16:9")
+        
+        # Get aspect ratio config
+        aspect_ratio_configs = {
+            "16:9": "config.frame_width = 16\nconfig.frame_height = 9\nconfig.pixel_width = 1920\nconfig.pixel_height = 1080",
+            "9:16": "config.frame_width = 9\nconfig.frame_height = 16\nconfig.pixel_width = 1080\nconfig.pixel_height = 1920",
+            "1:1": "config.frame_width = 1\nconfig.frame_height = 1\nconfig.pixel_width = 1080\nconfig.pixel_height = 1080",
+            "4:3": "config.frame_width = 4\nconfig.frame_height = 3\nconfig.pixel_width = 1440\nconfig.pixel_height = 1080",
+            "21:9": "config.frame_width = 21\nconfig.frame_height = 9\nconfig.pixel_width = 2560\nconfig.pixel_height = 1080"
+        }
+        aspect_config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
         
         # Get actual audio duration from the audio file
         audio_path = segment_data.get('audio_path')
@@ -1039,6 +1137,7 @@ You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WO
 🎯 CRITICAL REQUIREMENTS:
 - Exact duration: {actual_duration:.2f} seconds
 - Class name: Segment{index:03d}
+- Aspect Ratio: {aspect_ratio}
 - Calculate total run_time of all animations
 - Add self.wait(...) at the end so total time matches exactly
 - Create awesome and professional animations.
@@ -1068,6 +1167,8 @@ Use ONLY the provided allowed objects and colors.
 
 ⚠️ IMPORTANT:
 - Start with: from manim import *
+- Then add aspect ratio config:
+{aspect_config}
 - Dont Use  <b>, <i>, <u> tags in MarkupText (NO <code> tags)
 - Ensure animations + wait time = {actual_duration:.2f} seconds exactly
 - Make it visually engaging but simple
@@ -1090,7 +1191,11 @@ Generate the complete script now:
         # Remove any remaining markdown
         regenerated_script = regenerated_script.replace("```", "").strip()
         
-        logger.info(f"✅ Script {index+1} completely regenerated from scratch using Gemini")
+        # Inject aspect ratio config if not present
+        if "config.frame_width" not in regenerated_script:
+            regenerated_script = regenerated_script.replace("from manim import *", f"from manim import *\n\n# Aspect Ratio Configuration: {aspect_ratio}\n{aspect_config}\n")
+        
+        logger.info(f"✅ Script {index+1} completely regenerated from scratch using Gemini with aspect ratio {aspect_ratio}")
         return regenerated_script
         
     except Exception as e:
@@ -1103,6 +1208,18 @@ def _generate_absolute_fallback_script(segment_data: dict, index: int, duration:
     This is the last resort when all AI methods fail.
     """
     narration = segment_data.get('narration', f"Educational content for segment {index+1}")
+    aspect_ratio = segment_data.get('aspect_ratio', "16:9")
+    
+    # Get aspect ratio config
+    aspect_ratio_configs = {
+        "16:9": "config.frame_width = 16\nconfig.frame_height = 9\nconfig.pixel_width = 1920\nconfig.pixel_height = 1080",
+        "9:16": "config.frame_width = 9\nconfig.frame_height = 16\nconfig.pixel_width = 1080\nconfig.pixel_height = 1920",
+        "1:1": "config.frame_width = 1\nconfig.frame_height = 1\nconfig.pixel_width = 1080\nconfig.pixel_height = 1080",
+        "4:3": "config.frame_width = 4\nconfig.frame_height = 3\nconfig.pixel_width = 1440\nconfig.pixel_height = 1080",
+        "21:9": "config.frame_width = 21\nconfig.frame_height = 9\nconfig.pixel_width = 2560\nconfig.pixel_height = 1080"
+    }
+    aspect_config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
+    
     # Truncate and clean narration for display
     display_text = narration[:60].replace('"', "'").replace('\n', ' ').strip()
     if len(narration) > 60:
@@ -1114,6 +1231,9 @@ def _generate_absolute_fallback_script(segment_data: dict, index: int, duration:
     remaining_time = max(0.1, duration - write_time - fade_time)
     
     script = f'''from manim import *
+
+# Aspect Ratio Configuration: {aspect_ratio}
+{aspect_config}
 
 class Segment{index:03d}(Scene):
     def construct(self):
@@ -1139,7 +1259,7 @@ class Segment{index:03d}(Scene):
         self.wait({remaining_time:.2f})
 '''
     
-    logger.info(f"✅ Absolute fallback script generated for segment {index+1} with duration {duration:.2f}s")
+    logger.info(f"✅ Absolute fallback script generated for segment {index+1} with duration {duration:.2f}s and aspect ratio {aspect_ratio}")
     return script
 
 
