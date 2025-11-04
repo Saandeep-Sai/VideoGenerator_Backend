@@ -59,17 +59,22 @@ async def run():
                 job_id = job['id']
                 topic = job.get("topic", "")
                 duration = int(job.get("duration", 60))
+                aspect_ratio = job.get("aspect_ratio", "16:9")
 
                 logger.info("=" * 60)
                 logger.info(f"⚙️  NEW JOB RECEIVED")
                 logger.info(f"📋 Job ID: {job_id}")
                 logger.info(f"📚 Topic: {topic}")
                 logger.info(f"⏱️  Duration: {duration} seconds")
+                logger.info(f"📐 Aspect Ratio: {aspect_ratio}")
                 logger.info("=" * 60)
 
                 update_job_status(job_id, "processing")
 
                 try:
+                    # Update config with aspect ratio from job
+                    config.aspect_ratio = aspect_ratio
+                    
                     logger.info("🚀 Starting video generation pipeline...")
                     final_video_path = await pipeline.generate_video_full_parallel(
                         topic,

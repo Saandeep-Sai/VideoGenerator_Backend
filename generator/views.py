@@ -25,8 +25,9 @@ class GenerateVideoView(APIView):
 
         topic = serializer.validated_data["topic"]
         duration = serializer.validated_data["duration"]
+        aspect_ratio = serializer.validated_data.get("aspect_ratio", "16:9")
 
-        doc_id = create_job(topic, duration)
+        doc_id = create_job(topic, duration, aspect_ratio)
 
         return Response({
             "status": "queued",
