@@ -82,10 +82,10 @@ class VideoGenerationConfig:
     groq_api_key: str
     output_dir: str = "output"
     temp_dir: str = "temp"
-    manim_quality: str = "h"
+    manim_quality: str = "m"  # Medium quality for speed
     audio_sample_rate: int = 22050
     use_groq_for_correction: bool = True
-    manim_timeout: int = 1000
+    manim_timeout: int = 1000# Reduced from 1000 to 300 (5 minutes max per segment)
     ffmpeg_timeout: int = 300
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
@@ -746,12 +746,13 @@ Begin your response now.
             
             # Build Manim command - ALWAYS use "Scene" as class name
             # Aspect ratio is now configured inside the script itself
-            # Use -qp for high quality 1080p30 output (2x faster than -qh 60fps)
-            # Enable caching for 3-5x speedup on regenerations
+            # Use -qm for medium quality 720p30 (3x faster than -qp, still good quality)
+            # Use --flush_cache to prevent cache issues on headless servers
+            # Use --disable_caching for fastest possible rendering (no disk I/O)
             # On Windows, use "python -m manim" instead of just "manim"
-            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-qp", "--format", "mp4"]
+            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-qm", "--format", "mp4", "--disable_caching", "--flush_cache"]
             
-            logger.info(f"🎬 Running Manim render: {' '.join(cmd)}")
+            logger.info(f"🎬 Running Manim render (720p30 fast mode): {' '.join(cmd)}")
             
             process = subprocess.run(cmd, capture_output=True, text=True, cwd=temp_path, env=env)
 
@@ -761,9 +762,9 @@ Begin your response now.
         if process.returncode != 0:
             return None, f"❌ Manim failed with code {process.returncode}:\n{process.stderr}"
 
-        # Expected output file path - 1080p30 quality outputs to 1080p30 folder
+        # Expected output file path - 720p30 quality outputs to 720p30 folder
         if segment_index is not None:
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p30" / f"Segment{segment_index:03d}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
