@@ -18,6 +18,8 @@ local_settings.py
 output/
 temp/
 cache/
+initial_video/
+
 # Media files (generated)
 *.mp4
 *.mp3

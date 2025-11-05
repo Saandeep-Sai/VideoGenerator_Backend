@@ -12,8 +12,6 @@ from typing import List, Optional, Tuple
 from pydub import AudioSegment
 import torchaudio as ta
 import torchaudio.functional as F
-from moviepy.video.io.VideoFileClip import VideoFileClip
-from moviepy.audio.io.AudioFileClip import AudioFileClip
 
 
 # Third-party imports
@@ -778,6 +776,100 @@ Begin your response now.
         logger.warning(f"⚠️ Using fallback video path: {latest}")
         return str(latest), None
 
+    def _get_intro_video(self) -> Optional[Path]:
+        """
+        Find intro video in initial_video folder.
+        Returns Path object if found, None otherwise.
+        """
+        intro_folder = Path("initial_video")
+        
+        if not intro_folder.exists():
+            logger.info("📁 No initial_video folder found - skipping intro")
+            return None
+        
+        # Look for common video formats
+        for ext in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
+            intro_files = list(intro_folder.glob(f"*{ext}"))
+            if intro_files:
+                intro_video = intro_files[0]  # Use first found intro video
+                
+                # Validate it's a readable file
+                if intro_video.exists() and intro_video.stat().st_size > 0:
+                    logger.info(f"🎬 Found intro video: {intro_video} ({intro_video.stat().st_size / 1024 / 1024:.2f} MB)")
+                    return intro_video
+                else:
+                    logger.warning(f"⚠️ Intro video found but invalid: {intro_video}")
+        
+        logger.info("📁 No intro video found in initial_video folder")
+        return None
+
+    def _add_intro_with_ffmpeg(self, generated_video_path: str) -> str:
+        """
+        Add intro video to the beginning of generated video using FFmpeg filter_complex.
+        This handles audio/video sync automatically and efficiently.
+        
+        Args:
+            generated_video_path: Path to the generated video (with audio)
+            
+        Returns:
+            Path to final video (with intro if found, otherwise original path)
+        """
+        intro_video = self._get_intro_video()
+
+        if not intro_video:
+            logger.info("ℹ️ No intro video found, returning video without intro")
+            return generated_video_path
+
+        # Default output path
+        output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
+
+        # Determine target scale and display aspect ratio from aspect_ratio config
+        aspect_map = {
+            "16:9": (1920, 1080, 16, 9),
+            "9:16": (1080, 1920, 9, 16),
+            "1:1": (1080, 1080, 1, 1),
+            "4:3": (1440, 1080, 4, 3),
+            "21:9": (2560, 1080, 21, 9),
+        }
+        width, height, fw, fh = aspect_map.get(self.config.aspect_ratio, (1920, 1080, 16, 9))
+
+        # Build ffmpeg filter_complex string similar to working test command provided by user
+        # It scales both inputs to the same size, sets display aspect ratio and sample aspect ratio,
+        # then concatenates video+audio streams into a single output with re-encoding.
+        filter_complex = (
+            f"[0:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v0];"
+            f"[1:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v1];"
+            f"[v0][0:a?][v1][1:a?]concat=n=2:v=1:a=1[v][a]"
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(intro_video),
+            "-i", str(generated_video_path),
+            "-filter_complex", filter_complex,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "ultrafast",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(output_path)
+        ]
+
+        logger.info(f"🔗 Combining intro + generated with ffmpeg (this will re-encode): {output_path}")
+        logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
+            logger.info(f"✅ Intro concatenation complete: {output_path}")
+            return output_path
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
+            logger.warning("⚠️ Returning video without intro")
+            return generated_video_path
+        except subprocess.TimeoutExpired:
+            logger.error("❌ ffmpeg timed out while combining intro")
+            logger.warning("⚠️ Returning video without intro")
+            return generated_video_path
+
     def synchronize_audio_video(self, video_file: str, audio_file: str, output_file: str) -> str:
         """Synchronize video and audio files."""
         logger.info(f"Synchronizing video and audio into: {output_file}")
@@ -802,7 +894,7 @@ Begin your response now.
         """Main video generation pipeline."""
         if not output_filename:
             safe_topic = re.sub(r'[^\w\s-]', '', topic).strip().replace(' ', '_')
-            output_filename = f"{self.config.output_dir}/{safe_topic}_video.mp4"
+            output_filename = f"{self.config.output_dir}/{safe_topic}.mp4"
 
         logger.info(f"🚀 Starting Video Generation for Topic: {topic} [{duration}s]")
         
@@ -854,9 +946,13 @@ Begin your response now.
 
             logger.info("🎞️ Concatenating all segments...")
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            logger.info(f"✅ Final video ready: {final_output_path}")
+            logger.info(f"✅ Generated video ready: {final_output_path}")
 
-            return final_output_path
+            # Step 7: Add intro video using FFmpeg (if exists)
+            final_output_with_intro = self._add_intro_with_ffmpeg(final_output_path)
+            logger.info(f"✅ Final video with intro: {final_output_with_intro}")
+
+            return final_output_with_intro
 
         except Exception as e:
             logger.error(f"❌ Video generation failed: {e}")
@@ -2740,7 +2836,7 @@ class Segment{index:03d}(Scene):
         
         # Create final output
         safe_topic = re.sub(r'[^\w\s-]', '', topic).strip().replace(' ', '_')
-        final_output_path = str(Path(self.config.output_dir) / f"{safe_topic}_final_video.mp4")
+        final_output_path = str(Path(self.config.output_dir) / f"{safe_topic}.mp4")
         
         cmd = [
             "ffmpeg", "-y",  # Overwrite output file
@@ -2772,8 +2868,8 @@ class Segment{index:03d}(Scene):
                 
             logger.info(f"✅ Generated video created: {final_output_path} ({final_size/1024/1024:.1f}MB)")
             
-            # Add intro video using MoviePy (if exists)
-            final_output_with_intro = self._add_intro_with_moviepy(final_output_path)
+            # Add intro video using FFmpeg (if exists)
+            final_output_with_intro = self._add_intro_with_ffmpeg(final_output_path)
             logger.info(f"✅ Final video with intro: {final_output_with_intro}")
             
             return final_output_with_intro
