@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -871,6 +872,27 @@ Begin your response now.
             logger.warning("⚠️ Returning video without intro")
             return generated_video_path
 
+    def cleanup_temp_files(self) -> None:
+        """Clean up temporary files after video generation."""
+        try:
+            temp_path = Path(self.config.temp_dir)
+            if temp_path.exists():
+                # Remove all contents but keep the temp directory
+                for item in temp_path.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to delete {item}: {e}")
+                
+                logger.info(f"✅ Cleaned up temp directory: {temp_path}")
+            else:
+                logger.info("ℹ️ Temp directory does not exist, nothing to clean")
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup temp files: {e}")
+
     def synchronize_audio_video(self, video_file: str, audio_file: str, output_file: str) -> str:
         """Synchronize video and audio files."""
         logger.info(f"Synchronizing video and audio into: {output_file}")
@@ -953,10 +975,18 @@ Begin your response now.
             final_output_with_intro = self._add_intro_with_ffmpeg(final_output_path)
             logger.info(f"✅ Final video with intro: {final_output_with_intro}")
 
+            # Step 8: Cleanup temporary files
+            self.cleanup_temp_files()
+
             return final_output_with_intro
 
         except Exception as e:
             logger.error(f"❌ Video generation failed: {e}")
+            # Still try to cleanup even on failure
+            try:
+                self.cleanup_temp_files()
+            except:
+                pass
             raise
 
 def main():
@@ -2873,11 +2903,19 @@ class Segment{index:03d}(Scene):
             final_output_with_intro = self._add_intro_with_ffmpeg(final_output_path)
             logger.info(f"✅ Final video with intro: {final_output_with_intro}")
             
+            # Cleanup temporary files
+            self.cleanup_temp_files()
+            
             return final_output_with_intro
             
         except subprocess.CalledProcessError as e:
             error_msg = f"Final concatenation failed: {e.stderr if e.stderr else 'Unknown error'}"
             logger.error(f"❌ {error_msg}")
+            # Still try to cleanup even on failure
+            try:
+                self.cleanup_temp_files()
+            except:
+                pass
             
     def generate_video_optimized(self, topic: str, duration: int, output_filename: Optional[str] = None) -> str:
         """Synchronous wrapper for async pipeline."""
