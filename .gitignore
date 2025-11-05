@@ -20,13 +20,19 @@ temp/
 cache/
 intro/
 
-# Media files (generated)
+# Media files (generated) - but allow initial_video folder
 *.mp4
 *.mp3
 *.mp2
 *.wav
 *.avi
 *.mov
+
+# Exception: Allow intro videos in initial_video folder
+!initial_video/
+!initial_video/**/*.mp4
+!initial_video/**/*.mov
+!initial_video/**/*.avi
 
 # Manim intermediate files
 *.svg
