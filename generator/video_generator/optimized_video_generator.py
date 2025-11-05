@@ -775,14 +775,20 @@ Begin your response now.
                 scene_path.rename(expected_path)
                 return str(expected_path), None
             
-            # If still not found, search the segment folder
+            # If still not found, search the segment folder for ANY video
             segment_folder = temp_path / "media" / "videos" / f"segment_{segment_index:03d}"
             if segment_folder.exists():
                 video_files = list(segment_folder.glob("**/*.mp4"))
                 if video_files:
                     found_video = video_files[0]
-                    logger.info(f"✅ Found video at {found_video}, renaming to expected path")
-                    found_video.rename(expected_path)
+                    logger.info(f"✅ Found video at {found_video}, moving to expected path")
+                    
+                    # Ensure target directory exists before moving
+                    expected_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Use shutil.move instead of rename for cross-directory moves
+                    import shutil
+                    shutil.move(str(found_video), str(expected_path))
                     return str(expected_path), None
             
             return None, f"❌ Expected video not found at {expected_path} or Scene.mp4"
