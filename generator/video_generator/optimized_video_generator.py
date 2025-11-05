@@ -1214,7 +1214,39 @@ def render_single_video_worker(args):
                     logger.info(f"✅ Regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
                     return {'success': True, 'video_path': str(expected_path), 'index': i}
                 else:
-                    logger.warning(f"⚠️ Regeneration {regeneration_count} failed for segment {i+1}: {error[:200]}")
+                    # Regenerated script failed - try fixing it before regenerating again
+                    logger.warning(f"⚠️ Regeneration {regeneration_count} failed, attempting to fix it: {error[:200]}")
+                    
+                    # Try 3 quick corrections on the regenerated script
+                    for fix_attempt in range(3):
+                        total_attempts += 1
+                        logger.info(f"🔧 Fixing regenerated script {i+1} (fix attempt {fix_attempt + 1}/3)")
+                        
+                        # Alternate between Gemini and Groq for fixes
+                        if fix_attempt % 2 == 0:
+                            script_content = _fix_script_errors_with_gemini(
+                                script_content, error, i, config_dict['gemini_api_key']
+                            )
+                        else:
+                            script_content = _fix_script_errors_with_groq(
+                                script_content, error, i, config_dict['groq_api_key']
+                            )
+                        
+                        Path(script_path).write_text(script_content, encoding="utf-8")
+                        
+                        # Try rendering the fixed script
+                        video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
+                        
+                        if video_path:
+                            target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
+                            target_dir.mkdir(parents=True, exist_ok=True)
+                            expected_path = target_dir / f"Segment{i:03d}.mp4"
+                            Path(video_path).replace(expected_path)
+                            logger.info(f"✅ Fixed regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
+                            return {'success': True, 'video_path': str(expected_path), 'index': i}
+                    
+                    # All fixes failed, will regenerate again in next iteration
+                    logger.warning(f"⚠️ All 3 fix attempts failed for regenerated script {i+1}, will try next regeneration")
                     
             except Exception as regen_error:
                 logger.error(f"❌ Regeneration {regeneration_count} crashed for segment {i+1}: {regen_error}")
