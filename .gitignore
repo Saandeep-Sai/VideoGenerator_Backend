@@ -18,7 +18,7 @@ local_settings.py
 output/
 temp/
 cache/
-initial_video/
+intro/
 
 # Media files (generated)
 *.mp4
