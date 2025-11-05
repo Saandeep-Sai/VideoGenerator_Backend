@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass , asdict
@@ -90,7 +91,8 @@ class VideoGenerationConfig:
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
     max_generation_attempts: int = 3
-    max_correction_attempts: int = 10
+    max_correction_attempts: int = 10  # Max attempts to fix script with Gemini/Groq
+    max_regeneration_attempts: int = 5  # Max attempts to regenerate script from scratch
     batch_size: int = 6  # Process 6 segments in parallel (optimized for 4-core ARM)
     aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     
@@ -746,7 +748,8 @@ Begin your response now.
             # Build Manim command - ALWAYS use "Scene" as class name
             # Aspect ratio is now configured inside the script itself
             # Use -qh for high quality 1080p60 output
-            cmd = ["manim", filename, "Scene", "-qh", "--format", "mp4", "--disable_caching"]
+            # On Windows, use "python -m manim" instead of just "manim"
+            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-qh", "--format", "mp4", "--disable_caching"]
             
             logger.info(f"🎬 Running: {' '.join(cmd)}")
             
@@ -774,100 +777,6 @@ Begin your response now.
         latest = max(video_files, key=os.path.getctime)
         logger.warning(f"⚠️ Using fallback video path: {latest}")
         return str(latest), None
-
-    def _get_intro_video(self) -> Optional[Path]:
-        """
-        Find intro video in initial_video folder.
-        Returns Path object if found, None otherwise.
-        """
-        intro_folder = Path("initial_video")
-        
-        if not intro_folder.exists():
-            logger.info("📁 No initial_video folder found - skipping intro")
-            return None
-        
-        # Look for common video formats
-        for ext in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
-            intro_files = list(intro_folder.glob(f"*{ext}"))
-            if intro_files:
-                intro_video = intro_files[0]  # Use first found intro video
-                
-                # Validate it's a readable file
-                if intro_video.exists() and intro_video.stat().st_size > 0:
-                    logger.info(f"🎬 Found intro video: {intro_video} ({intro_video.stat().st_size / 1024 / 1024:.2f} MB)")
-                    return intro_video
-                else:
-                    logger.warning(f"⚠️ Intro video found but invalid: {intro_video}")
-        
-        logger.info("📁 No intro video found in initial_video folder")
-        return None
-
-    def _add_intro_with_moviepy(self, generated_video_path: str) -> str:
-        """
-        Add intro video to the beginning of generated video using MoviePy.
-        This handles audio/video sync automatically and reliably.
-        
-        Args:
-            generated_video_path: Path to the generated video (with audio)
-            
-        Returns:
-            Path to final video (with intro if found, otherwise original path)
-        """
-        intro_video = self._get_intro_video()
-
-        if not intro_video:
-            logger.info("ℹ️ No intro video found, returning video without intro")
-            return generated_video_path
-
-        # Default output path
-        output_path = generated_video_path.replace("_final_video.mp4", "_final_with_intro.mp4")
-
-        # Determine target scale and display aspect ratio from aspect_ratio config
-        aspect_map = {
-            "16:9": (1920, 1080, 16, 9),
-            "9:16": (1080, 1920, 9, 16),
-            "1:1": (1080, 1080, 1, 1),
-            "4:3": (1440, 1080, 4, 3),
-            "21:9": (2560, 1080, 21, 9),
-        }
-        width, height, fw, fh = aspect_map.get(self.config.aspect_ratio, (1920, 1080, 16, 9))
-
-        # Build ffmpeg filter_complex string similar to working test command provided by user
-        # It scales both inputs to the same size, sets display aspect ratio and sample aspect ratio,
-        # then concatenates video+audio streams into a single output with re-encoding.
-        filter_complex = (
-            f"[0:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v0];"
-            f"[1:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v1];"
-            f"[v0][0:a?][v1][1:a?]concat=n=2:v=1:a=1[v][a]"
-        )
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(intro_video),
-            "-i", str(generated_video_path),
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-preset", "ultrafast",
-            "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart",
-            str(output_path)
-        ]
-
-        logger.info(f"🔗 Combining intro + generated with ffmpeg (this will re-encode): {output_path}")
-        logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
-
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            logger.info(f"✅ Intro concatenation complete: {output_path}")
-            return output_path
-        except subprocess.CalledProcessError as e:
-            logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
-            logger.warning("⚠️ Returning video without intro")
-            return generated_video_path
-        except subprocess.TimeoutExpired:
-            logger.error("❌ ffmpeg timed out while combining intro")
-            logger.warning("⚠️ Returning video without intro")
-            return generated_video_path
 
     def synchronize_audio_video(self, video_file: str, audio_file: str, output_file: str) -> str:
         """Synchronize video and audio files."""
@@ -936,7 +845,7 @@ Begin your response now.
                     f.write(f"file '{clip_path}'\n")
 
             safe_topic = re.sub(r'[^\w\s-]', '', topic).strip().replace(' ', '_')
-            final_output_path = str(self.output_dir / f"{safe_topic}_final_video.mp4")
+            final_output_path = str(self.output_dir / f"{safe_topic}.mp4")
 
             cmd = [
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
@@ -945,13 +854,9 @@ Begin your response now.
 
             logger.info("🎞️ Concatenating all segments...")
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            logger.info(f"✅ Generated video ready: {final_output_path}")
+            logger.info(f"✅ Final video ready: {final_output_path}")
 
-            # Step 7: Add intro video using MoviePy (if exists)
-            final_output_with_intro = self._add_intro_with_moviepy(final_output_path)
-            logger.info(f"✅ Final video with intro: {final_output_with_intro}")
-
-            return final_output_with_intro
+            return final_output_path
 
         except Exception as e:
             logger.error(f"❌ Video generation failed: {e}")
@@ -1034,80 +939,102 @@ def render_single_video_worker(args):
         script_content = _clean_script_for_execution(script_content, i)
 
         # Try rendering with enhanced error handling
-        max_attempts = config_dict.get('max_correction_attempts', 3)
-        correction_attempts = 0
-        regeneration_done = False
-
-        for attempt in range(max_attempts + 1):  # +1 for the regeneration attempt
+        max_correction_attempts = config_dict.get('max_correction_attempts', 3)
+        max_regeneration_attempts = config_dict.get('max_regeneration_attempts', 5)  # New: max times to regenerate
+        
+        total_attempts = 0
+        correction_cycle = 0
+        regeneration_count = 0
+        
+        # Phase 1: Try corrections with Gemini/Groq
+        while correction_cycle < max_correction_attempts:
+            total_attempts += 1
             video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
 
             if video_path:
                 target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                 target_dir.mkdir(parents=True, exist_ok=True)
-
                 expected_path = target_dir / f"Segment{i:03d}.mp4"
-                Path(video_path).replace(expected_path)  # move + rename
-
-                logger.info(f"✅ Video {i+1} saved to: {expected_path}")
+                Path(video_path).replace(expected_path)
+                logger.info(f"✅ Video {i+1} saved to: {expected_path} (after {total_attempts} attempts)")
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
 
-
-            logger.warning(f"⚠️ Video {i+1} failed attempt {attempt+1}: {error}")
-
-            # If we've reached max correction attempts, try full regeneration
-            if attempt == max_attempts and not regeneration_done:
-                logger.warning(f"🔄 All correction attempts failed. Regenerating script completely for segment {i+1}")
-                
-                try:
-                    # Regenerate script from scratch using enhanced function
-                    script_content = _regenerate_script_from_scratch_enhanced(
-                        segment_data, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
-                    )
-                    Path(script_path).write_text(script_content, encoding="utf-8")
-                    regeneration_done = True
-                    
-                    # Try rendering the regenerated script
-                    video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
-
-                    
-                    if video_path:
-                        target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
-                        target_dir.mkdir(parents=True, exist_ok=True)
-
-                        expected_path = target_dir / f"Segment{i:03d}.mp4"
-                        Path(video_path).replace(expected_path)
-
-                        logger.info(f"✅ Regenerated video {i+1} saved to: {expected_path}")
-                        return {'success': True, 'video_path': str(expected_path), 'index': i}
-
-                    else:
-                        logger.error(f"❌ Even regenerated script failed for segment {i+1}: {error}")
-                        
-                except Exception as regen_error:
-                    logger.error(f"❌ Script     regeneration failed for segment {i+1}: {regen_error}")
-                
-                # If regeneration also fails, this is the final failure
-                logger.error(f"❌ Final failure for segment {i+1} after regeneration")
-                return {'success': False, 'error': error or "Unknown error", 'index': i}
-
-            # Normal correction attempts (alternate between Gemini and Groq)
-            if attempt < max_attempts:
-                correction_attempts += 1
-                
-                if correction_attempts % 2 == 1:  # Odd attempts: use Gemini
-                    script_content = _fix_script_errors_with_gemini(
-                        script_content, error, i, config_dict['gemini_api_key']
-                    )
-                else:  # Even attempts: use Groq
-                    script_content = _fix_script_errors_with_groq(
-                        script_content, error, i, config_dict['groq_api_key']
-                    )
-
+            logger.warning(f"⚠️ Video {i+1} correction attempt {correction_cycle + 1}/{max_correction_attempts} failed: {error[:200]}")
+            
+            # Try fixing with Gemini or Groq
+            correction_cycle += 1
+            if correction_cycle % 2 == 1:  # Odd attempts: use Gemini
+                logger.info(f"🔧 Fixing script {i+1} with Gemini (correction {correction_cycle})")
+                script_content = _fix_script_errors_with_gemini(
+                    script_content, error, i, config_dict['gemini_api_key']
+                )
+            else:  # Even attempts: use Groq
+                logger.info(f"🔧 Fixing script {i+1} with Groq (correction {correction_cycle})")
+                script_content = _fix_script_errors_with_groq(
+                    script_content, error, i, config_dict['groq_api_key']
+                )
+            Path(script_path).write_text(script_content, encoding="utf-8")
+        
+        # Phase 2: All corrections failed, now regenerate from scratch repeatedly
+        logger.warning(f"🔄 All {max_correction_attempts} correction attempts failed for segment {i+1}")
+        logger.info(f"🔄 Starting regeneration phase (up to {max_regeneration_attempts} regenerations)...")
+        
+        while regeneration_count < max_regeneration_attempts:
+            regeneration_count += 1
+            total_attempts += 1
+            
+            logger.warning(f"🔄 Regenerating script {i+1} from scratch (regeneration {regeneration_count}/{max_regeneration_attempts})")
+            
+            try:
+                # Regenerate script from scratch using enhanced function
+                script_content = _regenerate_script_from_scratch_enhanced(
+                    segment_data, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
+                )
                 Path(script_path).write_text(script_content, encoding="utf-8")
-
-        # This should never be reached due to the logic above, but just in case
-        logger.error(f"❌ Unexpected end of render attempts for segment {i+1}")
-        return {'success': False, 'error': "Unexpected end of render attempts", 'index': i}
+                
+                # Try rendering the regenerated script
+                video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
+                
+                if video_path:
+                    target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    expected_path = target_dir / f"Segment{i:03d}.mp4"
+                    Path(video_path).replace(expected_path)
+                    logger.info(f"✅ Regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
+                    return {'success': True, 'video_path': str(expected_path), 'index': i}
+                else:
+                    logger.warning(f"⚠️ Regeneration {regeneration_count} failed for segment {i+1}: {error[:200]}")
+                    
+            except Exception as regen_error:
+                logger.error(f"❌ Regeneration {regeneration_count} crashed for segment {i+1}: {regen_error}")
+                continue  # Try next regeneration
+        
+        # Phase 3: All regenerations failed, use absolute fallback as last resort
+        logger.error(f"❌ All {max_regeneration_attempts} regenerations failed for segment {i+1}")
+        logger.warning(f"🆘 Using absolute fallback script for segment {i+1} (last resort)")
+        
+        try:
+            script_content = _generate_absolute_fallback_script(
+                segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+            )
+            Path(script_path).write_text(script_content, encoding="utf-8")
+            
+            video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
+            
+            if video_path:
+                target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
+                target_dir.mkdir(parents=True, exist_ok=True)
+                expected_path = target_dir / f"Segment{i:03d}.mp4"
+                Path(video_path).replace(expected_path)
+                logger.info(f"✅ Fallback video {i+1} saved to: {expected_path}")
+                return {'success': True, 'video_path': str(expected_path), 'index': i}
+            else:
+                logger.error(f"❌ Even absolute fallback failed for segment {i+1}: {error}")
+                return {'success': False, 'error': f"Complete failure after {total_attempts} attempts: {error}", 'index': i}
+                
+        except Exception as fallback_error:
+            logger.error(f"❌ Absolute fallback crashed for segment {i+1}: {fallback_error}")
+            return {'success': False, 'error': str(fallback_error), 'index': i}
 
     except Exception as e:
         logger.error(f"❌ Critical error in video rendering for segment {i+1}: {e}")
