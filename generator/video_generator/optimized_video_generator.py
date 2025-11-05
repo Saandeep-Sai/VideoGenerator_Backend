@@ -762,12 +762,30 @@ Begin your response now.
 
         # Expected output file path - 480p15 quality outputs to 480p15 folder
         if segment_index is not None:
+            # Try expected filename first
             expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
-            else:
-                return None, f"❌ Expected video not found at {expected_path}"
+            
+            # Fallback: Manim uses class name "Scene" so file is Scene.mp4
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / "Scene.mp4"
+            if scene_path.exists():
+                logger.info(f"✅ Found video as Scene.mp4, renaming to Segment{segment_index:03d}.mp4")
+                scene_path.rename(expected_path)
+                return str(expected_path), None
+            
+            # If still not found, search the segment folder
+            segment_folder = temp_path / "media" / "videos" / f"segment_{segment_index:03d}"
+            if segment_folder.exists():
+                video_files = list(segment_folder.glob("**/*.mp4"))
+                if video_files:
+                    found_video = video_files[0]
+                    logger.info(f"✅ Found video at {found_video}, renaming to expected path")
+                    found_video.rename(expected_path)
+                    return str(expected_path), None
+            
+            return None, f"❌ Expected video not found at {expected_path} or Scene.mp4"
 
         # Fallback: find any mp4 in media
         video_files = list((temp_path / "media").glob("**/*.mp4"))
