@@ -489,18 +489,41 @@ Continue for all segments. Output ONLY scripts with separators.
         # Get aspect ratio configuration
         aspect_ratio_config = self._get_aspect_ratio_config()
         
+        # Aspect ratio-specific layout guidelines
+        aspect_ratio_guidelines = {
+            "16:9": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
+            "9:16": "Vertical/portrait layout (mobile). Stack elements vertically. Keep text narrow (max 7 units wide). Center horizontally.",
+            "1:1": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
+            "4:3": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
+            "21:9": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible."
+        }
+        layout_guide = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
+        
         # Simplified prompt to avoid blocking
         prompt = f"""Create a Manim script for this segment:
 
 Duration: {segment.duration} seconds
 Content: {segment.text}
 Visual: {segment.visual_description}
+Aspect Ratio: {self.config.aspect_ratio}
+
+🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
+{layout_guide}
+
+⚠️ ESSENTIAL RULES:
+1. ALL text must use font_size <= 48 for titles, <= 36 for body text
+2. Use .scale_to_fit_width(config.frame_width * 0.8) for long text to prevent overflow
+3. NEVER place objects too close together - use .shift() or .move_to() with clear spacing
+4. Test object positions: TOP = UP * (config.frame_height/2 - 1), CENTER = ORIGIN, BOTTOM = DOWN * (config.frame_height/2 - 1)
+5. Keep all objects within safe boundaries (leave 1 unit margin from edges)
+6. For {self.config.aspect_ratio} layout: {layout_guide}
 
 Requirements:
 - Use class name: GeneratedAnimation{segment_number}
 - Duration exactly {segment.duration} seconds
 - Simple, clean animations
 - No external assets
+- Respect the {self.config.aspect_ratio} aspect ratio constraints
 
 Output format:
 from manim import *
@@ -509,7 +532,7 @@ from manim import *
 
 class GeneratedAnimation{segment_number}(Scene):
     def construct(self):
-        # Your animation code
+        # Your animation code respecting {self.config.aspect_ratio} layout
         self.wait({segment.duration})
 """
         
@@ -858,37 +881,75 @@ Begin your response now.
         }
         width, height, fw, fh = aspect_map.get(self.config.aspect_ratio, (1920, 1080, 16, 9))
 
-        # Build ffmpeg filter_complex string similar to working test command provided by user
-        # It scales both inputs to the same size, sets display aspect ratio and sample aspect ratio,
-        # then concatenates video+audio streams into a single output with re-encoding.
-        filter_complex = (
-            f"[0:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v0];"
-            f"[1:v]scale={width}:{height},setdar={fw}/{fh},setsar=1[v1];"
-            f"[v0][0:a?][v1][1:a?]concat=n=2:v=1:a=1[v][a]"
-        )
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(intro_video),
-            "-i", str(generated_video_path),
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-map", "[a]",
+        # Use simpler concat demuxer approach (more compatible with older FFmpeg)
+        # First, create a temporary concat file
+        temp_dir = Path(self.config.temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Scale both videos to match aspect ratio first
+        intro_scaled = temp_dir / "intro_scaled.mp4"
+        generated_scaled = temp_dir / "generated_scaled.mp4"
+        
+        # Scale intro video
+        scale_intro_cmd = [
+            "ffmpeg", "-y", "-i", str(intro_video),
+            "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1",
             "-c:v", "libx264", "-preset", "ultrafast",
             "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart",
-            str(output_path)
+            str(intro_scaled)
         ]
-
-        logger.info(f"🔗 Combining intro + generated with ffmpeg (this will re-encode): {output_path}")
-        logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
-
+        
+        # Scale generated video
+        scale_generated_cmd = [
+            "ffmpeg", "-y", "-i", str(generated_video_path),
+            "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+            "-c:v", "libx264", "-preset", "ultrafast",
+            "-c:a", "aac", "-b:a", "192k",
+            str(generated_scaled)
+        ]
+        
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
+            # Scale intro
+            logger.info("🔧 Scaling intro video to match aspect ratio...")
+            subprocess.run(scale_intro_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
+            
+            # Scale generated video
+            logger.info("🔧 Scaling generated video to match aspect ratio...")
+            subprocess.run(scale_generated_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
+            
+            # Create concat file
+            concat_file = temp_dir / "intro_concat.txt"
+            with open(concat_file, "w") as f:
+                f.write(f"file '{intro_scaled.resolve().as_posix()}'\n")
+                f.write(f"file '{generated_scaled.resolve().as_posix()}'\n")
+            
+            # Concatenate using concat demuxer (fastest, no re-encoding)
+            concat_cmd = [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", str(concat_file),
+                "-c", "copy",
+                "-movflags", "+faststart",
+                str(output_path)
+            ]
+            
+            logger.info(f"🔗 Concatenating intro + generated video: {output_path}")
+            subprocess.run(concat_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
+            
+            # Cleanup temporary files
+            intro_scaled.unlink(missing_ok=True)
+            generated_scaled.unlink(missing_ok=True)
+            concat_file.unlink(missing_ok=True)
+            
             logger.info(f"✅ Intro concatenation complete: {output_path}")
             return output_path
+            
         except subprocess.CalledProcessError as e:
             logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
             logger.warning("⚠️ Returning video without intro")
+            # Cleanup on error
+            intro_scaled.unlink(missing_ok=True)
+            generated_scaled.unlink(missing_ok=True)
             return generated_video_path
         except subprocess.TimeoutExpired:
             logger.error("❌ ffmpeg timed out while combining intro")
@@ -1261,24 +1322,43 @@ Rectangle: width, height, color, fill_color, fill_opacity
 
         allowed_colors = "WHITE, BLUE, GREEN, RED, YELLOW, PINK, ORANGE, PURPLE, GOLD, GRAY"
 
+        # Aspect ratio-specific layout guidelines
+        aspect_ratio_guidelines = {
+            "16:9": "Wide horizontal (16:9). Place titles at top, content center. Frame: 16 wide × 9 tall. Use horizontal spacing.",
+            "9:16": "Vertical portrait (9:16) for mobile/shorts. Stack vertically. Frame: 9 wide × 16 tall. Keep text narrow (max 7 units).",
+            "1:1": "Square (1:1) for Instagram. Center everything. Frame: 1×1 ratio. Balanced layout.",
+            "4:3": "Standard (4:3). Slightly wider. Frame: 4 wide × 3 tall. Traditional spacing.",
+            "21:9": "Ultra-wide cinematic (21:9). Frame: 21 wide × 9 tall. Use side-by-side layouts."
+        }
+        layout_guide = aspect_ratio_guidelines.get(aspect_ratio, aspect_ratio_guidelines["16:9"])
+
         prompt = f"""
 You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WORKING Manim script from scratch.
 
 🎯 CRITICAL REQUIREMENTS:
 - Exact duration: {actual_duration:.2f} seconds
 - Class name: Segment{index:03d}
+- Aspect Ratio: {aspect_ratio}
 - Calculate total run_time of all animations
 - Add self.wait(...) at the end so total time matches exactly
 - Create awesome and professional animations.
 - DO NOT use markdown formatting - return raw Python code only
 Use ONLY the provided allowed objects and colors.
 
-⚠️ Strict Layout Rules:
-- Never place two objects too close or on top of each other.
-- Use `.move_to()` or `.shift()` to keep each element in a separate area (e.g., title at top, subtitle at bottom).
-- Use `font_size <= 48` for titles and `font_size <= 36` for subtitles or descriptions.
-- Use `.scale_to_fit_width(7)` for long Text objects to prevent overflow.
-- Do not let any object exceed the screen width or height.
+🎬 ASPECT RATIO LAYOUT for {aspect_ratio}:
+{layout_guide}
+
+⚠️ Strict Layout Rules for {aspect_ratio}:
+- Respect frame dimensions: config.frame_width × config.frame_height
+- Use .scale_to_fit_width(config.frame_width * 0.8) for long text
+- Position using: TOP = UP * (config.frame_height/2 - 1), CENTER = ORIGIN, BOTTOM = DOWN * (config.frame_height/2 - 1)
+- Never place two objects too close or on top of each other
+- Use `.move_to()` or `.shift()` to keep each element in a separate area
+- Use `font_size <= 48` for titles and `font_size <= 36` for body text
+- Keep 1-unit margin from all edges
+- For vertical layouts (9:16): stack vertically, center horizontally
+- For horizontal layouts (16:9, 21:9): use width, place side-by-side when possible
+- For square (1:1): center everything with balanced spacing
 
 
 📝 CONTENT:
