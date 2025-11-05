@@ -747,11 +747,10 @@ Begin your response now.
             # Aspect ratio is now configured inside the script itself
             # Use -qp for high quality 1080p30 output (2x faster than -qh 60fps)
             # Enable caching for 3-5x speedup on regenerations
-            # Use --renderer=opengl for GPU acceleration if available
             # On Windows, use "python -m manim" instead of just "manim"
-            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-qp", "--format", "mp4", "--renderer=opengl"]
+            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-qp", "--format", "mp4"]
             
-            logger.info(f"🎬 Running with GPU acceleration: {' '.join(cmd)}")
+            logger.info(f"🎬 Running Manim render: {' '.join(cmd)}")
             
             process = subprocess.run(cmd, capture_output=True, text=True, cwd=temp_path, env=env)
 
