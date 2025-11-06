@@ -90,8 +90,8 @@ class VideoGenerationConfig:
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
     max_generation_attempts: int = 3
-    max_correction_attempts: int = 10  # Max attempts to fix script with Gemini/Groq
-    max_regeneration_attempts: int = 5  # Max attempts to regenerate script from scratch
+    max_correction_attempts: int = 3  # Max attempts to fix script with Gemini/Groq before regenerating
+    max_regeneration_attempts: int = 4  # Max attempts to regenerate script from scratch
     batch_size: int = 6  # Process 6 segments in parallel (optimized for 4-core ARM)
     aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     
@@ -1221,13 +1221,13 @@ def render_single_video_worker(args):
 
         # Try rendering with enhanced error handling
         max_correction_attempts = config_dict.get('max_correction_attempts', 3)
-        max_regeneration_attempts = config_dict.get('max_regeneration_attempts', 5)  # New: max times to regenerate
+        max_regeneration_attempts = config_dict.get('max_regeneration_attempts', 4)  # Regenerate after 3-4 failed corrections
         
         total_attempts = 0
         correction_cycle = 0
         regeneration_count = 0
         
-        # Phase 1: Try corrections with Gemini/Groq
+        # Phase 1: Try corrections with Gemini/Groq (limited to 3 attempts for quick regeneration)
         while correction_cycle < max_correction_attempts:
             total_attempts += 1
             video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
@@ -1322,16 +1322,70 @@ def render_single_video_worker(args):
                 logger.error(f"❌ Regeneration {regeneration_count} crashed for segment {i+1}: {regen_error}")
                 continue  # Try next regeneration
         
-        # Phase 3: All regenerations failed, use absolute fallback as last resort
+        # Phase 3: All regenerations failed, use absolute fallback with MULTIPLE retries - WILL NOT GIVE UP!
         logger.error(f"❌ All {max_regeneration_attempts} regenerations failed for segment {i+1}")
-        logger.warning(f"🆘 Using absolute fallback script for segment {i+1} (last resort)")
+        logger.warning(f"🆘 Entering fallback mode for segment {i+1} - VIDEO WILL BE GENERATED AT ANY COST!")
+        
+        # Try fallback scripts with increasing simplicity (reduced attempts for faster processing)
+        fallback_attempts = 0
+        max_fallback_attempts = 10  # Reduced from 20 to 10 for faster fallback
+        
+        while fallback_attempts < max_fallback_attempts:
+            fallback_attempts += 1
+            total_attempts += 1
+            
+            try:
+                # Generate progressively simpler fallback scripts
+                if fallback_attempts <= 3:
+                    # Try basic fallback with text (reduced from 5 to 3)
+                    logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using basic fallback with text")
+                    script_content = _generate_absolute_fallback_script(
+                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                    )
+                elif fallback_attempts <= 6:
+                    # Try ultra-minimal fallback (shapes only, no text)
+                    logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using minimal fallback (shapes only)")
+                    script_content = _generate_minimal_fallback_script(
+                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                    )
+                else:
+                    # Try absolute bare-bones fallback (single circle)
+                    logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using bare-bones fallback")
+                    script_content = _generate_bare_bones_fallback_script(
+                        i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                    )
+                
+                Path(script_path).write_text(script_content, encoding="utf-8")
+                
+                video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
+                
+                if video_path:
+                    target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    expected_path = target_dir / f"Segment{i:03d}.mp4"
+                    Path(video_path).replace(expected_path)
+                    logger.info(f"✅ Video {i+1} GENERATED (fallback attempt {fallback_attempts}) after {total_attempts} total attempts: {expected_path}")
+                    return {'success': True, 'video_path': str(expected_path), 'index': i}
+                else:
+                    logger.warning(f"⚠️ Fallback attempt {fallback_attempts} failed: {error[:100] if error else 'Unknown error'}")
+                    
+            except Exception as fallback_error:
+                logger.warning(f"⚠️ Fallback attempt {fallback_attempts} crashed: {str(fallback_error)[:100]}")
+        
+        # FINAL DESPERATE ATTEMPT: Absolute minimum script (empty scene with just wait)
+        logger.critical(f"🚨 All {max_fallback_attempts} fallback attempts failed for segment {i+1}")
+        logger.critical(f"🚨 Making FINAL DESPERATE attempt with absolute minimum script...")
         
         try:
-            script_content = _generate_absolute_fallback_script(
-                segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
-            )
+            duration = segment_data.get('duration', 5.0)
+            script_content = f"""from manim import *
+
+class Segment{i:03d}(Scene):
+    def construct(self):
+        # Absolute minimum - just wait
+        self.wait({duration})
+"""
             Path(script_path).write_text(script_content, encoding="utf-8")
-            
             video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
             
             if video_path:
@@ -1339,15 +1393,16 @@ def render_single_video_worker(args):
                 target_dir.mkdir(parents=True, exist_ok=True)
                 expected_path = target_dir / f"Segment{i:03d}.mp4"
                 Path(video_path).replace(expected_path)
-                logger.info(f"✅ Fallback video {i+1} saved to: {expected_path}")
+                logger.info(f"✅ Video {i+1} GENERATED with ABSOLUTE MINIMUM script after {total_attempts} attempts: {expected_path}")
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
             else:
-                logger.error(f"❌ Even absolute fallback failed for segment {i+1}: {error}")
-                return {'success': False, 'error': f"Complete failure after {total_attempts} attempts: {error}", 'index': i}
-                
-        except Exception as fallback_error:
-            logger.error(f"❌ Absolute fallback crashed for segment {i+1}: {fallback_error}")
-            return {'success': False, 'error': str(fallback_error), 'index': i}
+                logger.critical(f"❌ Even absolute minimum script failed: {error}")
+        except Exception as last_error:
+            logger.critical(f"❌ Final desperate attempt crashed: {last_error}")
+        
+        # If we truly cannot generate ANY video, return error
+        logger.critical(f"💀 COMPLETE FAILURE: Segment {i+1} could NOT be generated after {total_attempts} attempts")
+        return {'success': False, 'error': f"All {total_attempts} attempts exhausted - video generation impossible", 'index': i}
 
     except Exception as e:
         logger.error(f"❌ Critical error in video rendering for segment {i+1}: {e}")
@@ -1676,6 +1731,82 @@ class Segment{index:03d}(Scene):
 '''
     
     logger.info(f"✅ Absolute fallback script generated for segment {index+1} with duration {duration:.2f}s")
+    return script
+
+
+def _generate_minimal_fallback_script(segment_data: dict, index: int, duration: float, aspect_ratio: str = "16:9") -> str:
+    """
+    Generate ultra-minimal fallback script with just shapes (no text).
+    This should almost always work.
+    """
+    aspect_ratio_configs = {
+        "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
+        "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
+        "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
+        "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
+        "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080}
+    }
+    config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
+    
+    # Simple animation timing
+    anim_time = min(2.0, duration * 0.4)
+    remaining_time = max(0.1, duration - anim_time * 2)
+    
+    script = f'''from manim import *
+
+# Aspect Ratio Configuration: {aspect_ratio}
+config.frame_width = {config['frame_width']}
+config.frame_height = {config['frame_height']}
+config.pixel_width = {config['pixel_width']}
+config.pixel_height = {config['pixel_height']}
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Minimal fallback - just shapes, no text
+        circle = Circle(radius=1, color=BLUE, fill_opacity=0.5)
+        square = Square(side_length=1.5, color=GREEN, fill_opacity=0.3)
+        square.shift(RIGHT * 2)
+        
+        self.play(Create(circle), Create(square), run_time={anim_time:.2f})
+        self.wait({remaining_time:.2f})
+        self.play(FadeOut(circle), FadeOut(square), run_time={anim_time:.2f})
+'''
+    
+    logger.info(f"✅ Minimal fallback script generated for segment {index+1}")
+    return script
+
+
+def _generate_bare_bones_fallback_script(index: int, duration: float, aspect_ratio: str = "16:9") -> str:
+    """
+    Generate bare-bones fallback script - absolute minimum complexity.
+    Just a single circle. This MUST work.
+    """
+    aspect_ratio_configs = {
+        "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
+        "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
+        "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
+        "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
+        "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080}
+    }
+    config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
+    
+    script = f'''from manim import *
+
+# Aspect Ratio Configuration: {aspect_ratio}
+config.frame_width = {config['frame_width']}
+config.frame_height = {config['frame_height']}
+config.pixel_width = {config['pixel_width']}
+config.pixel_height = {config['pixel_height']}
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Bare-bones fallback - single circle
+        circle = Circle()
+        self.add(circle)
+        self.wait({duration:.2f})
+'''
+    
+    logger.info(f"✅ Bare-bones fallback script generated for segment {index+1}")
     return script
 
 
