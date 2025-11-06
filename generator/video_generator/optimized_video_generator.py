@@ -1011,8 +1011,8 @@ Begin your response now.
 
     def _add_intro_with_ffmpeg(self, generated_video_path: str) -> str:
         """
-        Add intro video to the beginning of generated video using SAFE concat method.
-        Uses filter_complex to ensure proper audio/video sync and prevent stretching.
+        Add intro video to the beginning of generated video.
+        Re-encodes both videos to identical specs for reliable concatenation.
         
         Args:
             generated_video_path: Path to the generated video (with audio)
@@ -1034,42 +1034,71 @@ Begin your response now.
 
         # Default output path
         output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
+        temp_dir = Path(self.config.temp_dir)
         
-        # Use filter_complex method for reliable audio/video handling
-        # This ensures both streams are properly concatenated without stretching
-        cmd = [
+        # Step 1: Re-encode main video to match intro specs (854x480, 30fps, H.264, AAC stereo)
+        logger.info("🔧 Re-encoding main video to match intro specs...")
+        normalized_main = temp_dir / "main_normalized.mp4"
+        
+        cmd_normalize = [
             "ffmpeg", "-y",
-            "-i", str(scaled_intro),
             "-i", str(generated_video_path),
-            "-filter_complex",
-            "[0:v][0:a?][1:v][1:a?]concat=n=2:v=1:a=1[outv][outa]",
-            "-map", "[outv]",
-            "-map", "[outa]",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "192k",
+            "-vf", "scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,fps=30",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-c:a", "aac", "-ac", "2", "-ar", "44100", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(normalized_main)
+        ]
+        
+        try:
+            subprocess.run(cmd_normalize, check=True, capture_output=True, text=True, timeout=180)
+            logger.info(f"✅ Main video normalized")
+        except Exception as e:
+            logger.error(f"❌ Failed to normalize main video: {e}")
+            logger.warning("⚠️ Returning video without intro")
+            return generated_video_path
+        
+        # Step 2: Create concat demuxer file with normalized videos
+        logger.info("🔗 Creating concat list...")
+        concat_file = temp_dir / "intro_concat.txt"
+        
+        with open(concat_file, "w") as f:
+            f.write(f"file '{scaled_intro.resolve().as_posix()}'\n")
+            f.write(f"file '{normalized_main.resolve().as_posix()}'\n")
+        
+        # Step 3: Concatenate using demuxer (fast, no re-encoding)
+        cmd_concat = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
             "-movflags", "+faststart",
             str(output_path)
         ]
 
-        logger.info(f"🔗 Combining intro + generated (safe method with audio): {output_path}")
-        logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
-
+        logger.info(f"🔗 Concatenating intro + main (fast method): {output_path}")
+        
         try:
-            # This may take 30-120 seconds due to re-encoding on slow VMs, but ensures quality
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
-            logger.info(f"✅ Intro concatenation complete (safe method): {output_path}")
+            subprocess.run(cmd_concat, check=True, capture_output=True, text=True, timeout=60)
+            logger.info(f"✅ Intro concatenation complete: {output_path}")
+            
+            # Cleanup temp files
+            normalized_main.unlink(missing_ok=True)
+            concat_file.unlink(missing_ok=True)
             
             return output_path
         except subprocess.CalledProcessError as e:
-            logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
+            logger.error(f"❌ ffmpeg concat failed: {e}\nstderr: {e.stderr}")
             logger.warning("⚠️ Returning video without intro")
+            normalized_main.unlink(missing_ok=True)
+            concat_file.unlink(missing_ok=True)
             return generated_video_path
         except subprocess.TimeoutExpired:
-            logger.error("❌ ffmpeg timed out while combining intro")
+            logger.error("❌ ffmpeg concat timed out")
             logger.warning("⚠️ Returning video without intro")
+            normalized_main.unlink(missing_ok=True)
+            concat_file.unlink(missing_ok=True)
             return generated_video_path
 
     def cleanup_temp_files(self) -> None:
