@@ -1011,8 +1011,8 @@ Begin your response now.
 
     def _add_intro_with_ffmpeg(self, generated_video_path: str) -> str:
         """
-        Add intro video to the beginning of generated video using FAST concat method.
-        Uses pre-scaled intro and concat demuxer for near-instant concatenation.
+        Add intro video to the beginning of generated video using SAFE concat method.
+        Uses filter_complex to ensure proper audio/video sync and prevent stretching.
         
         Args:
             generated_video_path: Path to the generated video (with audio)
@@ -1035,46 +1035,41 @@ Begin your response now.
         # Default output path
         output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
         
-        # Create concat list file
-        temp_dir = Path(self.config.temp_dir)
-        concat_file = temp_dir / "intro_concat_list.txt"
-        
-        with open(concat_file, "w") as f:
-            f.write(f"file '{scaled_intro.resolve().as_posix()}'\n")
-            f.write(f"file '{Path(generated_video_path).resolve().as_posix()}'\n")
-        
-        # Use concat demuxer with copy (no re-encoding = super fast!)
+        # Use filter_complex method for reliable audio/video handling
+        # This ensures both streams are properly concatenated without stretching
         cmd = [
             "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_file),
-            "-c", "copy",
+            "-i", str(scaled_intro),
+            "-i", str(generated_video_path),
+            "-filter_complex",
+            "[0:v][0:a?][1:v][1:a?]concat=n=2:v=1:a=1[outv][outa]",
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "192k",
             "-movflags", "+faststart",
             str(output_path)
         ]
 
-        logger.info(f"🔗 Combining intro + generated (fast concat, no re-encoding): {output_path}")
+        logger.info(f"🔗 Combining intro + generated (safe method with audio): {output_path}")
         logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
 
         try:
-            # This should be very fast (1-5 seconds) since we're using -c copy
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
-            logger.info(f"✅ Intro concatenation complete (fast method): {output_path}")
-            
-            # Cleanup concat file
-            concat_file.unlink(missing_ok=True)
+            # This may take 10-30 seconds due to re-encoding, but ensures quality
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+            logger.info(f"✅ Intro concatenation complete (safe method): {output_path}")
             
             return output_path
         except subprocess.CalledProcessError as e:
             logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
             logger.warning("⚠️ Returning video without intro")
-            concat_file.unlink(missing_ok=True)
             return generated_video_path
         except subprocess.TimeoutExpired:
-            logger.error("❌ ffmpeg timed out while combining intro (this should be fast!)")
+            logger.error("❌ ffmpeg timed out while combining intro")
             logger.warning("⚠️ Returning video without intro")
-            concat_file.unlink(missing_ok=True)
             return generated_video_path
 
     def cleanup_temp_files(self) -> None:
