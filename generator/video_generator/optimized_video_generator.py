@@ -121,6 +121,7 @@ class VideoGenerationPipeline:
         self.tts_available = False
         self.output_dir = Path(config.output_dir)
         self.device = "cpu"
+        self.scaled_intro_path = None  # Cache for pre-scaled intro
         
         self._setup_directories()
         self._validate_dependencies()
@@ -906,10 +907,56 @@ Begin your response now.
         logger.info("📁 No intro video found in initial_video folder")
         return None
 
+    def _prepare_scaled_intro(self) -> Optional[Path]:
+        """
+        Pre-scale intro video once to 854x480 (16:9, 480p) and cache it.
+        This is called once at the start to avoid re-encoding on every video.
+        
+        Returns:
+            Path to scaled intro, or None if not available
+        """
+        if self.scaled_intro_path and Path(self.scaled_intro_path).exists():
+            return Path(self.scaled_intro_path)
+        
+        intro_video = self._get_intro_video()
+        if not intro_video:
+            return None
+        
+        # Create scaled intro in temp directory
+        temp_dir = Path(self.config.temp_dir)
+        scaled_intro = temp_dir / "intro_scaled_854x480.mp4"
+        
+        # Check if already scaled
+        if scaled_intro.exists():
+            logger.info(f"✅ Using cached scaled intro: {scaled_intro}")
+            self.scaled_intro_path = str(scaled_intro)
+            return scaled_intro
+        
+        logger.info(f"🔧 Pre-scaling intro video to 854x480 (one-time operation)...")
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(intro_video),
+            "-vf", "scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,setdar=16/9,setsar=1",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(scaled_intro)
+        ]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+            logger.info(f"✅ Intro pre-scaled and cached: {scaled_intro}")
+            self.scaled_intro_path = str(scaled_intro)
+            return scaled_intro
+        except Exception as e:
+            logger.error(f"❌ Failed to pre-scale intro: {e}")
+            return None
+
     def _add_intro_with_ffmpeg(self, generated_video_path: str) -> str:
         """
-        Add intro video to the beginning of generated video using FFmpeg filter_complex.
-        This handles audio/video sync automatically and efficiently.
+        Add intro video to the beginning of generated video using FAST concat method.
+        Uses pre-scaled intro and concat demuxer for near-instant concatenation.
         
         Args:
             generated_video_path: Path to the generated video (with audio)
@@ -922,51 +969,56 @@ Begin your response now.
             logger.info(f"ℹ️ Intro only supported for 16:9 aspect ratio (current: {self.config.aspect_ratio}), skipping intro")
             return generated_video_path
         
-        intro_video = self._get_intro_video()
-
-        if not intro_video:
-            logger.info("ℹ️ No intro video found, returning video without intro")
+        # Get pre-scaled intro (or scale it now if not cached)
+        scaled_intro = self._prepare_scaled_intro()
+        
+        if not scaled_intro:
+            logger.info("ℹ️ No intro video available, returning video without intro")
             return generated_video_path
 
         # Default output path
         output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
-
-        # Resolution map for 16:9 (use 480p for fast rendering)
-        width, height = 854, 480
-
-        # Build filter_complex command (working version from user)
-        filter_complex = (
-            f"[0:v]scale={width}:{height},setdar=16/9,setsar=1[v0];"
-            f"[1:v]scale={width}:{height},setdar=16/9,setsar=1[v1];"
-            f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]"
-        )
-
+        
+        # Create concat list file
+        temp_dir = Path(self.config.temp_dir)
+        concat_file = temp_dir / "intro_concat_list.txt"
+        
+        with open(concat_file, "w") as f:
+            f.write(f"file '{scaled_intro.resolve().as_posix()}'\n")
+            f.write(f"file '{Path(generated_video_path).resolve().as_posix()}'\n")
+        
+        # Use concat demuxer with copy (no re-encoding = super fast!)
         cmd = [
             "ffmpeg", "-y",
-            "-i", str(intro_video),
-            "-i", str(generated_video_path),
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-preset", "ultrafast",
-            "-c:a", "aac", "-b:a", "192k",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
             "-movflags", "+faststart",
             str(output_path)
         ]
 
-        logger.info(f"� Combining intro + generated with ffmpeg filter_complex: {output_path}")
+        logger.info(f"🔗 Combining intro + generated (fast concat, no re-encoding): {output_path}")
         logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            logger.info(f"✅ Intro concatenation complete: {output_path}")
+            # This should be very fast (1-5 seconds) since we're using -c copy
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+            logger.info(f"✅ Intro concatenation complete (fast method): {output_path}")
+            
+            # Cleanup concat file
+            concat_file.unlink(missing_ok=True)
+            
             return output_path
         except subprocess.CalledProcessError as e:
             logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
             logger.warning("⚠️ Returning video without intro")
+            concat_file.unlink(missing_ok=True)
             return generated_video_path
         except subprocess.TimeoutExpired:
-            logger.error("❌ ffmpeg timed out while combining intro")
+            logger.error("❌ ffmpeg timed out while combining intro (this should be fast!)")
             logger.warning("⚠️ Returning video without intro")
+            concat_file.unlink(missing_ok=True)
             return generated_video_path
 
     def cleanup_temp_files(self) -> None:
@@ -974,9 +1026,14 @@ Begin your response now.
         try:
             temp_path = Path(self.config.temp_dir)
             if temp_path.exists():
-                # Remove all contents but keep the temp directory
+                # Remove all contents but keep the temp directory and cached intro
                 for item in temp_path.iterdir():
                     try:
+                        # Skip cached scaled intro
+                        if item.name == "intro_scaled_854x480.mp4":
+                            logger.info(f"⏭️ Keeping cached intro: {item}")
+                            continue
+                            
                         if item.is_file():
                             item.unlink()
                         elif item.is_dir():
