@@ -862,6 +862,11 @@ Begin your response now.
         Returns:
             Path to final video (with intro if found, otherwise original path)
         """
+        # Only add intro for 16:9 aspect ratio
+        if self.config.aspect_ratio != "16:9":
+            logger.info(f"ℹ️ Intro only supported for 16:9 aspect ratio (current: {self.config.aspect_ratio}), skipping intro")
+            return generated_video_path
+        
         intro_video = self._get_intro_video()
 
         if not intro_video:
@@ -871,85 +876,38 @@ Begin your response now.
         # Default output path
         output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
 
-        # Determine target scale and display aspect ratio from aspect_ratio config
-        aspect_map = {
-            "16:9": (1920, 1080, 16, 9),
-            "9:16": (1080, 1920, 9, 16),
-            "1:1": (1080, 1080, 1, 1),
-            "4:3": (1440, 1080, 4, 3),
-            "21:9": (2560, 1080, 21, 9),
-        }
-        width, height, fw, fh = aspect_map.get(self.config.aspect_ratio, (1920, 1080, 16, 9))
+        # Resolution map for 16:9 (use 480p for fast rendering)
+        width, height = 854, 480
 
-        # Use simpler concat demuxer approach (more compatible with older FFmpeg)
-        # First, create a temporary concat file
-        temp_dir = Path(self.config.temp_dir)
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Scale both videos to match aspect ratio first
-        intro_scaled = temp_dir / "intro_scaled.mp4"
-        generated_scaled = temp_dir / "generated_scaled.mp4"
-        
-        # Scale intro video
-        scale_intro_cmd = [
-            "ffmpeg", "-y", "-i", str(intro_video),
-            "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+        # Build filter_complex command (working version from user)
+        filter_complex = (
+            f"[0:v]scale={width}:{height},setdar=16/9,setsar=1[v0];"
+            f"[1:v]scale={width}:{height},setdar=16/9,setsar=1[v1];"
+            f"[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]"
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(intro_video),
+            "-i", str(generated_video_path),
+            "-filter_complex", filter_complex,
+            "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-preset", "ultrafast",
             "-c:a", "aac", "-b:a", "192k",
-            str(intro_scaled)
+            "-movflags", "+faststart",
+            str(output_path)
         ]
-        
-        # Scale generated video
-        scale_generated_cmd = [
-            "ffmpeg", "-y", "-i", str(generated_video_path),
-            "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1",
-            "-c:v", "libx264", "-preset", "ultrafast",
-            "-c:a", "aac", "-b:a", "192k",
-            str(generated_scaled)
-        ]
-        
+
+        logger.info(f"� Combining intro + generated with ffmpeg filter_complex: {output_path}")
+        logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
+
         try:
-            # Scale intro
-            logger.info("🔧 Scaling intro video to match aspect ratio...")
-            subprocess.run(scale_intro_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            
-            # Scale generated video
-            logger.info("🔧 Scaling generated video to match aspect ratio...")
-            subprocess.run(scale_generated_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            
-            # Create concat file
-            concat_file = temp_dir / "intro_concat.txt"
-            with open(concat_file, "w") as f:
-                f.write(f"file '{intro_scaled.resolve().as_posix()}'\n")
-                f.write(f"file '{generated_scaled.resolve().as_posix()}'\n")
-            
-            # Concatenate using concat demuxer (fastest, no re-encoding)
-            concat_cmd = [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",
-                "-movflags", "+faststart",
-                str(output_path)
-            ]
-            
-            logger.info(f"🔗 Concatenating intro + generated video: {output_path}")
-            subprocess.run(concat_cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
-            
-            # Cleanup temporary files
-            intro_scaled.unlink(missing_ok=True)
-            generated_scaled.unlink(missing_ok=True)
-            concat_file.unlink(missing_ok=True)
-            
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
             logger.info(f"✅ Intro concatenation complete: {output_path}")
             return output_path
-            
         except subprocess.CalledProcessError as e:
             logger.error(f"❌ ffmpeg failed while combining intro: {e}\nstdout: {e.stdout}\nstderr: {e.stderr}")
             logger.warning("⚠️ Returning video without intro")
-            # Cleanup on error
-            intro_scaled.unlink(missing_ok=True)
-            generated_scaled.unlink(missing_ok=True)
             return generated_video_path
         except subprocess.TimeoutExpired:
             logger.error("❌ ffmpeg timed out while combining intro")
