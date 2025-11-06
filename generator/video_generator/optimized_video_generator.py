@@ -295,23 +295,79 @@ config.pixel_height = {config['pixel_height']}
 
     def generate_narration_segments(self, topic: str, duration: int) -> List[NarrationSegment]:
         """
-        Generates narration segments in SEGMENT: duration | narration | visual format.
+        Generates narration segments with detailed visual descriptions for Manim animation.
         """
-        prompt = f"""Create educational video script for "{topic}" lasting {duration} seconds.
+        # Aspect ratio-specific visual guidance
+        aspect_ratio_visual_guide = {
+            "16:9": "Wide horizontal layout - use side-by-side elements, wide diagrams, landscape compositions",
+            "9:16": "Vertical portrait - stack elements vertically, use tall narrow visualizations, mobile-friendly layouts",
+            "1:1": "Square format - balanced centered layouts, symmetrical designs",
+            "4:3": "Standard format - traditional layouts, centered content",
+            "21:9": "Ultra-wide cinematic - use full width, panoramic visualizations, side-by-side comparisons"
+        }
+        visual_guide = aspect_ratio_visual_guide.get(self.config.aspect_ratio, aspect_ratio_visual_guide["16:9"])
+        
+        prompt = f"""You are an expert educational content creator specializing in creating engaging video scripts for Manim animations.
 
-Break into segments using this exact format:
-SEGMENT: [duration] | [narration] | [visual_description]
+📋 TASK: Create a {duration}-second educational video script about "{topic}" optimized for {self.config.aspect_ratio} aspect ratio.
 
-Rules:
-- Each segment should be 15-17 seconds
-- Use natural English (no code variables)
-- Include expression cues like [Excited], [Calm]
-- Total duration must equal {duration} seconds
-- Focus on clear educational content
+🎯 OUTPUT FORMAT (STRICT):
+SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [detailed_visual_description]
 
-Example:
-SEGMENT: 10 | [Calm] Welcome to our lesson on HTML tags | Show title screen with HTML logo
-SEGMENT: 8 | [Excited] HTML uses tags to structure web content | Display basic HTML structure diagram
+⚠️ CRITICAL REQUIREMENTS:
+
+1. **DURATION CONSTRAINTS:**
+   - Each segment: 12-18 seconds (sweet spot: 15 seconds)
+   - Total duration MUST equal exactly {duration} seconds
+   - Distribute time logically (intro: shorter, main content: longer, conclusion: medium)
+
+2. **NARRATION GUIDELINES:**
+   - Use natural, conversational English (avoid robotic/technical language)
+   - Include emotion cues: [Excited], [Calm], [Enthusiastic], [Serious], [Curious], [Confident]
+   - Keep sentences clear and concise (max 20 words per sentence)
+   - Build narrative flow: hook → explain → reinforce → conclude
+   - Avoid filler words, be direct and engaging
+
+3. **VISUAL DESCRIPTION REQUIREMENTS (CRITICAL FOR MANIM):**
+   - Be SPECIFIC about what should appear on screen
+   - Describe shapes, colors, text content, animations, transitions
+   - Aspect ratio consideration: {visual_guide}
+   - Mention object positions (top, center, bottom, left, right)
+   - Specify colors from: BLUE, RED, GREEN, YELLOW, WHITE, ORANGE, PINK, PURPLE, TEAL, GOLD
+   - Example: "Display blue circle at center, title 'Functions' at top in white text, animate arrow pointing down"
+   
+4. **VISUAL COMPLEXITY LEVELS:**
+   - Simple: 1-2 objects (text + shape)
+   - Medium: 3-4 objects (text + multiple shapes/diagrams)
+   - Complex: 5+ objects (diagrams, animations, transitions)
+   - Mix complexity levels for engagement
+
+📚 EXAMPLES (showing good vs bad):
+
+✅ GOOD:
+SEGMENT: 15 | [Enthusiastic] Let's explore how functions work in programming! | Display large blue circle labeled "Function" at center, smaller orange circles labeled "Input" and "Output" on left and right, animate arrows flowing from input through function to output
+
+✅ GOOD:
+SEGMENT: 12 | [Calm] Functions take inputs and return outputs | Show vertical stack for {self.config.aspect_ratio}: "Input" box at top in green, "Function Process" box in center with blue color, "Output" box at bottom in purple, connect with animated arrows
+
+❌ BAD (too vague):
+SEGMENT: 15 | Functions are important | Show diagram about functions
+
+❌ BAD (no visual details):
+SEGMENT: 12 | [Calm] Let's learn about functions | Display information
+
+🎬 ASPECT RATIO: {self.config.aspect_ratio}
+{visual_guide}
+
+💡 CONTENT STRUCTURE:
+- Segment 1 (Hook): Grab attention, introduce topic
+- Segments 2-N (Explain): Break down concepts, provide examples
+- Final Segment (Conclusion): Summarize key points, call-to-action
+
+📝 TOPIC: "{topic}"
+⏱️ TOTAL DURATION: {duration} seconds
+
+Generate the segments now (output ONLY the SEGMENT lines, no extra text):
 """
 
         safety_settings = {
