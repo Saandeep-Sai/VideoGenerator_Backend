@@ -489,15 +489,50 @@ Continue for all segments. Output ONLY scripts with separators.
         # Get aspect ratio configuration
         aspect_ratio_config = self._get_aspect_ratio_config()
         
-        # Aspect ratio-specific layout guidelines
+        # Aspect ratio-specific layout guidelines with detailed constraints
         aspect_ratio_guidelines = {
-            "16:9": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
-            "9:16": "Vertical/portrait layout (mobile). Stack elements vertically. Keep text narrow (max 7 units wide). Center horizontally.",
-            "1:1": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
-            "4:3": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
-            "21:9": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible."
+            "16:9": {
+                "guide": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
+                "max_text_width": "config.frame_width * 0.85",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "layout_example": "Place title at TOP (UP * 3), content at CENTER, footer at BOTTOM (DOWN * 3)"
+            },
+            "9:16": {
+                "guide": "CRITICAL: Vertical/portrait layout for mobile. Frame is NARROW (9 wide × 16 tall). Text MUST be constrained to prevent overflow.",
+                "max_text_width": "config.frame_width * 0.65",  # Much narrower for vertical
+                "max_font_title": 32,  # Smaller fonts for narrow screen
+                "max_font_body": 24,
+                "layout_example": "Stack vertically: title at UP*6, content1 at UP*2, content2 at ORIGIN, content3 at DOWN*2, footer at DOWN*6"
+            },
+            "1:1": {
+                "guide": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
+                "max_text_width": "config.frame_width * 0.75",
+                "max_font_title": 42,
+                "max_font_body": 30,
+                "layout_example": "Center everything with balanced spacing"
+            },
+            "4:3": {
+                "guide": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
+                "max_text_width": "config.frame_width * 0.80",
+                "max_font_title": 44,
+                "max_font_body": 32,
+                "layout_example": "Traditional TV layout with centered content"
+            },
+            "21:9": {
+                "guide": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible.",
+                "max_text_width": "config.frame_width * 0.90",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "layout_example": "Use full width, place elements side-by-side"
+            }
         }
-        layout_guide = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
+        layout_info = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
+        layout_guide = layout_info["guide"]
+        max_text_width = layout_info["max_text_width"]
+        max_font_title = layout_info["max_font_title"]
+        max_font_body = layout_info["max_font_body"]
+        layout_example = layout_info["layout_example"]
         
         # Simplified prompt to avoid blocking
         prompt = f"""Create a Manim script for this segment:
@@ -510,13 +545,32 @@ Aspect Ratio: {self.config.aspect_ratio}
 🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
 {layout_guide}
 
-⚠️ ESSENTIAL RULES:
-1. ALL text must use font_size <= 48 for titles, <= 36 for body text
-2. Use .scale_to_fit_width(config.frame_width * 0.8) for long text to prevent overflow
-3. NEVER place objects too close together - use .shift() or .move_to() with clear spacing
-4. Test object positions: TOP = UP * (config.frame_height/2 - 1), CENTER = ORIGIN, BOTTOM = DOWN * (config.frame_height/2 - 1)
-5. Keep all objects within safe boundaries (leave 1 unit margin from edges)
-6. For {self.config.aspect_ratio} layout: {layout_guide}
+⚠️ ESSENTIAL TEXT OVERFLOW PREVENTION:
+1. ALL text MUST use font_size <= {max_font_title} for titles, <= {max_font_body} for body text
+2. ALWAYS apply .scale_to_fit_width({max_text_width}) to EVERY Text/MarkupText object
+3. For long text (>50 chars), break into multiple shorter Text objects stacked vertically
+4. Example for {self.config.aspect_ratio}:
+   title = Text("Your Title", font_size={max_font_title})
+   title.scale_to_fit_width({max_text_width})
+   title.move_to(UP * 2)
+
+⚠️ LAYOUT RULES:
+- NEVER place objects too close together - use .shift() or .move_to() with clear spacing
+- Positions: {layout_example}
+- Keep all objects within safe boundaries (leave 1 unit margin from edges)
+- For {self.config.aspect_ratio}: {layout_guide}
+
+📐 Working Example for {self.config.aspect_ratio}:
+```python
+# Good: Text constrained and positioned properly
+title = Text("Educational Topic", font_size={max_font_title})
+title.scale_to_fit_width({max_text_width})
+title.move_to(UP * {"6" if self.config.aspect_ratio == "9:16" else "3"})
+
+content = Text("Main content here", font_size={max_font_body})
+content.scale_to_fit_width({max_text_width})
+content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "UP * 0.5"})
+```
 
 Requirements:
 - Use class name: GeneratedAnimation{segment_number}
@@ -524,6 +578,7 @@ Requirements:
 - Simple, clean animations
 - No external assets
 - Respect the {self.config.aspect_ratio} aspect ratio constraints
+- ALWAYS use scale_to_fit_width() for ALL text objects
 
 Output format:
 from manim import *
@@ -1312,15 +1367,107 @@ Rectangle: width, height, color, fill_color, fill_opacity
 
         allowed_colors = "WHITE, BLUE, GREEN, RED, YELLOW, PINK, ORANGE, PURPLE, GOLD, GRAY"
 
-        # Aspect ratio-specific layout guidelines
+        # Aspect ratio-specific layout guidelines with detailed constraints
         aspect_ratio_guidelines = {
-            "16:9": "Wide horizontal (16:9). Place titles at top, content center. Frame: 16 wide × 9 tall. Use horizontal spacing.",
-            "9:16": "Vertical portrait (9:16) for mobile/shorts. Stack vertically. Frame: 9 wide × 16 tall. Keep text narrow (max 7 units).",
-            "1:1": "Square (1:1) for Instagram. Center everything. Frame: 1×1 ratio. Balanced layout.",
-            "4:3": "Standard (4:3). Slightly wider. Frame: 4 wide × 3 tall. Traditional spacing.",
-            "21:9": "Ultra-wide cinematic (21:9). Frame: 21 wide × 9 tall. Use side-by-side layouts."
+            "16:9": {
+                "guide": "Wide horizontal (16:9). Place titles at top, content center. Frame: 16 wide × 9 tall.",
+                "max_text_width": "config.frame_width * 0.85",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "example": """
+# 16:9 Example
+title = Text("Wide Layout Title", font_size=48)
+title.scale_to_fit_width(config.frame_width * 0.85)
+title.to_edge(UP, buff=1)
+
+content = Text("Content goes here", font_size=36)
+content.scale_to_fit_width(config.frame_width * 0.85)
+content.move_to(ORIGIN)
+"""
+            },
+            "9:16": {
+                "guide": "CRITICAL: Vertical portrait (9:16) for mobile. Frame: 9 wide × 16 tall. Text MUST be narrow!",
+                "max_text_width": "config.frame_width * 0.65",
+                "max_font_title": 32,
+                "max_font_body": 24,
+                "example": """
+# 9:16 VERTICAL Example - ALWAYS use scale_to_fit_width!
+title = Text("Short Title", font_size=32)
+title.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL for 9:16!
+title.move_to(UP * 6)
+
+subtitle = Text("Subtitle text", font_size=24)
+subtitle.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL!
+subtitle.move_to(UP * 4)
+
+content = Text("Main point", font_size=24)
+content.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL!
+content.move_to(ORIGIN)
+
+# Stack elements vertically with spacing
+footer = Text("Footer", font_size=20)
+footer.scale_to_fit_width(config.frame_width * 0.65)
+footer.move_to(DOWN * 6)
+"""
+            },
+            "1:1": {
+                "guide": "Square (1:1). Center everything. Frame: 1×1 ratio. Balanced layout.",
+                "max_text_width": "config.frame_width * 0.75",
+                "max_font_title": 42,
+                "max_font_body": 30,
+                "example": """
+# 1:1 Square Example
+title = Text("Centered Title", font_size=42)
+title.scale_to_fit_width(config.frame_width * 0.75)
+title.move_to(UP * 2)
+
+content = Text("Content", font_size=30)
+content.scale_to_fit_width(config.frame_width * 0.75)
+content.move_to(ORIGIN)
+"""
+            },
+            "4:3": {
+                "guide": "Standard (4:3). Frame: 4 wide × 3 tall. Traditional TV layout.",
+                "max_text_width": "config.frame_width * 0.80",
+                "max_font_title": 44,
+                "max_font_body": 32,
+                "example": """
+# 4:3 Example
+title = Text("Standard Title", font_size=44)
+title.scale_to_fit_width(config.frame_width * 0.80)
+title.to_edge(UP, buff=0.5)
+
+content = Text("Content", font_size=32)
+content.scale_to_fit_width(config.frame_width * 0.80)
+content.move_to(ORIGIN)
+"""
+            },
+            "21:9": {
+                "guide": "Ultra-wide (21:9). Frame: 21 wide × 9 tall. Use full width, side-by-side layouts.",
+                "max_text_width": "config.frame_width * 0.90",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "example": """
+# 21:9 Ultra-wide Example
+title = Text("Cinematic Wide Title", font_size=48)
+title.scale_to_fit_width(config.frame_width * 0.90)
+title.to_edge(UP, buff=1)
+
+# Use side-by-side layout
+left_content = Text("Left", font_size=36)
+left_content.move_to(LEFT * 5)
+
+right_content = Text("Right", font_size=36)
+right_content.move_to(RIGHT * 5)
+"""
+            }
         }
-        layout_guide = aspect_ratio_guidelines.get(aspect_ratio, aspect_ratio_guidelines["16:9"])
+        layout_info = aspect_ratio_guidelines.get(aspect_ratio, aspect_ratio_guidelines["16:9"])
+        layout_guide = layout_info["guide"]
+        max_text_width = layout_info["max_text_width"]
+        max_font_title = layout_info["max_font_title"]
+        max_font_body = layout_info["max_font_body"]
+        code_example = layout_info["example"]
 
         prompt = f"""
 You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WORKING Manim script from scratch.
@@ -1331,25 +1478,30 @@ You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WO
 - Aspect Ratio: {aspect_ratio}
 - Calculate total run_time of all animations
 - Add self.wait(...) at the end so total time matches exactly
-- Create awesome and professional animations.
+- Create awesome and professional animations
 - DO NOT use markdown formatting - return raw Python code only
-Use ONLY the provided allowed objects and colors.
+- Use ONLY the provided allowed objects and colors
 
-🎬 ASPECT RATIO LAYOUT for {aspect_ratio}:
+🎬 ASPECT RATIO: {aspect_ratio}
 {layout_guide}
 
-⚠️ Strict Layout Rules for {aspect_ratio}:
+🚨 CRITICAL TEXT OVERFLOW PREVENTION FOR {aspect_ratio}:
+- Maximum font size for titles: {max_font_title}
+- Maximum font size for body text: {max_font_body}
+- ALWAYS apply .scale_to_fit_width({max_text_width}) to EVERY Text object
+- For {aspect_ratio}, text width is LIMITED - MUST use scale_to_fit_width()!
+- Break long text (>50 chars) into multiple shorter Text objects
+
+📚 WORKING CODE EXAMPLE FOR {aspect_ratio}:
+{code_example}
+
+⚠️ Layout Rules for {aspect_ratio}:
 - Respect frame dimensions: config.frame_width × config.frame_height
-- Use .scale_to_fit_width(config.frame_width * 0.8) for long text
-- Position using: TOP = UP * (config.frame_height/2 - 1), CENTER = ORIGIN, BOTTOM = DOWN * (config.frame_height/2 - 1)
+- MANDATORY: Use .scale_to_fit_width({max_text_width}) for ALL text objects
 - Never place two objects too close or on top of each other
 - Use `.move_to()` or `.shift()` to keep each element in a separate area
-- Use `font_size <= 48` for titles and `font_size <= 36` for body text
 - Keep 1-unit margin from all edges
-- For vertical layouts (9:16): stack vertically, center horizontally
-- For horizontal layouts (16:9, 21:9): use width, place side-by-side when possible
-- For square (1:1): center everything with balanced spacing
-
+- Position elements with proper vertical/horizontal spacing
 
 📝 CONTENT:
 - Narration: "{narration}"
@@ -1367,9 +1519,10 @@ Use ONLY the provided allowed objects and colors.
 ⚠️ IMPORTANT:
 - Start with: from manim import *
 - Then add aspect ratio configuration
-- Dont Use  <b>, <i>, <u> tags in MarkupText (NO <code> tags)
+- Don't use <b>, <i>, <u> tags in MarkupText (NO <code> tags)
 - Ensure animations + wait time = {actual_duration:.2f} seconds exactly
 - Make it visually engaging but simple
+- EVERY Text object MUST have .scale_to_fit_width() applied
 
 Required format:
 from manim import *
@@ -1378,7 +1531,7 @@ from manim import *
 
 class Segment{index:03d}(Scene):
     def construct(self):
-        # Your code here
+        # Your code here - REMEMBER: scale_to_fit_width() for ALL text!
 
 Generate the complete script now:
 """
@@ -1423,11 +1576,11 @@ def _generate_absolute_fallback_script(segment_data: dict, index: int, duration:
     
     # Generate aspect ratio config
     aspect_ratio_configs = {
-        "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
-        "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
-        "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
-        "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
-        "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080}
+        "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080, "text_width": 0.85, "font_size": 32, "y_pos": 0.5},
+        "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920, "text_width": 0.65, "font_size": 24, "y_pos": 2},
+        "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080, "text_width": 0.75, "font_size": 30, "y_pos": 0.5},
+        "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080, "text_width": 0.80, "font_size": 32, "y_pos": 0.5},
+        "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080, "text_width": 0.90, "font_size": 32, "y_pos": 0.5}
     }
     config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
     
@@ -1441,19 +1594,21 @@ config.pixel_height = {config['pixel_height']}
 
 class Segment{index:03d}(Scene):
     def construct(self):
-        # Create main content
-        title = Text("{display_text}", font_size=32)
+        # Create main content with proper width constraint
+        title = Text("{display_text}", font_size={config['font_size']})
+        title.scale_to_fit_width(config.frame_width * {config['text_width']})
         title.set_color(BLUE)
-        title.move_to(UP * 0.5)
+        title.move_to(UP * {config['y_pos']})
         
         # Create segment indicator
-        segment_info = Text(f"Segment {index+1}", font_size=24)
+        segment_info = Text(f"Segment {index+1}", font_size={max(18, config['font_size'] - 6)})
+        segment_info.scale_to_fit_width(config.frame_width * {config['text_width']})
         segment_info.set_color(GRAY)
-        segment_info.move_to(DOWN * 1.5)
+        segment_info.move_to(DOWN * {config['y_pos'] + 1})
         
         # Simple geometric shape for visual interest
         circle = Circle(radius=0.5, color=WHITE, fill_opacity=0.1)
-        circle.move_to(DOWN * 0.5)
+        circle.move_to(DOWN * {max(0.5, config['y_pos'] - 0.5)})
         
         # Animations with precise timing
         self.play(Write(title), run_time={write_time:.2f})
