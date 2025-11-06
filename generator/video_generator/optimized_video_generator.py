@@ -85,14 +85,14 @@ class VideoGenerationConfig:
     manim_quality: str = "l"  # Low quality for fastest speed (480p15)
     audio_sample_rate: int = 22050
     use_groq_for_correction: bool = True
-    manim_timeout: int = 1000# Reduced from 1000 to 300 (5 minutes max per segment)
-    ffmpeg_timeout: int = 300
+    manim_timeout: int = 1800  # Oracle VM: 30 minutes per segment rendering
+    ffmpeg_timeout: int = 300  # FFmpeg operations: 5 minutes
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
     max_generation_attempts: int = 3
     max_correction_attempts: int = 3  # Max attempts to fix script with Gemini/Groq before regenerating
     max_regeneration_attempts: int = 4  # Max attempts to regenerate script from scratch
-    batch_size: int = 6  # Process 6 segments in parallel (optimized for 4-core ARM)
+    batch_size: int = 1  # Oracle VM: Process 1 segment at a time (avoid resource overload)
     aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     
     def __post_init__(self):
@@ -1058,8 +1058,8 @@ Begin your response now.
         logger.debug(f"ffmpeg cmd: {' '.join(cmd)}")
 
         try:
-            # This may take 10-30 seconds due to re-encoding, but ensures quality
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+            # This may take 30-120 seconds due to re-encoding on slow VMs, but ensures quality
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
             logger.info(f"✅ Intro concatenation complete (safe method): {output_path}")
             
             return output_path
@@ -2078,9 +2078,9 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         is_cloud = os.environ.get('PORT') == '10000' or not os.environ.get('DISPLAY')
         
         if is_cloud:
-            # Conservative settings for Render free tier (512MB RAM, shared CPU)
-            self.max_workers = 2  # Reduced to avoid OOM on free tier
-            logger.info("☁️ Cloud environment detected - using conservative worker count (2)")
+            # Ultra-conservative settings for Oracle VM free tier (1GB RAM, shared CPU)
+            self.max_workers = 4  # CRITICAL: Only 1 worker to avoid OOM/thrashing
+            logger.info("☁️ Cloud environment detected (Oracle VM) - using single worker mode (1)")
         else:
             # Local development - more aggressive parallelization
             self.max_workers = min(8, mp.cpu_count())
