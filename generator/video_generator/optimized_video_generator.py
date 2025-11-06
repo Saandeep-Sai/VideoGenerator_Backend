@@ -82,7 +82,7 @@ class VideoGenerationConfig:
     groq_api_key: str
     output_dir: str = "output"
     temp_dir: str = "temp"
-    manim_quality: str = "l"  # Low quality for fastest speed (480p15)
+    manim_quality: str = "low"  # Custom low quality config for 480p30 (30fps native)
     audio_sample_rate: int = 22050
     use_groq_for_correction: bool = True
     manim_timeout: int = 1800  # Oracle VM: 30 minutes per segment rendering
@@ -881,11 +881,17 @@ Begin your response now.
             
             # Build Manim command - ALWAYS use "Scene" as class name
             # Aspect ratio is now configured inside the script itself
-            # Use -ql for low quality 480p15 (fastest rendering)
+            # Use custom quality for 480p30 (30fps native - matches intro video fps)
             # On Windows, use "python -m manim" instead of just "manim"
-            cmd = [sys.executable, "-m", "manim", filename, "Scene", "-ql", "--format", "mp4"]
+            cmd = [
+                sys.executable, "-m", "manim", 
+                filename, "Scene", 
+                "-r", "854,480",  # 480p resolution
+                "--fps", "30",     # 30fps (matches intro video)
+                "--format", "mp4"
+            ]
             
-            logger.info(f"🎬 Running Manim render (480p15 fast mode): {' '.join(cmd)}")
+            logger.info(f"🎬 Running Manim render (480p30 native): {' '.join(cmd)}")
             
             process = subprocess.run(cmd, capture_output=True, text=True, cwd=temp_path, env=env)
 
@@ -895,16 +901,16 @@ Begin your response now.
         if process.returncode != 0:
             return None, f"❌ Manim failed with code {process.returncode}:\n{process.stderr}"
 
-        # Expected output file path - 480p15 quality outputs to 480p15 folder
+        # Expected output file path - 480p30 quality outputs to 480p30 folder
         if segment_index is not None:
             # Try expected filename first
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / f"Segment{segment_index:03d}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p30" / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
             
             # Fallback: Manim uses class name "Scene" so file is Scene.mp4
-            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / "Scene.mp4"
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p30" / "Scene.mp4"
             if scene_path.exists():
                 logger.info(f"✅ Found video as Scene.mp4, renaming to Segment{segment_index:03d}.mp4")
                 scene_path.rename(expected_path)
@@ -1036,14 +1042,16 @@ Begin your response now.
         output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
         temp_dir = Path(self.config.temp_dir)
         
-        # Step 1: Re-encode main video to match intro specs (854x480, 30fps, H.264, AAC stereo)
-        logger.info("🔧 Re-encoding main video to match intro specs...")
+        # Since main video is now 480p30 (native 30fps), we only need to normalize resolution and audio
+        # No fps conversion needed! This is much faster.
+        logger.info("🔧 Normalizing main video resolution and audio (no fps conversion needed)...")
         normalized_main = temp_dir / "main_normalized.mp4"
         
         cmd_normalize = [
             "ffmpeg", "-y",
             "-i", str(generated_video_path),
-            "-vf", "scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,fps=30",
+            # Only scale and pad - NO fps conversion needed (already 30fps native!)
+            "-vf", "scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
             "-c:a", "aac", "-ac", "2", "-ar", "44100", "-b:a", "192k",
             "-movflags", "+faststart",
@@ -1051,8 +1059,8 @@ Begin your response now.
         ]
         
         try:
-            subprocess.run(cmd_normalize, check=True, capture_output=True, text=True, timeout=180)
-            logger.info(f"✅ Main video normalized")
+            subprocess.run(cmd_normalize, check=True, capture_output=True, text=True, timeout=120)  # Reduced timeout from 180s
+            logger.info(f"✅ Main video normalized (faster without fps conversion)")
         except Exception as e:
             logger.error(f"❌ Failed to normalize main video: {e}")
             logger.warning("⚠️ Returning video without intro")
@@ -1077,7 +1085,7 @@ Begin your response now.
             str(output_path)
         ]
 
-        logger.info(f"🔗 Concatenating intro + main (fast method): {output_path}")
+        logger.info(f"🔗 Concatenating intro + main (ultra-fast with matching fps): {output_path}")
         
         try:
             subprocess.run(cmd_concat, check=True, capture_output=True, text=True, timeout=60)
