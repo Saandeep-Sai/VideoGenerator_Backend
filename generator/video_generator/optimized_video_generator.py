@@ -894,18 +894,18 @@ Begin your response now.
             # Aspect ratio is now configured inside the script itself
             # Use -qp (production quality, 1440p60) which Manim handles correctly
             # Alternative: -qh (high quality, 1080p60), -qm (medium, 720p30), -ql (low, 480p15)
-            # We use -qh for 1080p60 as high quality
+            # We use -qm for 720p30 as good balance of quality and speed
             # On Windows, use "python -m manim" instead of just "manim"
             # Caching is enabled by default and controlled via script config
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, "Scene", 
-                "-qh",                        # High quality: 1080p60 (proper fps handling!)
+                "-qm",                        # Medium quality: 720p30 (proper fps handling!)
                 "--format", "mp4",
                 # Caching controlled in script config (flush_cache=False)
             ]
             
-            logger.info(f"🎬 Running Manim render (1080p60 using -qh quality preset): {' '.join(cmd)}")
+            logger.info(f"🎬 Running Manim render (720p30 using -qm quality preset): {' '.join(cmd)}")
             logger.info(f"📊 Progress tracking enabled - watch for real-time updates below:")
             logger.info("=" * 70)
             
@@ -943,16 +943,16 @@ Begin your response now.
             full_output = '\n'.join(output_lines) if output_lines else "No output captured"
             return None, f"❌ Manim failed with code {process.returncode}:\n{full_output}"
 
-        # Expected output file path - 1080p60 quality (-qh flag) outputs to 1080p60 folder
+        # Expected output file path - 720p30 quality (-qm flag) outputs to 720p30 folder
         if segment_index is not None:
             # Try expected filename first
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / f"Segment{segment_index:03d}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
             
             # Fallback: Manim uses class name "Scene" so file is Scene.mp4
-            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / "Scene.mp4"
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / "Scene.mp4"
             if scene_path.exists():
                 logger.info(f"✅ Found video as Scene.mp4, renaming to Segment{segment_index:03d}.mp4")
                 scene_path.rename(expected_path)
@@ -1093,11 +1093,11 @@ Begin your response now.
         cmd_concat = [
             "ffmpeg", "-y",
             "-i", str(scaled_intro),  # Input 0: intro (already 480p)
-            "-i", str(generated_video_path),  # Input 1: main video (1080p60 from Manim -qh)
+            "-i", str(generated_video_path),  # Input 1: main video (720p30 from Manim -qm)
             "-filter_complex",
-            # Scale both to same resolution (1080p), ensure same fps (60), then concat
-            "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=60,setsar=1[v0];"
-            "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=60,setsar=1[v1];"
+            # Scale both to same resolution (720p), ensure same fps (30), then concat
+            "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v0];"
+            "[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v1];"
             "[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
             "-map", "[outv]",
             "-map", "[outa]",
