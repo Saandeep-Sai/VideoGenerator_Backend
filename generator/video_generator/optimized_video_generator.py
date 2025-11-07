@@ -128,11 +128,11 @@ class VideoGenerationPipeline:
         self._setup_models()
         
         try:
-            with open('./generator/video_generator/prompt/sample.txt','r') as f:
+            with open('./generator/video_generator/prompt/sample.txt', 'r', encoding='utf-8') as f:
                 self.samples = f.read()
-            with open('./generator/video_generator/prompt/obj-attrbute_list.txt','r') as f:
+            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r', encoding='utf-8') as f:
                 self.allowed_attributes = f.read()
-            with open('./generator/video_generator/prompt/MANIM_ANIMATION_REFERENCE.txt', 'r') as f:
+            with open('./generator/video_generator/prompt/MANIM_ANIMATION_REFERENCE.txt', 'r', encoding='utf-8') as f:
                 self.animation_reference = f.read()
             logger.info("✅ Loaded animation reference guide")
         except FileNotFoundError as e:
@@ -599,7 +599,7 @@ Continue for all segments. Output ONLY scripts with separators.
         max_font_body = layout_info["max_font_body"]
         layout_example = layout_info["layout_example"]
         
-        # Simplified prompt to avoid blocking
+        # Strict prompt with anti-overlap rules
         prompt = f"""Create a Manim script for this segment:
 
 Duration: {segment.duration} seconds
@@ -610,40 +610,95 @@ Aspect Ratio: {self.config.aspect_ratio}
 🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
 {layout_guide}
 
-⚠️ ESSENTIAL TEXT OVERFLOW PREVENTION:
-1. ALL text MUST use font_size <= {max_font_title} for titles, <= {max_font_body} for body text
-2. ALWAYS apply .scale_to_fit_width({max_text_width}) to EVERY Text/MarkupText object
-3. For long text (>50 chars), break into multiple shorter Text objects stacked vertically
-4. Example for {self.config.aspect_ratio}:
-   title = Text("Your Title", font_size={max_font_title})
-   title.scale_to_fit_width({max_text_width})
-   title.move_to(UP * 2)
+🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES (MUST FOLLOW):
 
-⚠️ LAYOUT RULES:
-- NEVER place objects too close together - use .shift() or .move_to() with clear spacing
-- Positions: {layout_example}
-- Keep all objects within safe boundaries (leave 1 unit margin from edges)
-- For {self.config.aspect_ratio}: {layout_guide}
+1. **MANDATORY TEXT WIDTH CONSTRAINT:**
+   - EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
+   - NO EXCEPTIONS - even single words need scaling
+   - Example: text.scale_to_fit_width({max_text_width})
 
-📐 Working Example for {self.config.aspect_ratio}:
+2. **STRICT FONT SIZE LIMITS:**
+   - Titles: MAX {max_font_title}px (NEVER exceed this)
+   - Body text: MAX {max_font_body}px (NEVER exceed this)
+   - Small text: MAX {max_font_body - 6}px
+
+3. **MANDATORY VERTICAL SPACING (CRITICAL!):**
+   - Minimum 1.5 units between ANY two text objects
+   - Use .next_to(other_object, DOWN, buff=1.5) or similar
+   - NEVER place text closer than 1.5 units vertically
+   - Example: 
+     title.move_to(UP * 3)
+     content.move_to(ORIGIN)  # 3 units apart - GOOD
+     
+4. **HORIZONTAL SPACING:**
+   - Leave 1 unit margin from left/right edges
+   - Objects side-by-side: minimum 2 units apart horizontally
+   - Use .shift(LEFT * 3) or .shift(RIGHT * 3) for separation
+
+5. **POSITION GRID (MUST USE ONLY THESE POSITIONS):**
+   For {self.config.aspect_ratio}:
+   - TOP zone: UP * {6 if self.config.aspect_ratio == "9:16" else 3} to UP * {4 if self.config.aspect_ratio == "9:16" else 2}
+   - MIDDLE zone: UP * 1 to DOWN * 1
+   - BOTTOM zone: DOWN * {2 if self.config.aspect_ratio == "9:16" else 2} to DOWN * {6 if self.config.aspect_ratio == "9:16" else 3}
+   - NEVER overlap zones!
+
+6. **TEXT LENGTH HANDLING:**
+   - Text > 50 chars: MUST split into 2-3 Text objects, stack vertically
+   - Text > 100 chars: MUST split into 3-4 Text objects
+   - Use smaller font_size for long text (reduce by 20%)
+
+7. **SAFE POSITIONING CHECKLIST:**
+   ✓ Every text has .scale_to_fit_width({max_text_width})
+   ✓ Font sizes within limits
+   ✓ Vertical spacing >= 1.5 units
+   ✓ Horizontal margin >= 1 unit from edges
+   ✓ No two objects in same zone
+   ✓ Long text split into multiple lines
+
+📐 WORKING EXAMPLE (COPY THIS PATTERN):
 ```python
-# Good: Text constrained and positioned properly
+# CORRECT: No overlaps, proper spacing
 title = Text("Educational Topic", font_size={max_font_title})
-title.scale_to_fit_width({max_text_width})
-title.move_to(UP * {"6" if self.config.aspect_ratio == "9:16" else "3"})
+title.scale_to_fit_width({max_text_width})  # MANDATORY
+title.move_to(UP * {"6" if self.config.aspect_ratio == "9:16" else "3"})  # TOP zone
 
-content = Text("Main content here", font_size={max_font_body})
-content.scale_to_fit_width({max_text_width})
-content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "UP * 0.5"})
+subtitle = Text("Key Concept", font_size={max_font_body})
+subtitle.scale_to_fit_width({max_text_width})  # MANDATORY
+subtitle.move_to(UP * {"2" if self.config.aspect_ratio == "9:16" else "1"})  # 1.5+ units below title - GOOD
+
+content = Text("Main point here", font_size={max_font_body})
+content.scale_to_fit_width({max_text_width})  # MANDATORY
+content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "DOWN * 0.5"})  # MIDDLE zone
+
+# Add shapes with spacing
+circle = Circle(radius=0.8)
+circle.move_to(DOWN * {"4" if self.config.aspect_ratio == "9:16" else "2.5"})  # BOTTOM zone, clear of text
+```
+
+❌ WRONG EXAMPLES (NEVER DO THIS):
+```python
+# BAD: No scale_to_fit_width
+title = Text("Long title here", font_size=48)
+title.move_to(UP * 2)  # WRONG! Missing .scale_to_fit_width()
+
+# BAD: Objects too close
+title.move_to(UP * 2)
+subtitle.move_to(UP * 1.5)  # WRONG! Only 0.5 units apart (minimum is 1.5)
+
+# BAD: Exceeded font size
+huge_text = Text("Text", font_size=72)  # WRONG! Exceeds {max_font_title}px limit
+
+# BAD: Long text not split
+long_text = Text("This is a very long sentence that will definitely overflow", font_size=36)  # WRONG! Must split
 ```
 
 Requirements:
 - Use class name: GeneratedAnimation{segment_number}
 - Duration exactly {segment.duration} seconds
 - Simple, clean animations
-- No external assets
-- Respect the {self.config.aspect_ratio} aspect ratio constraints
-- ALWAYS use scale_to_fit_width() for ALL text objects
+- EVERY text object MUST have .scale_to_fit_width({max_text_width})
+- Minimum 1.5 units vertical spacing between text objects
+- Maximum {max_font_title}px for titles, {max_font_body}px for body
 
 Output format:
 from manim import *
@@ -652,7 +707,7 @@ from manim import *
 
 class GeneratedAnimation{segment_number}(Scene):
     def construct(self):
-        # Your animation code respecting {self.config.aspect_ratio} layout
+        # Your code - REMEMBER: No overlaps, proper spacing, scale_to_fit_width() for ALL text!
         self.wait({segment.duration})
 """
         
@@ -1219,8 +1274,8 @@ Begin your response now.
 
             # Step 6: Final concatenation (segments only, no intro yet)
             concat_list_path = temp_dir / "concat_list.txt"
-            
-            with open(concat_list_path, "w") as f:
+
+            with open(concat_list_path, "w", encoding='utf-8') as f:
                 # Add all generated segment clips
                 for clip in final_clips:
                     clip_path = Path(clip).resolve().as_posix()
@@ -1564,7 +1619,7 @@ config.pixel_height = {config['pixel_height']}
 
         # Load enhanced prompt resources
         try:
-            with open('./generator/video_generator/prompt/sample.txt', 'r') as f:
+            with open('./generator/video_generator/prompt/sample.txt', 'r', encoding='utf-8') as f:
                 samples = f.read()
         except FileNotFoundError:
             logger.warning("⚠️ sample.txt not found. Using basic samples.")
@@ -1719,6 +1774,38 @@ You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WO
 
 📚 WORKING CODE EXAMPLE FOR {aspect_ratio}:
 {code_example}
+
+⚠️ STRICT ANTI-OVERLAP RULES FOR {aspect_ratio}:
+
+1. **TEXT WIDTH (MANDATORY):**
+   - EVERY Text object MUST have .scale_to_fit_width({max_text_width})
+   - NO exceptions - apply to ALL text
+   
+2. **FONT SIZE LIMITS (STRICT):**
+   - Titles: MAX {max_font_title}px
+   - Body: MAX {max_font_body}px
+   - NEVER exceed these limits
+
+3. **VERTICAL SPACING (CRITICAL):**
+   - Minimum 1.5 units between ANY two text objects
+   - Use zones: TOP (UP*{6 if aspect_ratio == "9:16" else 3}), MIDDLE (ORIGIN), BOTTOM (DOWN*{6 if aspect_ratio == "9:16" else 3})
+   - NEVER place text in same zone
+
+4. **HORIZONTAL MARGINS:**
+   - 1 unit minimum from edges
+   - 2 units minimum between side-by-side objects
+
+5. **LONG TEXT HANDLING:**
+   - Text > 50 chars: Split into 2+ Text objects
+   - Stack vertically with 1.5+ unit spacing
+   - Reduce font_size by 20% for long text
+
+6. **POSITIONING CHECKLIST:**
+   ✓ scale_to_fit_width() on every text
+   ✓ Font sizes within limits
+   ✓ 1.5+ units vertical spacing
+   ✓ Objects in different zones
+   ✓ No overlaps
 
 ⚠️ Layout Rules for {aspect_ratio}:
 - Respect frame dimensions: config.frame_width × config.frame_height
@@ -2417,14 +2504,14 @@ Generate the complete narration script now:
 
         # Load prompt parts if needed
         try:
-            with open('./generator/video_generator/prompt/sample.txt', 'r') as f:
+            with open('./generator/video_generator/prompt/sample.txt', 'r', encoding='utf-8') as f:
                 samples = f.read()
         except FileNotFoundError:
             logger.warning("⚠️ sample.txt not found. Using instance variable.")
             samples = self.samples
 
         try:
-            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r') as f:
+            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r', encoding='utf-8') as f:
                 allowed_attributes = f.read()
         except FileNotFoundError:
             logger.warning("⚠️ obj-attrbute_list.txt not found. Using instance variable.")

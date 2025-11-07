@@ -1,676 +1,2026 @@
-# EXAMPLE 1: Dynamic Title Introduction (FOLLOW THIS PATTERN!)
+# ═══════════════════════════════════════════════════════════════════════════════# ═══════════════════════════════════════════════════════════════════════════════# EXAMPLE 1: Dynamic Title Introduction (FOLLOW THIS PATTERN!)
+
+# PROFESSIONAL MANIM ANIMATION SAMPLES - ANTI-OVERLAP & STUNNING VISUALS
+
+# ═══════════════════════════════════════════════════════════════════════════════# PROFESSIONAL MANIM ANIMATION SAMPLES - ANTI-OVERLAP & STUNNING VISUALSfrom manim import *
+
+# 
+
+# 🎯 CRITICAL RULES (FOLLOW RELIGIOUSLY):# ═══════════════════════════════════════════════════════════════════════════════
+
+# 1. EVERY Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
+
+# 2. Font sizes: Titles ≤ 48px, Body ≤ 36px, Small ≤ 30px# class DynamicIntro(Scene):
+
+# 3. Vertical spacing: Minimum 1.5 units between ANY two text objects
+
+# 4. Use position zones: TOP (UP*3), MIDDLE (ORIGIN), BOTTOM (DOWN*3)# 🎯 CRITICAL RULES (FOLLOW RELIGIOUSLY):    def construct(self):
+
+# 5. Never place two objects in the same zone
+
+# 6. Long text (>50 chars): Split into multiple Text objects# 1. EVERY Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)        # Dynamic title entry with Write animation
+
+# 7. Always include aspect ratio configuration
+
+## 2. Font sizes: Titles ≤ 48px, Body ≤ 36px, Small ≤ 30px        title = Text("Welcome to AI", font_size=56, color=BLUE)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# 3. Vertical spacing: Minimum 1.5 units between ANY two text objects        self.play(Write(title, run_time=1.5))  # ✅ Write instead of FadeIn
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# EXAMPLE 1: PERFECT TITLE INTRODUCTION (COPY THIS PATTERN!)# 4. Use position zones: TOP (UP*3), MIDDLE (ORIGIN), BOTTOM (DOWN*3)        
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from manim import *# 5. Never place two objects in the same zone        # Move title up with animation
+
+
+
+# Aspect Ratio Configuration# 6. Long text (>50 chars): Split into multiple Text objects        self.play(title.animate.shift(UP*2.5), run_time=0.8)  # ✅ Movement
+
+config.frame_width = 16
+
+config.frame_height = 9# 7. Always include aspect ratio configuration        
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080#        # Subtitle grows from center
+
+
+
+class StunningIntro(Scene):# ═══════════════════════════════════════════════════════════════════════════════        subtitle = Text("The Future is Now", font_size=36, color=YELLOW)
+
+    def construct(self):
+
+        # ✅ CORRECT: Title with proper width constraint        subtitle.next_to(title, DOWN, buff=0.5)
+
+        title = Text("Welcome to AI", font_size=48, color=BLUE, weight=BOLD)
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY# ═══════════════════════════════════════════════════════════════════════════════        self.play(GrowFromCenter(subtitle, run_time=1))  # ✅ GrowFromCenter
+
+        title.move_to(UP * 3)  # ✅ TOP zone
+
+        # EXAMPLE 1: PERFECT TITLE INTRODUCTION (COPY THIS PATTERN!)        
+
+        # Spectacular entrance: Write + Glow
+
+        self.play(Write(title, run_time=1.2))# ═══════════════════════════════════════════════════════════════════════════════        # Emphasize with circumscribe
+
+        self.play(title.animate.set_color(YELLOW), run_time=0.5)
+
+        from manim import *        self.play(Circumscribe(subtitle, color=RED, run_time=1.2))  # ✅ Emphasis
+
+        # ✅ CORRECT: Subtitle with spacing
+
+        subtitle = Text("Transform Your World", font_size=36, color=WHITE)        self.wait(0.5)
+
+        subtitle.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY
+
+        subtitle.move_to(ORIGIN)  # ✅ MIDDLE zone (3 units from title - SAFE!)# Aspect Ratio Configuration        
+
+        
+
+        # Dynamic entranceconfig.frame_width = 16        # Creative exit
+
+        self.play(GrowFromCenter(subtitle, run_time=1.0))
+
+        config.frame_height = 9        self.play(
+
+        # ✅ CORRECT: Call to action with proper spacing
+
+        cta = Text("Let's Begin", font_size=30, color=GREEN)config.pixel_width = 1920            Uncreate(title, run_time=1),  # ✅ Uncreate instead of FadeOut
+
+        cta.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY
+
+        cta.move_to(DOWN * 3)  # ✅ BOTTOM zone (3 units from subtitle - SAFE!)config.pixel_height = 1080            FadeOut(subtitle, shift=DOWN*2)  # ✅ FadeOut with movement
+
+        
+
+        # Attention-grabbing entrance        )
+
+        self.play(FadeIn(cta, shift=UP*0.5), run_time=0.8)
+
+        self.play(Indicate(cta, scale_factor=1.3, color=YELLOW), run_time=0.6)class StunningIntro(Scene):
+
+        
+
+        self.wait(0.5)    def construct(self):# EXAMPLE 2: List with Sequential Animations (COPY THIS ENERGY!)
+
+        
+
+        # Coordinated professional exit        # ✅ CORRECT: Title with proper width constraintfrom manim import *
+
+        self.play(
+
+            FadeOut(title, shift=UP*2, run_time=1.0),        title = Text("Welcome to AI", font_size=48, color=BLUE, weight=BOLD)
+
+            FadeOut(subtitle, scale=0.5, run_time=1.0),
+
+            FadeOut(cta, shift=DOWN*2, run_time=1.0)        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORYclass EnergeticList(Scene):
+
+        )
+
+        title.move_to(UP * 3)  # ✅ TOP zone    def construct(self):
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════                # Title with writing effect
+
+# EXAMPLE 2: SPECTACULAR LIST WITH PERFECT SPACING
+
+# ═══════════════════════════════════════════════════════════════════════════════        # Spectacular entrance: Write + Glow        title = Text("3 Key Benefits", font_size=48)
+
 from manim import *
 
-class DynamicIntro(Scene):
+        self.play(Write(title, run_time=1.2))        self.play(Write(title, run_time=1.2))
+
+config.frame_width = 16
+
+config.frame_height = 9        self.play(title.animate.set_color(YELLOW), run_time=0.5)        self.play(title.animate.shift(UP*2.5).scale(0.8), run_time=0.7)  # ✅ Move + Scale
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080                
+
+
+
+class ProfessionalList(Scene):        # ✅ CORRECT: Subtitle with spacing        # Create list items
+
     def construct(self):
-        # Dynamic title entry with Write animation
-        title = Text("Welcome to AI", font_size=56, color=BLUE)
-        self.play(Write(title, run_time=1.5))  # ✅ Write instead of FadeIn
-        
-        # Move title up with animation
-        self.play(title.animate.shift(UP*2.5), run_time=0.8)  # ✅ Movement
-        
-        # Subtitle grows from center
-        subtitle = Text("The Future is Now", font_size=36, color=YELLOW)
-        subtitle.next_to(title, DOWN, buff=0.5)
-        self.play(GrowFromCenter(subtitle, run_time=1))  # ✅ GrowFromCenter
-        
-        # Emphasize with circumscribe
-        self.play(Circumscribe(subtitle, color=RED, run_time=1.2))  # ✅ Emphasis
-        self.wait(0.5)
-        
-        # Creative exit
-        self.play(
-            Uncreate(title, run_time=1),  # ✅ Uncreate instead of FadeOut
-            FadeOut(subtitle, shift=DOWN*2)  # ✅ FadeOut with movement
-        )
 
-# EXAMPLE 2: List with Sequential Animations (COPY THIS ENERGY!)
-from manim import *
+        # ✅ CORRECT: Title with width constraint        subtitle = Text("Transform Your World", font_size=36, color=WHITE)        items = VGroup(
 
-class EnergeticList(Scene):
-    def construct(self):
-        # Title with writing effect
-        title = Text("3 Key Benefits", font_size=48)
-        self.play(Write(title, run_time=1.2))
-        self.play(title.animate.shift(UP*2.5).scale(0.8), run_time=0.7)  # ✅ Move + Scale
-        
-        # Create list items
-        items = VGroup(
-            Text("• Speed", color=GREEN, font_size=36),
-            Text("• Accuracy", color=BLUE, font_size=36),
-            Text("• Efficiency", color=YELLOW, font_size=36)
-        ).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
-        
-        # Items appear with stagger effect
-        self.play(
-            AnimationGroup(
-                *[GrowFromCenter(item) for item in items],
-                lag_ratio=0.4,  # ✅ Sequential with lag
-                run_time=2
-            )
-        )
-        
-        # Highlight each item with pulse
-        for item in items:
-            self.play(Indicate(item, scale_factor=1.3, color=WHITE), run_time=0.6)  # ✅ Emphasis
-        
-        self.wait(0.5)
-        
-        # Exit with coordination
-        self.play(
-            ShrinkToCenter(title),  # ✅ Creative exit
-            *[FadeOut(item, shift=LEFT*2) for item in items],  # ✅ Exit with movement
-            run_time=1.5
-        )
+        title = Text("3 Key Benefits", font_size=48, color=BLUE, weight=BOLD)
 
-# EXAMPLE 3: Shape Transformation (USE THIS FOR CONCEPTS!)
-from manim import *
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        subtitle.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY            Text("• Speed", color=GREEN, font_size=36),
 
-class TransformationDemo(Scene):
-    def construct(self):
-        # Start with circle - draw border then fill
-        circle = Circle(radius=1.5, color=BLUE, fill_opacity=0.3)
-        self.play(DrawBorderThenFill(circle, run_time=1.2))  # ✅ DrawBorderThenFill
-        
-        # Add label with growth
-        label1 = Text("Input", font_size=32)
-        label1.next_to(circle, DOWN, buff=0.5)
-        self.play(GrowFromEdge(label1, edge=UP, run_time=0.8))  # ✅ GrowFromEdge
-        
-        self.wait(0.3)
-        
-        # Transform to square
-        square = Square(side_length=2.5, color=GREEN, fill_opacity=0.3)
-        label2 = Text("Process", font_size=32, color=GREEN)
-        label2.next_to(square, DOWN, buff=0.5)
-        
-        self.play(
-            Transform(circle, square, run_time=1.5),  # ✅ Transform animation
-            ReplacementTransform(label1, label2, run_time=1.5)
-        )
-        
-        # Rotate and scale
-        self.play(
-            circle.animate.rotate(PI/4).scale(1.2),  # ✅ Rotation + scaling
-            run_time=1.2
-        )
-        
-        # Flash for emphasis
-        self.play(Flash(circle, color=YELLOW, line_length=0.5, run_time=0.8))  # ✅ Flash
-        
-        self.wait(0.5)
-        
-        # Exit by uncreating
-        self.play(
-            Uncreate(circle, run_time=1.2),  # ✅ Uncreate
-            FadeOut(label2, shift=DOWN)
-        )
+        title.move_to(UP * 3)  # ✅ TOP zone
 
-# EXAMPLE 4: Text Emphasis with Movement (ENERGY AND DYNAMICS!)
-from manim import *
+                subtitle.move_to(ORIGIN)  # ✅ MIDDLE zone (3 units from title - SAFE!)            Text("• Accuracy", color=BLUE, font_size=36),
 
-class DynamicText(Scene):
-    def construct(self):
-        # Main point written dramatically
-        main_text = Text("Machine Learning", font_size=52, color=BLUE)
-        self.play(Write(main_text, run_time=1.8))  # ✅ Write animation
-        
-        # Scale up for impact
-        self.play(main_text.animate.scale(1.3), run_time=0.7)  # ✅ Scale up
-        
-        # Move to corner
-        self.play(main_text.animate.to_edge(UP).scale(0.7), run_time=0.9)  # ✅ Movement
-        
-        # Supporting text grows from center
-        point1 = Text("Learns from data", font_size=32, color=GREEN)
-        point2 = Text("Improves over time", font_size=32, color=YELLOW)
-        point3 = Text("Makes predictions", font_size=32, color=RED)
-        
-        points = VGroup(point1, point2, point3).arrange(DOWN, buff=0.6)
-        
-        # Animate points one by one
-        for point in points:
-            self.play(GrowFromCenter(point), run_time=0.9)  # ✅ GrowFromCenter
-            self.play(Wiggle(point, scale_value=1.15), run_time=0.5)  # ✅ Wiggle for emphasis
-            self.wait(0.2)
-        
-        self.wait(0.5)
-        
-        # All points get circumscribed
-        self.play(Circumscribe(points, color=WHITE, run_time=1.5))  # ✅ Circumscribe group
-        
-        # Creative group exit
-        self.play(
-            ShrinkToCenter(main_text),  # ✅ ShrinkToCenter
-            *[FadeOut(p, shift=DOWN*2) for p in points],  # ✅ FadeOut with movement
-            run_time=1.3
-        )
+        self.play(Write(title, run_time=1.0))
 
-# EXAMPLE 5: Comparison with Dynamic Columns
-from manim import *
+        self.play(Circumscribe(title, color=YELLOW, run_time=1.0))                    Text("• Efficiency", color=YELLOW, font_size=36)
 
-class ComparisonScene(Scene):
-    def construct(self):
-        # Title appears with writing
-        title = Text("Traditional vs AI", font_size=44)
-        self.play(Write(title, run_time=1.3))
-        self.play(title.animate.shift(UP*3), run_time=0.7)
         
-        # Left column (Traditional)
-        trad_header = Text("Traditional", font_size=32, color=RED)
-        trad_header.shift(LEFT*3 + UP*1.5)
-        trad_items = VGroup(
-            Text("• Manual rules", font_size=24),
-            Text("• Fixed logic", font_size=24),
-            Text("• Limited scale", font_size=24)
-        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
-        trad_items.next_to(trad_header, DOWN, buff=0.5).shift(LEFT*3)
-        
-        # Right column (AI)
-        ai_header = Text("AI Approach", font_size=32, color=GREEN)
-        ai_header.shift(RIGHT*3 + UP*1.5)
-        ai_items = VGroup(
-            Text("• Learns patterns", font_size=24),
-            Text("• Adapts logic", font_size=24),
-            Text("• Massive scale", font_size=24)
-        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
-        ai_items.next_to(ai_header, DOWN, buff=0.5).shift(RIGHT*3)
-        
-        # Animate left side with stagger
-        self.play(GrowFromEdge(trad_header, edge=LEFT, run_time=0.8))
-        self.play(
-            AnimationGroup(
-                *[GrowFromCenter(item) for item in trad_items],
-                lag_ratio=0.3,
-                run_time=1.5
-            )
-        )
-        
-        # Animate right side with stagger
-        self.play(GrowFromEdge(ai_header, edge=RIGHT, run_time=0.8))
-        self.play(
-            AnimationGroup(
-                *[GrowFromCenter(item) for item in ai_items],
-                lag_ratio=0.3,
-                run_time=1.5
-            )
-        )
-        
-        # Emphasize AI side
-        self.play(Indicate(ai_header, scale_factor=1.3, color=YELLOW), run_time=0.8)
-        self.play(Flash(ai_items, color=YELLOW), run_time=0.7)
-        
-        self.wait(0.5)
-        
-        # Exit everything
-        self.play(
-            Uncreate(title),
-            FadeOut(trad_header, shift=LEFT*2),
-            FadeOut(ai_header, shift=RIGHT*2),
-            *[ShrinkToCenter(item) for item in trad_items],
-            *[ShrinkToCenter(item) for item in ai_items],
-            run_time=1.5
-        )
-        self.play(Create(highlight))
-        self.wait(1)
-        
-        # Update arrow to skip deleted node
-        new_skip_arrow = Arrow(
-            start=nodes[0][1].get_center() + RIGHT * 0.2,
-            end=nodes[2][0].get_center() + LEFT * 0.5,
-            buff=0,
-            color=YELLOW,
-            stroke_width=3
-        )
-        
-        self.play(FadeOut(nodes[1]), FadeOut(arrows[1]), FadeOut(highlight))
-        self.play(Create(new_skip_arrow))
-        self.wait(2)
-        
-        # Advantages and disadvantages
-        self.play(FadeOut(delete_text))
-        advantages_text = Text("Advantages: Dynamic size, Efficient insertion/deletion", 
-                             font_size=18, color=GREEN)
-        disadvantages_text = Text("Disadvantages: No random access, Extra memory for pointers", 
-                                font_size=18, color=RED)
-        
-        advantages_text.to_edge(DOWN).shift(UP * 0.5)
-        disadvantages_text.to_edge(DOWN)
-        
-        self.play(Write(advantages_text))
-        self.play(Write(disadvantages_text))
-        self.wait(4)
 
-# Script 3: Stack Data Structure
-from manim import *
+        # ✅ CORRECT: List items with proper spacing - EACH item scaled!        # Dynamic entrance        ).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
 
-class StackVisualization(Scene):
-    def construct(self):
-        # Title
-        title = Text("Stack Data Structure (LIFO)", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
-        
-        # Create stack base
-        stack_base = Rectangle(width=2, height=0.3, color=BROWN, fill_opacity=0.8)
-        stack_base.shift(DOWN * 2.5)
-        self.play(Create(stack_base))
-        
-        # Stack operations
-        stack_elements = []
-        values = [10, 20, 30, 40, 50]
-        
-        # Push operations
-        push_text = Text("PUSH Operations", font_size=24, color=GREEN)
-        push_text.to_edge(DOWN)
-        self.play(Write(push_text))
-        
-        for i, value in enumerate(values):
-            # Create stack element
-            element = Rectangle(width=1.8, height=0.5, color=WHITE, fill_opacity=0.3)
-            element.shift(DOWN * (2 - i * 0.6))
-            
-            # Add value label
-            label = Text(str(value), font_size=20)
-            label.move_to(element.get_center())
-            
-            # Push animation
-            element.shift(UP * 3)
-            label.shift(UP * 3)
-            
-            self.play(Create(element), Write(label))
-            self.play(element.animate.shift(DOWN * 3), label.animate.shift(DOWN * 3))
-            
-            stack_elements.append((element, label))
-            
-            # Show top pointer
-            if i == 0:
-                top_arrow = Arrow(
-                    start=element.get_center() + LEFT * 1.5,
-                    end=element.get_center() + LEFT * 1,
-                    buff=0,
-                    color=RED,
-                    stroke_width=4
-                )
-                top_text = Text("TOP", font_size=16, color=RED)
-                top_text.move_to(element.get_center() + LEFT * 2)
-                self.play(Create(top_arrow), Write(top_text))
-            else:
-                # Move top pointer
-                self.play(
-                    top_arrow.animate.shift(UP * 0.6),
-                    top_text.animate.shift(UP * 0.6)
-                )
-            
-            self.wait(0.5)
-        
-        self.wait(2)
-        
-        # Pop operations
-        self.play(FadeOut(push_text))
-        pop_text = Text("POP Operations", font_size=24, color=ORANGE)
-        pop_text.to_edge(DOWN)
-        self.play(Write(pop_text))
-        
-        for i in range(2):  # Pop 2 elements
-            if stack_elements:
-                element, label = stack_elements.pop()
-                
-                # Pop animation
-                self.play(
-                    element.animate.shift(UP * 3),
-                    label.animate.shift(UP * 3)
-                )
-                self.play(FadeOut(element), FadeOut(label))
-                
-                # Move top pointer down
-                if stack_elements:
-                    self.play(
-                        top_arrow.animate.shift(DOWN * 0.6),
-                        top_text.animate.shift(DOWN * 0.6)
-                    )
-                
-                self.wait(0.5)
-        
-        self.wait(2)
-        
-        # Stack applications
-        self.play(FadeOut(pop_text))
-        apps_title = Text("Stack Applications:", font_size=20, color=YELLOW)
-        apps_title.to_edge(DOWN).shift(UP * 1.5)
-        
-        apps_list = VGroup(
-            Text("• Function call management", font_size=16),
-            Text("• Expression evaluation", font_size=16),
-            Text("• Undo operations", font_size=16),
-            Text("• Browser history", font_size=16)
-        )
-        
-        apps_list.arrange(DOWN, aligned_edge=LEFT)
-        apps_list.to_edge(DOWN)
-        
-        self.play(Write(apps_title))
-        self.play(Write(apps_list))
-        self.wait(3)
-        
-        # Time complexity
-        complexity_text = Text("Time Complexity: Push O(1), Pop O(1), Peek O(1)", 
-                             font_size=18, color=PURPLE)
-        complexity_text.to_edge(DOWN).shift(UP * 0.3)
-        self.play(Write(complexity_text))
-        self.wait(3)
+        item1 = Text("• Lightning Speed", font_size=36, color=GREEN)
 
-# Script 4: Queue Data Structure
-from manim import *
+        item1.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        self.play(GrowFromCenter(subtitle, run_time=1.0))        
 
-class QueueVisualization(Scene):
-    def construct(self):
-        # Title
-        title = Text("Queue Data Structure (FIFO)", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
-        
-        # Create queue container
-        queue_container = Rectangle(width=8, height=1.5, color=GRAY, stroke_width=3)
-        queue_container.shift(DOWN * 0.5)
-        self.play(Create(queue_container))
-        
-        # Front and rear pointers
-        front_text = Text("FRONT", font_size=16, color=GREEN)
-        rear_text = Text("REAR", font_size=16, color=RED)
-        
-        front_text.move_to(queue_container.get_left() + RIGHT * 0.5 + UP * 1)
-        rear_text.move_to(queue_container.get_left() + RIGHT * 0.5 + DOWN * 1)
-        
-        front_arrow = Arrow(
-            start=front_text.get_center() + DOWN * 0.3,
-            end=queue_container.get_left() + RIGHT * 0.5,
-            buff=0,
-            color=GREEN,
-            stroke_width=3
-        )
-        
-        rear_arrow = Arrow(
-            start=rear_text.get_center() + UP * 0.3,
-            end=queue_container.get_left() + RIGHT * 0.5,
-            buff=0,
-            color=RED,
-            stroke_width=3
-        )
-        
-        self.play(Write(front_text), Write(rear_text))
-        self.play(Create(front_arrow), Create(rear_arrow))
-        self.wait(1)
-        
-        # Enqueue operations
-        enqueue_text = Text("ENQUEUE Operations", font_size=24, color=GREEN)
-        enqueue_text.to_edge(DOWN)
-        self.play(Write(enqueue_text))
-        
-        queue_elements = []
-        values = [10, 20, 30, 40, 50]
-        
-        for i, value in enumerate(values):
-            # Create queue element
-            element = Rectangle(width=1.4, height=1.2, color=WHITE, fill_opacity=0.3)
-            element.move_to(queue_container.get_left() + RIGHT * (0.8 + i * 1.5))
-            
-            # Add value label
-            label = Text(str(value), font_size=18)
-            label.move_to(element.get_center())
-            
-            # Enqueue animation from bottom
-            element.shift(DOWN * 3)
-            label.shift(DOWN * 3)
-            
-            self.play(Create(element), Write(label))
-            self.play(element.animate.shift(UP * 3), label.animate.shift(UP * 3))
-            
-            queue_elements.append((element, label))
-            
-            # Move rear pointer
+        item1.move_to(UP * 0.5)  # ✅ Upper MIDDLE zone
+
+                        # Items appear with stagger effect
+
+        item2 = Text("• Perfect Accuracy", font_size=36, color=BLUE)
+
+        item2.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        # ✅ CORRECT: Call to action with proper spacing        self.play(
+
+        item2.move_to(DOWN * 1)  # ✅ 1.5 units below item1 - SAFE!
+
+                cta = Text("Let's Begin", font_size=30, color=GREEN)            AnimationGroup(
+
+        item3 = Text("• Maximum Efficiency", font_size=36, color=YELLOW)
+
+        item3.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        cta.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY                *[GrowFromCenter(item) for item in items],
+
+        item3.move_to(DOWN * 2.5)  # ✅ 1.5 units below item2 - SAFE!
+
+                cta.move_to(DOWN * 3)  # ✅ BOTTOM zone (3 units from subtitle - SAFE!)                lag_ratio=0.4,  # ✅ Sequential with lag
+
+        # Stunning sequential reveal
+
+        for i, item in enumerate([item1, item2, item3]):                        run_time=2
+
             self.play(
-                rear_arrow.animate.shift(RIGHT * 1.5),
-                rear_text.animate.shift(RIGHT * 1.5)
-            )
-            
-            self.wait(0.5)
-        
-        self.wait(2)
-        
-        # Dequeue operations
-        self.play(FadeOut(enqueue_text))
-        dequeue_text = Text("DEQUEUE Operations", font_size=24, color=ORANGE)
-        dequeue_text.to_edge(DOWN)
-        self.play(Write(dequeue_text))
-        
-        for i in range(2):  # Dequeue 2 elements
-            if queue_elements:
-                element, label = queue_elements.pop(0)
-                
-                # Dequeue animation
-                self.play(
-                    element.animate.shift(UP * 3),
-                    label.animate.shift(UP * 3)
-                )
-                self.play(FadeOut(element), FadeOut(label))
-                
-                # Move front pointer
-                self.play(
-                    front_arrow.animate.shift(RIGHT * 1.5),
-                    front_text.animate.shift(RIGHT * 1.5)
-                )
-                
-                self.wait(0.5)
-        
-        self.wait(2)
-        
-        # Queue applications
-        self.play(FadeOut(dequeue_text))
-        apps_title = Text("Queue Applications:", font_size=20, color=YELLOW)
-        apps_title.to_edge(DOWN).shift(UP * 1.5)
-        
-        apps_list = VGroup(
-            Text("• Process scheduling", font_size=16),
-            Text("• BFS algorithm", font_size=16),
-            Text("• Print job management", font_size=16),
-            Text("• Buffer for data streams", font_size=16)
-        )
-        
-        apps_list.arrange(DOWN, aligned_edge=LEFT)
-        apps_list.to_edge(DOWN)
-        
-        self.play(Write(apps_title))
-        self.play(Write(apps_list))
-        self.wait(3)
-        
-        # Time complexity
-        complexity_text = Text("Time Complexity: Enqueue O(1), Dequeue O(1)", 
-                             font_size=18, color=PURPLE)
-        complexity_text.to_edge(DOWN).shift(UP * 0.3)
-        self.play(Write(complexity_text))
-        self.wait(3)
 
-# Script 5: Binary Search Tree
-from manim import *
+                GrowFromCenter(item, run_time=0.8),        # Attention-grabbing entrance            )
 
-class BinarySearchTree(Scene):
-    def construct(self):
-        # Title
-        title = Text("Binary Search Tree", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
-        
-        # BST property explanation
-        property_text = Text("Left < Root < Right", font_size=20, color=YELLOW)
-        property_text.shift(UP * 2.5)
-        self.play(Write(property_text))
-        self.wait(1)
-        
-        # Create BST nodes
-        root_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
-        root_label = Text("50", font_size=16)
-        root_label.move_to(root_circle.get_center())
-        root_node = VGroup(root_circle, root_label)
-        
-        # Left subtree
-        left_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
-        left_circle.shift(LEFT * 2 + DOWN * 1.5)
-        left_label = Text("30", font_size=16)
-        left_label.move_to(left_circle.get_center())
-        left_node = VGroup(left_circle, left_label)
-        
-        # Right subtree
-        right_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
-        right_circle.shift(RIGHT * 2 + DOWN * 1.5)
-        right_label = Text("70", font_size=16)
-        right_label.move_to(right_circle.get_center())
-        right_node = VGroup(right_circle, right_label)
-        
-        # Create connections
-        left_line = Line(root_circle.get_center(), left_circle.get_center(), color=YELLOW)
-        right_line = Line(root_circle.get_center(), right_circle.get_center(), color=YELLOW)
-        
-        # Animate tree creation
-        self.play(Create(root_node))
-        self.wait(0.5)
-        
-        self.play(Create(left_line), Create(left_node))
-        self.wait(0.5)
-        
-        self.play(Create(right_line), Create(right_node))
-        self.wait(1)
-        
-        # Add more nodes
-        nodes_data = [
-            (20, LEFT * 3 + DOWN * 3, left_circle),
-            (40, LEFT * 1 + DOWN * 3, left_circle),
-            (60, RIGHT * 1 + DOWN * 3, right_circle),
-            (80, RIGHT * 3 + DOWN * 3, right_circle)
-        ]
-        
-        nodes = [root_node, left_node, right_node]
-        lines = [left_line, right_line]
-        
-        for value, position, parent in nodes_data:
-            circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
-            circle.move_to(position)
-            label = Text(str(value), font_size=16)
-            label.move_to(circle.get_center())
-            node = VGroup(circle, label)
-            
-            line = Line(parent.get_center(), circle.get_center(), color=YELLOW)
-            
-            self.play(Create(line), Create(node))
-            nodes.append(node)
-            lines.append(line)
+                Flash(item, color=WHITE, flash_radius=0.5, run_time=0.5)
+
+            )        self.play(FadeIn(cta, shift=UP*0.5), run_time=0.8)        )
+
             self.wait(0.3)
-        
-        self.wait(2)
-        
-        # Search operation
-        search_text = Text("Search for 40", font_size=24, color=GREEN)
-        search_text.to_edge(DOWN)
-        self.play(Write(search_text))
-        
-        # Highlight search path
-        search_path = [0, 1, 5]  # indices of nodes in search path
-        for i in search_path:
-            highlight = Circle(radius=0.4, color=RED, stroke_width=4)
-            highlight.move_to(nodes[i].get_center())
-            self.play(Create(highlight))
-            self.wait(0.8)
-            if i != search_path[-1]:
-                self.play(FadeOut(highlight))
-        
-        self.wait(2)
-        
-        # Insert operation
-        self.play(FadeOut(search_text))
-        insert_text = Text("Insert 35", font_size=24, color=GREEN)
-        insert_text.to_edge(DOWN)
-        self.play(Write(insert_text))
-        
-        # Show insertion path
-        insert_path = [0, 1, 5]  # path to insert 35
-        for i in insert_path:
-            highlight = Circle(radius=0.4, color=BLUE, stroke_width=4)
-            highlight.move_to(nodes[i].get_center())
-            self.play(Create(highlight))
-            self.wait(0.5)
-            self.play(FadeOut(highlight))
-        
-        # Add new node
-        new_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
-        new_circle.shift(LEFT * 0.5 + DOWN * 4.5)
-        new_label = Text("35", font_size=16)
-        new_label.move_to(new_circle.get_center())
-        new_node = VGroup(new_circle, new_label)
-        new_line = Line(nodes[5][0].get_center(), new_circle.get_center(), color=YELLOW)
-        
-        self.play(Create(new_line), Create(new_node))
-        self.wait(2)
-        
-        # Time complexity
-        self.play(FadeOut(insert_text))
-        complexity_text = Text("Average Time Complexity: O(log n)", font_size=20, color=PURPLE)
-        worst_case_text = Text("Worst Case: O(n) for skewed tree", font_size=18, color=RED)
-        
-        complexity_text.to_edge(DOWN).shift(UP * 0.5)
-        worst_case_text.to_edge(DOWN)
-        
-        self.play(Write(complexity_text))
-        self.play(Write(worst_case_text))
-        self.wait(3)
 
-# Script 6: Hash Table
+                self.play(Indicate(cta, scale_factor=1.3, color=YELLOW), run_time=0.6)        
+
+        # Emphasize each point
+
+        for item in [item1, item2, item3]:                # Highlight each item with pulse
+
+            self.play(Indicate(item, scale_factor=1.2, color=WHITE), run_time=0.5)
+
+                self.wait(0.5)        for item in items:
+
+        self.wait(0.5)
+
+                            self.play(Indicate(item, scale_factor=1.3, color=WHITE), run_time=0.6)  # ✅ Emphasis
+
+        # Professional group exit
+
+        items = VGroup(item1, item2, item3)        # Coordinated professional exit        
+
+        self.play(
+
+            FadeOut(title, shift=UP*2),        self.play(        self.wait(0.5)
+
+            FadeOut(items, shift=DOWN*2, lag_ratio=0.2),
+
+            run_time=1.2            FadeOut(title, shift=UP*2, run_time=1.0),        
+
+        )
+
+            FadeOut(subtitle, scale=0.5, run_time=1.0),        # Exit with coordination
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════            FadeOut(cta, shift=DOWN*2, run_time=1.0)        self.play(
+
+# EXAMPLE 3: MIND-BLOWING TRANSFORMATION (PERFECT POSITIONING!)
+
+# ═══════════════════════════════════════════════════════════════════════════════        )            ShrinkToCenter(title),  # ✅ Creative exit
+
 from manim import *
 
-class HashTableVisualization(Scene):
+            *[FadeOut(item, shift=LEFT*2) for item in items],  # ✅ Exit with movement
+
+config.frame_width = 16
+
+config.frame_height = 9            run_time=1.5
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080# ═══════════════════════════════════════════════════════════════════════════════        )
+
+
+
+class SpectacularTransform(Scene):# EXAMPLE 2: SPECTACULAR LIST WITH PERFECT SPACING
+
     def construct(self):
-        # Title
-        title = Text("Hash Table Data Structure", font_size=48, color=BLUE)
-        title.to_edge(UP)
-        self.play(Write(title))
-        self.wait(1)
+
+        # ✅ CORRECT: Concept 1 with proper spacing# ═══════════════════════════════════════════════════════════════════════════════# EXAMPLE 3: Shape Transformation (USE THIS FOR CONCEPTS!)
+
+        concept1_title = Text("Input", font_size=42, color=BLUE, weight=BOLD)
+
+        concept1_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORYfrom manim import *from manim import *
+
+        concept1_title.move_to(UP * 2.5)  # ✅ TOP zone
+
         
-        # Hash function explanation
-        hash_text = Text("Hash Function: key % table_size", font_size=20, color=YELLOW)
-        hash_text.shift(UP * 2.5)
-        self.play(Write(hash_text))
-        self.wait(1)
+
+        concept1_desc = Text("Raw Data", font_size=30, color=GRAY)
+
+        concept1_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORYconfig.frame_width = 16class TransformationDemo(Scene):
+
+        concept1_desc.move_to(UP * 0.8)  # ✅ 1.7 units below title - SAFE!
+
+        config.frame_height = 9    def construct(self):
+
+        # Spectacular shape
+
+        circle = Circle(radius=1.2, color=BLUE, fill_opacity=0.3, stroke_width=4)config.pixel_width = 1920        # Start with circle - draw border then fill
+
+        circle.move_to(DOWN * 1.2)  # ✅ BOTTOM zone (2 units from desc - SAFE!)
+
+        config.pixel_height = 1080        circle = Circle(radius=1.5, color=BLUE, fill_opacity=0.3)
+
+        # Dynamic entrance
+
+        self.play(        self.play(DrawBorderThenFill(circle, run_time=1.2))  # ✅ DrawBorderThenFill
+
+            DrawBorderThenFill(circle, run_time=1.0),
+
+            Write(concept1_title, run_time=1.0)class ProfessionalList(Scene):        
+
+        )
+
+        self.play(FadeIn(concept1_desc, shift=DOWN*0.3), run_time=0.7)    def construct(self):        # Add label with growth
+
         
-        # Create hash table
-        table_size = 7
+
+        self.wait(0.5)        # ✅ CORRECT: Title with width constraint        label1 = Text("Input", font_size=32)
+
+        
+
+        # ✅ CORRECT: Concept 2 with perfect spacing        title = Text("3 Key Benefits", font_size=48, color=BLUE, weight=BOLD)        label1.next_to(circle, DOWN, buff=0.5)
+
+        concept2_title = Text("Process", font_size=42, color=GREEN, weight=BOLD)
+
+        concept2_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        self.play(GrowFromEdge(label1, edge=UP, run_time=0.8))  # ✅ GrowFromEdge
+
+        concept2_title.move_to(UP * 2.5)  # ✅ Same TOP zone
+
+                title.move_to(UP * 3)  # ✅ TOP zone        
+
+        concept2_desc = Text("AI Magic", font_size=30, color=GRAY)
+
+        concept2_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORY                self.wait(0.3)
+
+        concept2_desc.move_to(UP * 0.8)  # ✅ Same MIDDLE zone
+
+                self.play(Write(title, run_time=1.0))        
+
+        square = Square(side_length=2.5, color=GREEN, fill_opacity=0.3, stroke_width=4)
+
+        square.move_to(DOWN * 1.2)  # ✅ Same BOTTOM zone        self.play(Circumscribe(title, color=YELLOW, run_time=1.0))        # Transform to square
+
+        
+
+        # Breathtaking transformation                square = Square(side_length=2.5, color=GREEN, fill_opacity=0.3)
+
+        self.play(
+
+            Transform(circle, square, run_time=1.5),        # ✅ CORRECT: List items with proper spacing - EACH item scaled!        label2 = Text("Process", font_size=32, color=GREEN)
+
+            ReplacementTransform(concept1_title, concept2_title, run_time=1.5),
+
+            ReplacementTransform(concept1_desc, concept2_desc, run_time=1.5)        item1 = Text("• Lightning Speed", font_size=36, color=GREEN)        label2.next_to(square, DOWN, buff=0.5)
+
+        )
+
+                item1.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        
+
+        # Add emphasis
+
+        self.play(        item1.move_to(UP * 0.5)  # ✅ Upper MIDDLE zone        self.play(
+
+            Rotate(circle, angle=PI/4, run_time=1.0),
+
+            Flash(circle, color=YELLOW, line_length=0.8, run_time=0.7)                    Transform(circle, square, run_time=1.5),  # ✅ Transform animation
+
+        )
+
+                item2 = Text("• Perfect Accuracy", font_size=36, color=BLUE)            ReplacementTransform(label1, label2, run_time=1.5)
+
+        self.wait(0.5)
+
+                item2.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        )
+
+        # ✅ CORRECT: Final concept with spacing
+
+        concept3_title = Text("Output", font_size=42, color=YELLOW, weight=BOLD)        item2.move_to(DOWN * 1)  # ✅ 1.5 units below item1 - SAFE!        
+
+        concept3_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY
+
+        concept3_title.move_to(UP * 2.5)                # Rotate and scale
+
+        
+
+        concept3_desc = Text("Pure Insight", font_size=30, color=GRAY)        item3 = Text("• Maximum Efficiency", font_size=36, color=YELLOW)        self.play(
+
+        concept3_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORY
+
+        concept3_desc.move_to(UP * 0.8)        item3.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY            circle.animate.rotate(PI/4).scale(1.2),  # ✅ Rotation + scaling
+
+        
+
+        star = Star(n=5, outer_radius=1.5, color=YELLOW, fill_opacity=0.3, stroke_width=4)        item3.move_to(DOWN * 2.5)  # ✅ 1.5 units below item2 - SAFE!            run_time=1.2
+
+        star.move_to(DOWN * 1.2)
+
+                        )
+
+        # Epic finale
+
+        self.play(        # Stunning sequential reveal        
+
+            Transform(circle, star, run_time=1.5),
+
+            ReplacementTransform(concept2_title, concept3_title, run_time=1.5),        for i, item in enumerate([item1, item2, item3]):        # Flash for emphasis
+
+            ReplacementTransform(concept2_desc, concept3_desc, run_time=1.5)
+
+        )            self.play(        self.play(Flash(circle, color=YELLOW, line_length=0.5, run_time=0.8))  # ✅ Flash
+
+        
+
+        self.play(                GrowFromCenter(item, run_time=0.8),        
+
+            circle.animate.scale(1.3).set_color(GOLD),
+
+            Flash(circle, color=WHITE, num_lines=20, run_time=1.0)                Flash(item, color=WHITE, flash_radius=0.5, run_time=0.5)        self.wait(0.5)
+
+        )
+
+                    )        
+
+        self.wait(0.5)
+
+                    self.wait(0.3)        # Exit by uncreating
+
+        # Grand exit
+
+        self.play(                self.play(
+
+            FadeOut(VGroup(circle, concept3_title, concept3_desc), scale=0.3),
+
+            run_time=1.2        # Emphasize each point            Uncreate(circle, run_time=1.2),  # ✅ Uncreate
+
+        )
+
+        for item in [item1, item2, item3]:            FadeOut(label2, shift=DOWN)
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════            self.play(Indicate(item, scale_factor=1.2, color=WHITE), run_time=0.5)        )
+
+# EXAMPLE 4: LONG TEXT SPLITTING (CRITICAL TECHNIQUE!)
+
+# ═══════════════════════════════════════════════════════════════════════════════        
+
+from manim import *
+
+        self.wait(0.5)# EXAMPLE 4: Text Emphasis with Movement (ENERGY AND DYNAMICS!)
+
+config.frame_width = 16
+
+config.frame_height = 9        from manim import *
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080        # Professional group exit
+
+
+
+class PerfectTextSplitting(Scene):        items = VGroup(item1, item2, item3)class DynamicText(Scene):
+
+    def construct(self):
+
+        # ✅ CORRECT: Title        self.play(    def construct(self):
+
+        title = Text("Machine Learning", font_size=48, color=BLUE, weight=BOLD)
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY            FadeOut(title, shift=UP*2),        # Main point written dramatically
+
+        title.move_to(UP * 3)  # ✅ TOP zone
+
+                    FadeOut(items, shift=DOWN*2, lag_ratio=0.2),        main_text = Text("Machine Learning", font_size=52, color=BLUE)
+
+        self.play(Write(title, run_time=1.2))
+
+                    run_time=1.2        self.play(Write(main_text, run_time=1.8))  # ✅ Write animation
+
+        # ✅ CRITICAL: Long description split into 3 separate Text objects!
+
+        # Instead of: "Machine learning is a powerful approach that learns from data"        )        
+
+        # We split it:
+
+                # Scale up for impact
+
+        desc_line1 = Text("Machine learning is a powerful", font_size=32, color=WHITE)
+
+        desc_line1.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        self.play(main_text.animate.scale(1.3), run_time=0.7)  # ✅ Scale up
+
+        desc_line1.move_to(UP * 0.8)  # ✅ Upper MIDDLE zone
+
+        # ═══════════════════════════════════════════════════════════════════════════════        
+
+        desc_line2 = Text("approach that learns from data", font_size=32, color=WHITE)
+
+        desc_line2.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY# EXAMPLE 3: MIND-BLOWING TRANSFORMATION (PERFECT POSITIONING!)        # Move to corner
+
+        desc_line2.move_to(DOWN * 0.3)  # ✅ 1.1 units below line1 - SAFE!
+
+        # ═══════════════════════════════════════════════════════════════════════════════        self.play(main_text.animate.to_edge(UP).scale(0.7), run_time=0.9)  # ✅ Movement
+
+        desc_line3 = Text("and improves over time", font_size=32, color=WHITE)
+
+        desc_line3.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORYfrom manim import *        
+
+        desc_line3.move_to(DOWN * 1.4)  # ✅ 1.1 units below line2 - SAFE!
+
+                # Supporting text grows from center
+
+        # Stunning staggered reveal
+
+        self.play(config.frame_width = 16        point1 = Text("Learns from data", font_size=32, color=GREEN)
+
+            AnimationGroup(
+
+                FadeIn(desc_line1, shift=RIGHT*0.5),config.frame_height = 9        point2 = Text("Improves over time", font_size=32, color=YELLOW)
+
+                FadeIn(desc_line2, shift=RIGHT*0.5),
+
+                FadeIn(desc_line3, shift=RIGHT*0.5),config.pixel_width = 1920        point3 = Text("Makes predictions", font_size=32, color=RED)
+
+                lag_ratio=0.4,
+
+                run_time=2.0config.pixel_height = 1080        
+
+            )
+
+        )        points = VGroup(point1, point2, point3).arrange(DOWN, buff=0.6)
+
+        
+
+        # ✅ CORRECT: Key points with proper spacing (in BOTTOM zone)class SpectacularTransform(Scene):        
+
+        point1 = Text("✓ Learns patterns", font_size=28, color=GREEN)
+
+        point1.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY    def construct(self):        # Animate points one by one
+
+        point1.move_to(DOWN * 2.8)  # ✅ BOTTOM zone
+
+                # ✅ CORRECT: Concept 1 with proper spacing        for point in points:
+
+        self.play(GrowFromEdge(point1, edge=LEFT, run_time=0.8))
+
+        self.play(Wiggle(point1, scale_value=1.15), run_time=0.5)        concept1_title = Text("Input", font_size=42, color=BLUE, weight=BOLD)            self.play(GrowFromCenter(point), run_time=0.9)  # ✅ GrowFromCenter
+
+        
+
+        self.wait(0.5)        concept1_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY            self.play(Wiggle(point, scale_value=1.15), run_time=0.5)  # ✅ Wiggle for emphasis
+
+        
+
+        # Professional exit        concept1_title.move_to(UP * 2.5)  # ✅ TOP zone            self.wait(0.2)
+
+        self.play(
+
+            FadeOut(VGroup(title, desc_line1, desc_line2, desc_line3, point1),                 
+
+                    shift=DOWN*2, lag_ratio=0.1),
+
+            run_time=1.5        concept1_desc = Text("Raw Data", font_size=30, color=GRAY)        self.wait(0.5)
+
+        )
+
+        concept1_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORY        
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════        concept1_desc.move_to(UP * 0.8)  # ✅ 1.7 units below title - SAFE!        # All points get circumscribed
+
+# EXAMPLE 5: STUNNING COMPARISON (PROFESSIONAL LAYOUT!)
+
+# ═══════════════════════════════════════════════════════════════════════════════                self.play(Circumscribe(points, color=WHITE, run_time=1.5))  # ✅ Circumscribe group
+
+from manim import *
+
+        # Spectacular shape        
+
+config.frame_width = 16
+
+config.frame_height = 9        circle = Circle(radius=1.2, color=BLUE, fill_opacity=0.3, stroke_width=4)        # Creative group exit
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080        circle.move_to(DOWN * 1.2)  # ✅ BOTTOM zone (2 units from desc - SAFE!)        self.play(
+
+
+
+class EpicComparison(Scene):                    ShrinkToCenter(main_text),  # ✅ ShrinkToCenter
+
+    def construct(self):
+
+        # ✅ CORRECT: Main title        # Dynamic entrance            *[FadeOut(p, shift=DOWN*2) for p in points],  # ✅ FadeOut with movement
+
+        title = Text("Traditional vs AI", font_size=48, color=WHITE, weight=BOLD)
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        self.play(            run_time=1.3
+
+        title.move_to(UP * 3)  # ✅ TOP zone
+
+                    DrawBorderThenFill(circle, run_time=1.0),        )
+
+        self.play(Write(title, run_time=1.2))
+
+        self.play(title.animate.set_color_by_gradient(RED, BLUE), run_time=0.8)            Write(concept1_title, run_time=1.0)
+
+        
+
+        # ✅ CORRECT: Left column header with spacing        )# EXAMPLE 5: Comparison with Dynamic Columns
+
+        trad_header = Text("Traditional", font_size=36, color=RED, weight=BOLD)
+
+        trad_header.scale_to_fit_width(config.frame_width * 0.35)  # ✅ Narrower for columns        self.play(FadeIn(concept1_desc, shift=DOWN*0.3), run_time=0.7)from manim import *
+
+        trad_header.move_to(LEFT * 3.5 + UP * 1.2)  # ✅ Upper MIDDLE zone, left side
+
+                
+
+        # ✅ CORRECT: Right column header
+
+        ai_header = Text("AI Approach", font_size=36, color=GREEN, weight=BOLD)        self.wait(0.5)class ComparisonScene(Scene):
+
+        ai_header.scale_to_fit_width(config.frame_width * 0.35)  # ✅ Narrower for columns
+
+        ai_header.move_to(RIGHT * 3.5 + UP * 1.2)  # ✅ Upper MIDDLE zone, right side            def construct(self):
+
+        
+
+        self.play(        # ✅ CORRECT: Concept 2 with perfect spacing        # Title appears with writing
+
+            GrowFromEdge(trad_header, edge=LEFT, run_time=0.8),
+
+            GrowFromEdge(ai_header, edge=RIGHT, run_time=0.8)        concept2_title = Text("Process", font_size=42, color=GREEN, weight=BOLD)        title = Text("Traditional vs AI", font_size=44)
+
+        )
+
+                concept2_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY        self.play(Write(title, run_time=1.3))
+
+        # ✅ CORRECT: Left column items with vertical spacing
+
+        trad_item1 = Text("• Manual rules", font_size=28, color=WHITE)        concept2_title.move_to(UP * 2.5)  # ✅ Same TOP zone        self.play(title.animate.shift(UP*3), run_time=0.7)
+
+        trad_item1.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY
+
+        trad_item1.move_to(LEFT * 3.5 + UP * 0.2)  # ✅ 1.0 units below header                
+
+        
+
+        trad_item2 = Text("• Fixed logic", font_size=28, color=WHITE)        concept2_desc = Text("AI Magic", font_size=30, color=GRAY)        # Left column (Traditional)
+
+        trad_item2.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY
+
+        trad_item2.move_to(LEFT * 3.5 + DOWN * 0.8)  # ✅ 1.0 units below item1        concept2_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORY        trad_header = Text("Traditional", font_size=32, color=RED)
+
+        
+
+        trad_item3 = Text("• Limited scale", font_size=28, color=WHITE)        concept2_desc.move_to(UP * 0.8)  # ✅ Same MIDDLE zone        trad_header.shift(LEFT*3 + UP*1.5)
+
+        trad_item3.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY
+
+        trad_item3.move_to(LEFT * 3.5 + DOWN * 1.8)  # ✅ 1.0 units below item2                trad_items = VGroup(
+
+        
+
+        # ✅ CORRECT: Right column items with vertical spacing        square = Square(side_length=2.5, color=GREEN, fill_opacity=0.3, stroke_width=4)            Text("• Manual rules", font_size=24),
+
+        ai_item1 = Text("• Learns patterns", font_size=28, color=WHITE)
+
+        ai_item1.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY        square.move_to(DOWN * 1.2)  # ✅ Same BOTTOM zone            Text("• Fixed logic", font_size=24),
+
+        ai_item1.move_to(RIGHT * 3.5 + UP * 0.2)
+
+                            Text("• Limited scale", font_size=24)
+
+        ai_item2 = Text("• Adapts logic", font_size=28, color=WHITE)
+
+        ai_item2.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY        # Breathtaking transformation        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
+
+        ai_item2.move_to(RIGHT * 3.5 + DOWN * 0.8)
+
+                self.play(        trad_items.next_to(trad_header, DOWN, buff=0.5).shift(LEFT*3)
+
+        ai_item3 = Text("• Massive scale", font_size=28, color=WHITE)
+
+        ai_item3.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY            Transform(circle, square, run_time=1.5),        
+
+        ai_item3.move_to(RIGHT * 3.5 + DOWN * 1.8)
+
+                    ReplacementTransform(concept1_title, concept2_title, run_time=1.5),        # Right column (AI)
+
+        # Spectacular reveal
+
+        trad_items = VGroup(trad_item1, trad_item2, trad_item3)            ReplacementTransform(concept1_desc, concept2_desc, run_time=1.5)        ai_header = Text("AI Approach", font_size=32, color=GREEN)
+
+        ai_items = VGroup(ai_item1, ai_item2, ai_item3)
+
+                )        ai_header.shift(RIGHT*3 + UP*1.5)
+
+        self.play(
+
+            AnimationGroup(*[FadeIn(item, shift=RIGHT*0.5) for item in trad_items],                ai_items = VGroup(
+
+                          lag_ratio=0.3, run_time=1.5)
+
+        )        # Add emphasis            Text("• Learns patterns", font_size=24),
+
+        
+
+        self.play(        self.play(            Text("• Adapts logic", font_size=24),
+
+            AnimationGroup(*[FadeIn(item, shift=LEFT*0.5) for item in ai_items],
+
+                          lag_ratio=0.3, run_time=1.5)            Rotate(circle, angle=PI/4, run_time=1.0),            Text("• Massive scale", font_size=24)
+
+        )
+
+                    Flash(circle, color=YELLOW, line_length=0.8, run_time=0.7)        ).arrange(DOWN, aligned_edge=LEFT, buff=0.3)
+
+        # Epic emphasis on AI side
+
+        self.play(        )        ai_items.next_to(ai_header, DOWN, buff=0.5).shift(RIGHT*3)
+
+            Indicate(ai_header, scale_factor=1.3, color=YELLOW),
+
+            Flash(ai_items, color=GOLD, num_lines=12),                
+
+            run_time=1.0
+
+        )        self.wait(0.5)        # Animate left side with stagger
+
+        
+
+        # ✅ CORRECT: Winner badge with proper spacing                self.play(GrowFromEdge(trad_header, edge=LEFT, run_time=0.8))
+
+        winner = Text("WINNER!", font_size=32, color=GOLD, weight=BOLD)
+
+        winner.scale_to_fit_width(config.frame_width * 0.3)  # ✅ MANDATORY        # ✅ CORRECT: Final concept with spacing        self.play(
+
+        winner.move_to(RIGHT * 3.5 + DOWN * 3)  # ✅ BOTTOM zone, right side
+
+                concept3_title = Text("Output", font_size=42, color=YELLOW, weight=BOLD)            AnimationGroup(
+
+        self.play(
+
+            GrowFromCenter(winner),        concept3_title.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY                *[GrowFromCenter(item) for item in trad_items],
+
+            winner.animate.set_color_by_gradient(YELLOW, GOLD, RED),
+
+            run_time=1.0        concept3_title.move_to(UP * 2.5)                lag_ratio=0.3,
+
+        )
+
+                                run_time=1.5
+
+        self.wait(0.5)
+
+                concept3_desc = Text("Pure Insight", font_size=30, color=GRAY)            )
+
+        # Professional group exit
+
+        self.play(        concept3_desc.scale_to_fit_width(config.frame_width * 0.6)  # ✅ MANDATORY        )
+
+            FadeOut(VGroup(title, trad_header, ai_header, trad_items, ai_items, winner),
+
+                    shift=DOWN*2, lag_ratio=0.1),        concept3_desc.move_to(UP * 0.8)        
+
+            run_time=1.5
+
+        )                # Animate right side with stagger
+
+
+
+        star = Star(n=5, outer_radius=1.5, color=YELLOW, fill_opacity=0.3, stroke_width=4)        self.play(GrowFromEdge(ai_header, edge=RIGHT, run_time=0.8))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# EXAMPLE 6: VERTICAL ASPECT RATIO (9:16 MOBILE - CRITICAL!)        star.move_to(DOWN * 1.2)        self.play(
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from manim import *                    AnimationGroup(
+
+
+
+# ✅ CRITICAL: Vertical aspect ratio configuration        # Epic finale                *[GrowFromCenter(item) for item in ai_items],
+
+config.frame_width = 9
+
+config.frame_height = 16        self.play(                lag_ratio=0.3,
+
+config.pixel_width = 1080
+
+config.pixel_height = 1920            Transform(circle, star, run_time=1.5),                run_time=1.5
+
+
+
+class MobileVerticalStunning(Scene):            ReplacementTransform(concept2_title, concept3_title, run_time=1.5),            )
+
+    def construct(self):
+
+        # ✅ CORRECT: Title for vertical format (narrower width constraint!)            ReplacementTransform(concept2_desc, concept3_desc, run_time=1.5)        )
+
+        title = Text("Mobile First", font_size=32, color=BLUE, weight=BOLD)
+
+        title.scale_to_fit_width(config.frame_width * 0.65)  # ✅ Much narrower for 9:16!        )        
+
+        title.move_to(UP * 6)  # ✅ TOP zone (vertical has more height)
+
+                        # Emphasize AI side
+
+        self.play(Write(title, run_time=1.0))
+
+                self.play(        self.play(Indicate(ai_header, scale_factor=1.3, color=YELLOW), run_time=0.8)
+
+        # ✅ CORRECT: Subtitle with proper narrow constraint
+
+        subtitle = Text("Vertical Design", font_size=28, color=WHITE)            circle.animate.scale(1.3).set_color(GOLD),        self.play(Flash(ai_items, color=YELLOW), run_time=0.7)
+
+        subtitle.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY (narrow!)
+
+        subtitle.move_to(UP * 4.5)  # ✅ 1.5 units below title - SAFE!            Flash(circle, color=WHITE, num_lines=20, run_time=1.0)        
+
+        
+
+        self.play(FadeIn(subtitle, shift=DOWN*0.3), run_time=0.8)        )        self.wait(0.5)
+
+        
+
+        # ✅ CORRECT: Content stacked vertically with spacing                
+
+        content1 = Text("Point One", font_size=24, color=GREEN)
+
+        content1.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY        self.wait(0.5)        # Exit everything
+
+        content1.move_to(UP * 2.5)  # ✅ 2.0 units below subtitle - SAFE!
+
+                        self.play(
+
+        content2 = Text("Point Two", font_size=24, color=BLUE)
+
+        content2.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY        # Grand exit            Uncreate(title),
+
+        content2.move_to(UP * 0.8)  # ✅ 1.7 units below content1 - SAFE!
+
+                self.play(            FadeOut(trad_header, shift=LEFT*2),
+
+        content3 = Text("Point Three", font_size=24, color=YELLOW)
+
+        content3.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY            FadeOut(VGroup(circle, concept3_title, concept3_desc), scale=0.3),            FadeOut(ai_header, shift=RIGHT*2),
+
+        content3.move_to(DOWN * 0.9)  # ✅ 1.7 units below content2 - SAFE!
+
+                    run_time=1.2            *[ShrinkToCenter(item) for item in trad_items],
+
+        # Stack elements with proper spacing
+
+        circle = Circle(radius=1.0, color=WHITE, fill_opacity=0.2, stroke_width=3)        )            *[ShrinkToCenter(item) for item in ai_items],
+
+        circle.move_to(DOWN * 3)  # ✅ 2.1 units below content3 - SAFE!
+
+                    run_time=1.5
+
+        footer = Text("Swipe Up", font_size=20, color=GRAY)
+
+        footer.scale_to_fit_width(config.frame_width * 0.5)  # ✅ MANDATORY        )
+
+        footer.move_to(DOWN * 6)  # ✅ BOTTOM zone (3 units from circle - SAFE!)
+
+        # ═══════════════════════════════════════════════════════════════════════════════        self.play(Create(highlight))
+
+        # Beautiful stacked reveal
+
+        self.play(# EXAMPLE 4: LONG TEXT SPLITTING (CRITICAL TECHNIQUE!)        self.wait(1)
+
+            AnimationGroup(
+
+                GrowFromCenter(content1),# ═══════════════════════════════════════════════════════════════════════════════        
+
+                GrowFromCenter(content2),
+
+                GrowFromCenter(content3),from manim import *        # Update arrow to skip deleted node
+
+                DrawBorderThenFill(circle),
+
+                FadeIn(footer, shift=UP*0.3),        new_skip_arrow = Arrow(
+
+                lag_ratio=0.3,
+
+                run_time=2.5config.frame_width = 16            start=nodes[0][1].get_center() + RIGHT * 0.2,
+
+            )
+
+        )config.frame_height = 9            end=nodes[2][0].get_center() + LEFT * 0.5,
+
+        
+
+        self.wait(0.5)config.pixel_width = 1920            buff=0,
+
+        
+
+        # Mobile-friendly exitconfig.pixel_height = 1080            color=YELLOW,
+
+        self.play(
+
+            FadeOut(VGroup(title, subtitle, content1, content2, content3, circle, footer),            stroke_width=3
+
+                    shift=UP*3, lag_ratio=0.1),
+
+            run_time=1.5class PerfectTextSplitting(Scene):        )
+
+        )
+
+    def construct(self):        
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════        # ✅ CORRECT: Title        self.play(FadeOut(nodes[1]), FadeOut(arrows[1]), FadeOut(highlight))
+
+# EXAMPLE 7: SIMPLE DATA STRUCTURE (DONE RIGHT!)
+
+# ═══════════════════════════════════════════════════════════════════════════════        title = Text("Machine Learning", font_size=48, color=BLUE, weight=BOLD)        self.play(Create(new_skip_arrow))
+
+from manim import *
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        self.wait(2)
+
+config.frame_width = 16
+
+config.frame_height = 9        title.move_to(UP * 3)  # ✅ TOP zone        
+
+config.pixel_width = 1920
+
+config.pixel_height = 1080                # Advantages and disadvantages
+
+
+
+class CleanDataStructure(Scene):        self.play(Write(title, run_time=1.2))        self.play(FadeOut(delete_text))
+
+    def construct(self):
+
+        # ✅ CORRECT: Title                advantages_text = Text("Advantages: Dynamic size, Efficient insertion/deletion", 
+
+        title = Text("Linked List", font_size=48, color=BLUE, weight=BOLD)
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        # ✅ CRITICAL: Long description split into 3 separate Text objects!                             font_size=18, color=GREEN)
+
+        title.move_to(UP * 3)  # ✅ TOP zone
+
+                # Instead of: "Machine learning is a powerful approach that learns from data"        disadvantages_text = Text("Disadvantages: No random access, Extra memory for pointers", 
+
+        self.play(Write(title, run_time=1.0))
+
+                # We split it:                                font_size=18, color=RED)
+
+        # ✅ CORRECT: Simple 3-node list with proper spacing
+
+        # Node 1                
+
+        node1_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)
+
+        node1_box.move_to(LEFT * 3 + UP * 0.3)  # ✅ Upper MIDDLE zone        desc_line1 = Text("Machine learning is a powerful", font_size=32, color=WHITE)        advantages_text.to_edge(DOWN).shift(UP * 0.5)
+
+        
+
+        node1_text = Text("10", font_size=24, color=BLACK)        desc_line1.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        disadvantages_text.to_edge(DOWN)
+
+        node1_text.scale_to_fit_width(0.8)  # ✅ Fit inside box
+
+        node1_text.move_to(node1_box.get_center())        desc_line1.move_to(UP * 0.8)  # ✅ Upper MIDDLE zone        
+
+        
+
+        # Node 2                self.play(Write(advantages_text))
+
+        node2_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)
+
+        node2_box.move_to(ORIGIN)  # ✅ Center MIDDLE zone (3 units from node1 - SAFE!)        desc_line2 = Text("approach that learns from data", font_size=32, color=WHITE)        self.play(Write(disadvantages_text))
+
+        
+
+        node2_text = Text("20", font_size=24, color=BLACK)        desc_line2.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        self.wait(4)
+
+        node2_text.scale_to_fit_width(0.8)  # ✅ Fit inside box
+
+        node2_text.move_to(node2_box.get_center())        desc_line2.move_to(DOWN * 0.3)  # ✅ 1.1 units below line1 - SAFE!
+
+        
+
+        # Node 3        # Script 3: Stack Data Structure
+
+        node3_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)
+
+        node3_box.move_to(RIGHT * 3 + UP * 0.3)  # ✅ Right MIDDLE zone        desc_line3 = Text("and improves over time", font_size=32, color=WHITE)from manim import *
+
+        
+
+        node3_text = Text("30", font_size=24, color=BLACK)        desc_line3.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY
+
+        node3_text.scale_to_fit_width(0.8)  # ✅ Fit inside box
+
+        node3_text.move_to(node3_box.get_center())        desc_line3.move_to(DOWN * 1.4)  # ✅ 1.1 units below line2 - SAFE!class StackVisualization(Scene):
+
+        
+
+        # Arrows with proper spacing            def construct(self):
+
+        arrow1 = Arrow(
+
+            start=node1_box.get_right() + RIGHT*0.1,        # Stunning staggered reveal        # Title
+
+            end=node2_box.get_left() + LEFT*0.1,
+
+            buff=0.1,        self.play(        title = Text("Stack Data Structure (LIFO)", font_size=48, color=BLUE)
+
+            color=YELLOW,
+
+            stroke_width=3            AnimationGroup(        title.to_edge(UP)
+
+        )
+
+                        FadeIn(desc_line1, shift=RIGHT*0.5),        self.play(Write(title))
+
+        arrow2 = Arrow(
+
+            start=node2_box.get_right() + RIGHT*0.1,                FadeIn(desc_line2, shift=RIGHT*0.5),        self.wait(1)
+
+            end=node3_box.get_left() + LEFT*0.1,
+
+            buff=0.1,                FadeIn(desc_line3, shift=RIGHT*0.5),        
+
+            color=YELLOW,
+
+            stroke_width=3                lag_ratio=0.4,        # Create stack base
+
+        )
+
+                        run_time=2.0        stack_base = Rectangle(width=2, height=0.3, color=BROWN, fill_opacity=0.8)
+
+        # Spectacular creation sequence
+
+        self.play(DrawBorderThenFill(node1_box), Write(node1_text), run_time=0.8)            )        stack_base.shift(DOWN * 2.5)
+
+        self.play(GrowArrow(arrow1), run_time=0.6)
+
+        self.play(DrawBorderThenFill(node2_box), Write(node2_text), run_time=0.8)        )        self.play(Create(stack_base))
+
+        self.play(GrowArrow(arrow2), run_time=0.6)
+
+        self.play(DrawBorderThenFill(node3_box), Write(node3_text), run_time=0.8)                
+
+        
+
+        # ✅ CORRECT: Description with proper spacing (BOTTOM zone)        # ✅ CORRECT: Key points with proper spacing (in BOTTOM zone)        # Stack operations
+
+        desc = Text("Nodes connected by pointers", font_size=28, color=WHITE)
+
+        desc.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        point1 = Text("✓ Learns patterns", font_size=28, color=GREEN)        stack_elements = []
+
+        desc.move_to(DOWN * 2.5)  # ✅ BOTTOM zone (2.8 units from nodes - SAFE!)
+
+                point1.scale_to_fit_width(config.frame_width * 0.7)  # ✅ MANDATORY        values = [10, 20, 30, 40, 50]
+
+        self.play(FadeIn(desc, shift=UP*0.3), run_time=0.8)
+
+                point1.move_to(DOWN * 2.8)  # ✅ BOTTOM zone        
+
+        # Highlight traversal
+
+        nodes = VGroup(node1_box, node2_box, node3_box)                # Push operations
+
+        for node in nodes:
+
+            self.play(Indicate(node, scale_factor=1.2, color=GREEN), run_time=0.5)        self.play(GrowFromEdge(point1, edge=LEFT, run_time=0.8))        push_text = Text("PUSH Operations", font_size=24, color=GREEN)
+
+        
+
+        self.wait(0.5)        self.play(Wiggle(point1, scale_value=1.15), run_time=0.5)        push_text.to_edge(DOWN)
+
+        
+
+        # Clean exit                self.play(Write(push_text))
+
+        self.play(
+
+            FadeOut(VGroup(title, node1_box, node1_text, node2_box, node2_text,         self.wait(0.5)        
+
+                          node3_box, node3_text, arrow1, arrow2, desc),
+
+                    shift=DOWN*2),                for i, value in enumerate(values):
+
+            run_time=1.2
+
+        )        # Professional exit            # Create stack element
+
+
+
+        self.play(            element = Rectangle(width=1.8, height=0.5, color=WHITE, fill_opacity=0.3)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# EXAMPLE 8: PROFESSIONAL PROCESS FLOW (STUNNING!)            FadeOut(VGroup(title, desc_line1, desc_line2, desc_line3, point1),             element.shift(DOWN * (2 - i * 0.6))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from manim import *                    shift=DOWN*2, lag_ratio=0.1),            
+
+
+
+config.frame_width = 16            run_time=1.5            # Add value label
+
+config.frame_height = 9
+
+config.pixel_width = 1920        )            label = Text(str(value), font_size=20)
+
+config.pixel_height = 1080
+
+            label.move_to(element.get_center())
+
+class EpicProcessFlow(Scene):
+
+    def construct(self):            
+
+        # ✅ CORRECT: Title
+
+        title = Text("AI Pipeline", font_size=48, color=BLUE, weight=BOLD)# ═══════════════════════════════════════════════════════════════════════════════            # Push animation
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY
+
+        title.move_to(UP * 3)  # ✅ TOP zone# EXAMPLE 5: STUNNING COMPARISON (PROFESSIONAL LAYOUT!)            element.shift(UP * 3)
+
+        
+
+        self.play(Write(title, run_time=1.0))# ═══════════════════════════════════════════════════════════════════════════════            label.shift(UP * 3)
+
+        self.play(title.animate.set_color_by_gradient(BLUE, PURPLE), run_time=0.8)
+
+        from manim import *            
+
+        # ✅ CORRECT: Step 1 with proper spacing
+
+        step1_title = Text("1. Data", font_size=32, color=GREEN, weight=BOLD)            self.play(Create(element), Write(label))
+
+        step1_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ Narrow for flow
+
+        step1_title.move_to(LEFT * 4 + UP * 0.5)  # ✅ MIDDLE zone, leftconfig.frame_width = 16            self.play(element.animate.shift(DOWN * 3), label.animate.shift(DOWN * 3))
+
+        
+
+        step1_shape = Circle(radius=0.8, color=GREEN, fill_opacity=0.3, stroke_width=3)config.frame_height = 9            
+
+        step1_shape.move_to(LEFT * 4 + DOWN * 1)  # ✅ Below title, proper spacing
+
+        config.pixel_width = 1920            stack_elements.append((element, label))
+
+        # ✅ CORRECT: Step 2
+
+        step2_title = Text("2. Train", font_size=32, color=BLUE, weight=BOLD)config.pixel_height = 1080            
+
+        step2_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ MANDATORY
+
+        step2_title.move_to(ORIGIN + UP * 0.5)  # ✅ Center            # Show top pointer
+
+        
+
+        step2_shape = Square(side_length=1.6, color=BLUE, fill_opacity=0.3, stroke_width=3)class EpicComparison(Scene):            if i == 0:
+
+        step2_shape.move_to(ORIGIN + DOWN * 1)
+
+            def construct(self):                top_arrow = Arrow(
+
+        # ✅ CORRECT: Step 3
+
+        step3_title = Text("3. Deploy", font_size=32, color=YELLOW, weight=BOLD)        # ✅ CORRECT: Main title                    start=element.get_center() + LEFT * 1.5,
+
+        step3_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ MANDATORY
+
+        step3_title.move_to(RIGHT * 4 + UP * 0.5)  # ✅ Right        title = Text("Traditional vs AI", font_size=48, color=WHITE, weight=BOLD)                    end=element.get_center() + LEFT * 1,
+
+        
+
+        step3_shape = Star(n=5, outer_radius=1.0, color=YELLOW, fill_opacity=0.3, stroke_width=3)        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY                    buff=0,
+
+        step3_shape.move_to(RIGHT * 4 + DOWN * 1)
+
+                title.move_to(UP * 3)  # ✅ TOP zone                    color=RED,
+
+        # Arrows
+
+        arrow1 = Arrow(                            stroke_width=4
+
+            start=step1_shape.get_right() + RIGHT*0.2,
+
+            end=step2_shape.get_left() + LEFT*0.2,        self.play(Write(title, run_time=1.2))                )
+
+            buff=0.1,
+
+            color=WHITE,        self.play(title.animate.set_color_by_gradient(RED, BLUE), run_time=0.8)                top_text = Text("TOP", font_size=16, color=RED)
+
+            stroke_width=4
+
+        )                        top_text.move_to(element.get_center() + LEFT * 2)
+
+        
+
+        arrow2 = Arrow(        # ✅ CORRECT: Left column header with spacing                self.play(Create(top_arrow), Write(top_text))
+
+            start=step2_shape.get_right() + RIGHT*0.2,
+
+            end=step3_shape.get_left() + LEFT*0.2,        trad_header = Text("Traditional", font_size=36, color=RED, weight=BOLD)            else:
+
+            buff=0.1,
+
+            color=WHITE,        trad_header.scale_to_fit_width(config.frame_width * 0.35)  # ✅ Narrower for columns                # Move top pointer
+
+            stroke_width=4
+
+        )        trad_header.move_to(LEFT * 3.5 + UP * 1.2)  # ✅ Upper MIDDLE zone, left side                self.play(
+
+        
+
+        # Epic sequential reveal                            top_arrow.animate.shift(UP * 0.6),
+
+        self.play(
+
+            AnimationGroup(        # ✅ CORRECT: Right column header                    top_text.animate.shift(UP * 0.6)
+
+                GrowFromCenter(step1_title),
+
+                DrawBorderThenFill(step1_shape),        ai_header = Text("AI Approach", font_size=36, color=GREEN, weight=BOLD)                )
+
+                lag_ratio=0.3,
+
+                run_time=1.2        ai_header.scale_to_fit_width(config.frame_width * 0.35)  # ✅ Narrower for columns            
+
+            )
+
+        )        ai_header.move_to(RIGHT * 3.5 + UP * 1.2)  # ✅ Upper MIDDLE zone, right side            self.wait(0.5)
+
+        
+
+        self.play(GrowArrow(arrow1), run_time=0.8)                
+
+        
+
+        self.play(        self.play(        self.wait(2)
+
+            AnimationGroup(
+
+                GrowFromCenter(step2_title),            GrowFromEdge(trad_header, edge=LEFT, run_time=0.8),        
+
+                DrawBorderThenFill(step2_shape),
+
+                lag_ratio=0.3,            GrowFromEdge(ai_header, edge=RIGHT, run_time=0.8)        # Pop operations
+
+                run_time=1.2
+
+            )        )        self.play(FadeOut(push_text))
+
+        )
+
+                        pop_text = Text("POP Operations", font_size=24, color=ORANGE)
+
+        self.play(GrowArrow(arrow2), run_time=0.8)
+
+                # ✅ CORRECT: Left column items with vertical spacing        pop_text.to_edge(DOWN)
+
+        self.play(
+
+            AnimationGroup(        trad_item1 = Text("• Manual rules", font_size=28, color=WHITE)        self.play(Write(pop_text))
+
+                GrowFromCenter(step3_title),
+
+                DrawBorderThenFill(step3_shape),        trad_item1.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY        
+
+                lag_ratio=0.3,
+
+                run_time=1.2        trad_item1.move_to(LEFT * 3.5 + UP * 0.2)  # ✅ 1.0 units below header        for i in range(2):  # Pop 2 elements
+
+            )
+
+        )                    if stack_elements:
+
+        
+
+        # Flash finale        trad_item2 = Text("• Fixed logic", font_size=28, color=WHITE)                element, label = stack_elements.pop()
+
+        self.play(
+
+            Flash(step3_shape, color=GOLD, num_lines=20, flash_radius=1.5),        trad_item2.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY                
+
+            run_time=1.0
+
+        )        trad_item2.move_to(LEFT * 3.5 + DOWN * 0.8)  # ✅ 1.0 units below item1                # Pop animation
+
+        
+
+        self.wait(0.5)                        self.play(
+
+        
+
+        # Professional exit        trad_item3 = Text("• Limited scale", font_size=28, color=WHITE)                    element.animate.shift(UP * 3),
+
+        everything = VGroup(title, step1_title, step1_shape, step2_title, step2_shape,
+
+                           step3_title, step3_shape, arrow1, arrow2)        trad_item3.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY                    label.animate.shift(UP * 3)
+
+        self.play(FadeOut(everything, shift=DOWN*2, lag_ratio=0.05), run_time=1.5)
+
+        trad_item3.move_to(LEFT * 3.5 + DOWN * 1.8)  # ✅ 1.0 units below item2                )
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════                        self.play(FadeOut(element), FadeOut(label))
+
+# 🎓 KEY LEARNINGS - GEMINI AI MUST REMEMBER:
+
+# ═══════════════════════════════════════════════════════════════════════════════        # ✅ CORRECT: Right column items with vertical spacing                
+
+#
+
+# ✅ ALWAYS use .scale_to_fit_width() on EVERY Text object        ai_item1 = Text("• Learns patterns", font_size=28, color=WHITE)                # Move top pointer down
+
+# ✅ Font sizes: Titles ≤48px, Body ≤36px, Small ≤30px
+
+# ✅ Vertical spacing: Minimum 1.5 units between text objects        ai_item1.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY                if stack_elements:
+
+# ✅ Use zones: TOP (UP*3), MIDDLE (ORIGIN), BOTTOM (DOWN*3)
+
+# ✅ Split long text (>50 chars) into multiple Text objects        ai_item1.move_to(RIGHT * 3.5 + UP * 0.2)                    self.play(
+
+# ✅ For 9:16, use narrower width (0.65) and stack vertically
+
+# ✅ For columns, use narrower constraints (0.35-0.40)                                top_arrow.animate.shift(DOWN * 0.6),
+
+# ✅ Data structures: Keep simple, 3-5 elements max, proper spacing
+
+# ✅ Use spectacular animations: Write, GrowFromCenter, Transform, Flash, Indicate        ai_item2 = Text("• Adapts logic", font_size=28, color=WHITE)                        top_text.animate.shift(DOWN * 0.6)
+
+# ✅ Combine movements: .animate.shift().scale() for dynamic effects
+
+# ✅ Exit professionally: FadeOut with lag_ratio, shift directions        ai_item2.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY                    )
+
+# ✅ Proper indentation: 4 spaces per level, consistent throughout
+
+# ✅ Comments aligned properly with code blocks        ai_item2.move_to(RIGHT * 3.5 + DOWN * 0.8)                
+
+#
+
+# 🚫 NEVER place text without .scale_to_fit_width()                        self.wait(0.5)
+
+# 🚫 NEVER use font sizes >48px for titles or >36px for body
+
+# 🚫 NEVER place objects closer than 1.5 units vertically        ai_item3 = Text("• Massive scale", font_size=28, color=WHITE)        
+
+# 🚫 NEVER put long text in single Text object
+
+# 🚫 NEVER create complex overlapping structures        ai_item3.scale_to_fit_width(config.frame_width * 0.35)  # ✅ MANDATORY        self.wait(2)
+
+# 🚫 NEVER mix tabs and spaces - use 4 spaces consistently
+
+# 🚫 NEVER misalign indentation - class/def at same level, methods indented once        ai_item3.move_to(RIGHT * 3.5 + DOWN * 1.8)        
+
+#
+
+# ═══════════════════════════════════════════════════════════════════════════════                # Stack applications
+
+
+        # Spectacular reveal        self.play(FadeOut(pop_text))
+
+        trad_items = VGroup(trad_item1, trad_item2, trad_item3)        apps_title = Text("Stack Applications:", font_size=20, color=YELLOW)
+
+        ai_items = VGroup(ai_item1, ai_item2, ai_item3)        apps_title.to_edge(DOWN).shift(UP * 1.5)
+
+                
+
+        self.play(        apps_list = VGroup(
+
+            AnimationGroup(*[FadeIn(item, shift=RIGHT*0.5) for item in trad_items],            Text("• Function call management", font_size=16),
+
+                          lag_ratio=0.3, run_time=1.5)            Text("• Expression evaluation", font_size=16),
+
+        )            Text("• Undo operations", font_size=16),
+
+                    Text("• Browser history", font_size=16)
+
+        self.play(        )
+
+            AnimationGroup(*[FadeIn(item, shift=LEFT*0.5) for item in ai_items],        
+
+                          lag_ratio=0.3, run_time=1.5)        apps_list.arrange(DOWN, aligned_edge=LEFT)
+
+        )        apps_list.to_edge(DOWN)
+
+                
+
+        # Epic emphasis on AI side        self.play(Write(apps_title))
+
+        self.play(        self.play(Write(apps_list))
+
+            Indicate(ai_header, scale_factor=1.3, color=YELLOW),        self.wait(3)
+
+            Flash(ai_items, color=GOLD, num_lines=12),        
+
+            run_time=1.0        # Time complexity
+
+        )        complexity_text = Text("Time Complexity: Push O(1), Pop O(1), Peek O(1)", 
+
+                                     font_size=18, color=PURPLE)
+
+        # ✅ CORRECT: Winner badge with proper spacing        complexity_text.to_edge(DOWN).shift(UP * 0.3)
+
+        winner = Text("WINNER!", font_size=32, color=GOLD, weight=BOLD)        self.play(Write(complexity_text))
+
+        winner.scale_to_fit_width(config.frame_width * 0.3)  # ✅ MANDATORY        self.wait(3)
+
+        winner.move_to(RIGHT * 3.5 + DOWN * 3)  # ✅ BOTTOM zone, right side
+
+        # Script 4: Queue Data Structure
+
+        self.play(from manim import *
+
+            GrowFromCenter(winner),
+
+            winner.animate.set_color_by_gradient(YELLOW, GOLD, RED),class QueueVisualization(Scene):
+
+            run_time=1.0    def construct(self):
+
+        )        # Title
+
+                title = Text("Queue Data Structure (FIFO)", font_size=48, color=BLUE)
+
+        self.wait(0.5)        title.to_edge(UP)
+
+                self.play(Write(title))
+
+        # Professional group exit        self.wait(1)
+
+        self.play(        
+
+            FadeOut(VGroup(title, trad_header, ai_header, trad_items, ai_items, winner),        # Create queue container
+
+                    shift=DOWN*2, lag_ratio=0.1),        queue_container = Rectangle(width=8, height=1.5, color=GRAY, stroke_width=3)
+
+            run_time=1.5        queue_container.shift(DOWN * 0.5)
+
+        )        self.play(Create(queue_container))
+
+        
+
+        # Front and rear pointers
+
+# ═══════════════════════════════════════════════════════════════════════════════        front_text = Text("FRONT", font_size=16, color=GREEN)
+
+# EXAMPLE 6: VERTICAL ASPECT RATIO (9:16 MOBILE - CRITICAL!)        rear_text = Text("REAR", font_size=16, color=RED)
+
+# ═══════════════════════════════════════════════════════════════════════════════        
+
+from manim import *        front_text.move_to(queue_container.get_left() + RIGHT * 0.5 + UP * 1)
+
+        rear_text.move_to(queue_container.get_left() + RIGHT * 0.5 + DOWN * 1)
+
+# ✅ CRITICAL: Vertical aspect ratio configuration        
+
+config.frame_width = 9        front_arrow = Arrow(
+
+config.frame_height = 16            start=front_text.get_center() + DOWN * 0.3,
+
+config.pixel_width = 1080            end=queue_container.get_left() + RIGHT * 0.5,
+
+config.pixel_height = 1920            buff=0,
+
+            color=GREEN,
+
+class MobileVerticalStunning(Scene):            stroke_width=3
+
+    def construct(self):        )
+
+        # ✅ CORRECT: Title for vertical format (narrower width constraint!)        
+
+        title = Text("Mobile First", font_size=32, color=BLUE, weight=BOLD)        rear_arrow = Arrow(
+
+        title.scale_to_fit_width(config.frame_width * 0.65)  # ✅ Much narrower for 9:16!            start=rear_text.get_center() + UP * 0.3,
+
+        title.move_to(UP * 6)  # ✅ TOP zone (vertical has more height)            end=queue_container.get_left() + RIGHT * 0.5,
+
+                    buff=0,
+
+        self.play(Write(title, run_time=1.0))            color=RED,
+
+                    stroke_width=3
+
+        # ✅ CORRECT: Subtitle with proper narrow constraint        )
+
+        subtitle = Text("Vertical Design", font_size=28, color=WHITE)        
+
+        subtitle.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY (narrow!)        self.play(Write(front_text), Write(rear_text))
+
+        subtitle.move_to(UP * 4.5)  # ✅ 1.5 units below title - SAFE!        self.play(Create(front_arrow), Create(rear_arrow))
+
+                self.wait(1)
+
+        self.play(FadeIn(subtitle, shift=DOWN*0.3), run_time=0.8)        
+
+                # Enqueue operations
+
+        # ✅ CORRECT: Content stacked vertically with spacing        enqueue_text = Text("ENQUEUE Operations", font_size=24, color=GREEN)
+
+        content1 = Text("Point One", font_size=24, color=GREEN)        enqueue_text.to_edge(DOWN)
+
+        content1.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY        self.play(Write(enqueue_text))
+
+        content1.move_to(UP * 2.5)  # ✅ 2.0 units below subtitle - SAFE!        
+
+                queue_elements = []
+
+        content2 = Text("Point Two", font_size=24, color=BLUE)        values = [10, 20, 30, 40, 50]
+
+        content2.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY        
+
+        content2.move_to(UP * 0.8)  # ✅ 1.7 units below content1 - SAFE!        for i, value in enumerate(values):
+
+                    # Create queue element
+
+        content3 = Text("Point Three", font_size=24, color=YELLOW)            element = Rectangle(width=1.4, height=1.2, color=WHITE, fill_opacity=0.3)
+
+        content3.scale_to_fit_width(config.frame_width * 0.65)  # ✅ MANDATORY            element.move_to(queue_container.get_left() + RIGHT * (0.8 + i * 1.5))
+
+        content3.move_to(DOWN * 0.9)  # ✅ 1.7 units below content2 - SAFE!            
+
+                    # Add value label
+
+        # Stack elements with proper spacing            label = Text(str(value), font_size=18)
+
+        circle = Circle(radius=1.0, color=WHITE, fill_opacity=0.2, stroke_width=3)            label.move_to(element.get_center())
+
+        circle.move_to(DOWN * 3)  # ✅ 2.1 units below content3 - SAFE!            
+
+                    # Enqueue animation from bottom
+
+        footer = Text("Swipe Up", font_size=20, color=GRAY)            element.shift(DOWN * 3)
+
+        footer.scale_to_fit_width(config.frame_width * 0.5)  # ✅ MANDATORY            label.shift(DOWN * 3)
+
+        footer.move_to(DOWN * 6)  # ✅ BOTTOM zone (3 units from circle - SAFE!)            
+
+                    self.play(Create(element), Write(label))
+
+        # Beautiful stacked reveal            self.play(element.animate.shift(UP * 3), label.animate.shift(UP * 3))
+
+        self.play(            
+
+            AnimationGroup(            queue_elements.append((element, label))
+
+                GrowFromCenter(content1),            
+
+                GrowFromCenter(content2),            # Move rear pointer
+
+                GrowFromCenter(content3),            self.play(
+
+                DrawBorderThenFill(circle),                rear_arrow.animate.shift(RIGHT * 1.5),
+
+                FadeIn(footer, shift=UP*0.3),                rear_text.animate.shift(RIGHT * 1.5)
+
+                lag_ratio=0.3,            )
+
+                run_time=2.5            
+
+            )            self.wait(0.5)
+
+        )        
+
+                self.wait(2)
+
+        self.wait(0.5)        
+
+                # Dequeue operations
+
+        # Mobile-friendly exit        self.play(FadeOut(enqueue_text))
+
+        self.play(        dequeue_text = Text("DEQUEUE Operations", font_size=24, color=ORANGE)
+
+            FadeOut(VGroup(title, subtitle, content1, content2, content3, circle, footer),        dequeue_text.to_edge(DOWN)
+
+                    shift=UP*3, lag_ratio=0.1),        self.play(Write(dequeue_text))
+
+            run_time=1.5        
+
+        )        for i in range(2):  # Dequeue 2 elements
+
+            if queue_elements:
+
+                element, label = queue_elements.pop(0)
+
+# ═══════════════════════════════════════════════════════════════════════════════                
+
+# EXAMPLE 7: SIMPLE DATA STRUCTURE (DONE RIGHT!)                # Dequeue animation
+
+# ═══════════════════════════════════════════════════════════════════════════════                self.play(
+
+from manim import *                    element.animate.shift(UP * 3),
+
+                    label.animate.shift(UP * 3)
+
+config.frame_width = 16                )
+
+config.frame_height = 9                self.play(FadeOut(element), FadeOut(label))
+
+config.pixel_width = 1920                
+
+config.pixel_height = 1080                # Move front pointer
+
+                self.play(
+
+class CleanDataStructure(Scene):                    front_arrow.animate.shift(RIGHT * 1.5),
+
+    def construct(self):                    front_text.animate.shift(RIGHT * 1.5)
+
+        # ✅ CORRECT: Title                )
+
+        title = Text("Linked List", font_size=48, color=BLUE, weight=BOLD)                
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY                self.wait(0.5)
+
+        title.move_to(UP * 3)  # ✅ TOP zone        
+
+                self.wait(2)
+
+        self.play(Write(title, run_time=1.0))        
+
+                # Queue applications
+
+        # ✅ CORRECT: Simple 3-node list with proper spacing        self.play(FadeOut(dequeue_text))
+
+        # Node 1        apps_title = Text("Queue Applications:", font_size=20, color=YELLOW)
+
+        node1_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)        apps_title.to_edge(DOWN).shift(UP * 1.5)
+
+        node1_box.move_to(LEFT * 3 + UP * 0.3)  # ✅ Upper MIDDLE zone        
+
+                apps_list = VGroup(
+
+        node1_text = Text("10", font_size=24, color=BLACK)            Text("• Process scheduling", font_size=16),
+
+        node1_text.scale_to_fit_width(0.8)  # ✅ Fit inside box            Text("• BFS algorithm", font_size=16),
+
+        node1_text.move_to(node1_box.get_center())            Text("• Print job management", font_size=16),
+
+                    Text("• Buffer for data streams", font_size=16)
+
+        # Node 2        )
+
+        node2_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)        
+
+        node2_box.move_to(ORIGIN)  # ✅ Center MIDDLE zone (3 units from node1 - SAFE!)        apps_list.arrange(DOWN, aligned_edge=LEFT)
+
+                apps_list.to_edge(DOWN)
+
+        node2_text = Text("20", font_size=24, color=BLACK)        
+
+        node2_text.scale_to_fit_width(0.8)  # ✅ Fit inside box        self.play(Write(apps_title))
+
+        node2_text.move_to(node2_box.get_center())        self.play(Write(apps_list))
+
+                self.wait(3)
+
+        # Node 3        
+
+        node3_box = Rectangle(width=1.2, height=0.8, color=WHITE, fill_opacity=0.2)        # Time complexity
+
+        node3_box.move_to(RIGHT * 3 + UP * 0.3)  # ✅ Right MIDDLE zone        complexity_text = Text("Time Complexity: Enqueue O(1), Dequeue O(1)", 
+
+                                     font_size=18, color=PURPLE)
+
+        node3_text = Text("30", font_size=24, color=BLACK)        complexity_text.to_edge(DOWN).shift(UP * 0.3)
+
+        node3_text.scale_to_fit_width(0.8)  # ✅ Fit inside box        self.play(Write(complexity_text))
+
+        node3_text.move_to(node3_box.get_center())        self.wait(3)
+
+        
+
+        # Arrows with proper spacing# Script 5: Binary Search Tree
+
+        arrow1 = Arrow(from manim import *
+
+            start=node1_box.get_right() + RIGHT*0.1,
+
+            end=node2_box.get_left() + LEFT*0.1,class BinarySearchTree(Scene):
+
+            buff=0.1,    def construct(self):
+
+            color=YELLOW,        # Title
+
+            stroke_width=3        title = Text("Binary Search Tree", font_size=48, color=BLUE)
+
+        )        title.to_edge(UP)
+
+                self.play(Write(title))
+
+        arrow2 = Arrow(        self.wait(1)
+
+            start=node2_box.get_right() + RIGHT*0.1,        
+
+            end=node3_box.get_left() + LEFT*0.1,        # BST property explanation
+
+            buff=0.1,        property_text = Text("Left < Root < Right", font_size=20, color=YELLOW)
+
+            color=YELLOW,        property_text.shift(UP * 2.5)
+
+            stroke_width=3        self.play(Write(property_text))
+
+        )        self.wait(1)
+
+                
+
+        # Spectacular creation sequence        # Create BST nodes
+
+        self.play(DrawBorderThenFill(node1_box), Write(node1_text), run_time=0.8)        root_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+
+        self.play(GrowArrow(arrow1), run_time=0.6)        root_label = Text("50", font_size=16)
+
+        self.play(DrawBorderThenFill(node2_box), Write(node2_text), run_time=0.8)        root_label.move_to(root_circle.get_center())
+
+        self.play(GrowArrow(arrow2), run_time=0.6)        root_node = VGroup(root_circle, root_label)
+
+        self.play(DrawBorderThenFill(node3_box), Write(node3_text), run_time=0.8)        
+
+                # Left subtree
+
+        # ✅ CORRECT: Description with proper spacing (BOTTOM zone)        left_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+
+        desc = Text("Nodes connected by pointers", font_size=28, color=WHITE)        left_circle.shift(LEFT * 2 + DOWN * 1.5)
+
+        desc.scale_to_fit_width(config.frame_width * 0.75)  # ✅ MANDATORY        left_label = Text("30", font_size=16)
+
+        desc.move_to(DOWN * 2.5)  # ✅ BOTTOM zone (2.8 units from nodes - SAFE!)        left_label.move_to(left_circle.get_center())
+
+                left_node = VGroup(left_circle, left_label)
+
+        self.play(FadeIn(desc, shift=UP*0.3), run_time=0.8)        
+
+                # Right subtree
+
+        # Highlight traversal        right_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+
+        nodes = VGroup(node1_box, node2_box, node3_box)        right_circle.shift(RIGHT * 2 + DOWN * 1.5)
+
+        for node in nodes:        right_label = Text("70", font_size=16)
+
+            self.play(Indicate(node, scale_factor=1.2, color=GREEN), run_time=0.5)        right_label.move_to(right_circle.get_center())
+
+                right_node = VGroup(right_circle, right_label)
+
+        self.wait(0.5)        
+
+                # Create connections
+
+        # Clean exit        left_line = Line(root_circle.get_center(), left_circle.get_center(), color=YELLOW)
+
+        self.play(        right_line = Line(root_circle.get_center(), right_circle.get_center(), color=YELLOW)
+
+            FadeOut(VGroup(title, node1_box, node1_text, node2_box, node2_text,         
+
+                          node3_box, node3_text, arrow1, arrow2, desc),        # Animate tree creation
+
+                    shift=DOWN*2),        self.play(Create(root_node))
+
+            run_time=1.2        self.wait(0.5)
+
+        )        
+
+        self.play(Create(left_line), Create(left_node))
+
+        self.wait(0.5)
+
+# ═══════════════════════════════════════════════════════════════════════════════        
+
+# EXAMPLE 8: PROFESSIONAL PROCESS FLOW (STUNNING!)        self.play(Create(right_line), Create(right_node))
+
+# ═══════════════════════════════════════════════════════════════════════════════        self.wait(1)
+
+from manim import *        
+
+        # Add more nodes
+
+config.frame_width = 16        nodes_data = [
+
+config.frame_height = 9            (20, LEFT * 3 + DOWN * 3, left_circle),
+
+config.pixel_width = 1920            (40, LEFT * 1 + DOWN * 3, left_circle),
+
+config.pixel_height = 1080            (60, RIGHT * 1 + DOWN * 3, right_circle),
+
+            (80, RIGHT * 3 + DOWN * 3, right_circle)
+
+class EpicProcessFlow(Scene):        ]
+
+    def construct(self):        
+
+        # ✅ CORRECT: Title        nodes = [root_node, left_node, right_node]
+
+        title = Text("AI Pipeline", font_size=48, color=BLUE, weight=BOLD)        lines = [left_line, right_line]
+
+        title.scale_to_fit_width(config.frame_width * 0.85)  # ✅ MANDATORY        
+
+        title.move_to(UP * 3)  # ✅ TOP zone        for value, position, parent in nodes_data:
+
+                    circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+
+        self.play(Write(title, run_time=1.0))            circle.move_to(position)
+
+        self.play(title.animate.set_color_by_gradient(BLUE, PURPLE), run_time=0.8)            label = Text(str(value), font_size=16)
+
+                    label.move_to(circle.get_center())
+
+        # ✅ CORRECT: Step 1 with proper spacing            node = VGroup(circle, label)
+
+        step1_title = Text("1. Data", font_size=32, color=GREEN, weight=BOLD)            
+
+        step1_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ Narrow for flow            line = Line(parent.get_center(), circle.get_center(), color=YELLOW)
+
+        step1_title.move_to(LEFT * 4 + UP * 0.5)  # ✅ MIDDLE zone, left            
+
+                    self.play(Create(line), Create(node))
+
+        step1_shape = Circle(radius=0.8, color=GREEN, fill_opacity=0.3, stroke_width=3)            nodes.append(node)
+
+        step1_shape.move_to(LEFT * 4 + DOWN * 1)  # ✅ Below title, proper spacing            lines.append(line)
+
+                    self.wait(0.3)
+
+        # ✅ CORRECT: Step 2        
+
+        step2_title = Text("2. Train", font_size=32, color=BLUE, weight=BOLD)        self.wait(2)
+
+        step2_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ MANDATORY        
+
+        step2_title.move_to(ORIGIN + UP * 0.5)  # ✅ Center        # Search operation
+
+                search_text = Text("Search for 40", font_size=24, color=GREEN)
+
+        step2_shape = Square(side_length=1.6, color=BLUE, fill_opacity=0.3, stroke_width=3)        search_text.to_edge(DOWN)
+
+        step2_shape.move_to(ORIGIN + DOWN * 1)        self.play(Write(search_text))
+
+                
+
+        # ✅ CORRECT: Step 3        # Highlight search path
+
+        step3_title = Text("3. Deploy", font_size=32, color=YELLOW, weight=BOLD)        search_path = [0, 1, 5]  # indices of nodes in search path
+
+        step3_title.scale_to_fit_width(config.frame_width * 0.25)  # ✅ MANDATORY        for i in search_path:
+
+        step3_title.move_to(RIGHT * 4 + UP * 0.5)  # ✅ Right            highlight = Circle(radius=0.4, color=RED, stroke_width=4)
+
+                    highlight.move_to(nodes[i].get_center())
+
+        step3_shape = Star(n=5, outer_radius=1.0, color=YELLOW, fill_opacity=0.3, stroke_width=3)            self.play(Create(highlight))
+
+        step3_shape.move_to(RIGHT * 4 + DOWN * 1)            self.wait(0.8)
+
+                    if i != search_path[-1]:
+
+        # Arrows                self.play(FadeOut(highlight))
+
+        arrow1 = Arrow(        
+
+            start=step1_shape.get_right() + RIGHT*0.2,        self.wait(2)
+
+            end=step2_shape.get_left() + LEFT*0.2,        
+
+            buff=0.1,        # Insert operation
+
+            color=WHITE,        self.play(FadeOut(search_text))
+
+            stroke_width=4        insert_text = Text("Insert 35", font_size=24, color=GREEN)
+
+        )        insert_text.to_edge(DOWN)
+
+                self.play(Write(insert_text))
+
+        arrow2 = Arrow(        
+
+            start=step2_shape.get_right() + RIGHT*0.2,        # Show insertion path
+
+            end=step3_shape.get_left() + LEFT*0.2,        insert_path = [0, 1, 5]  # path to insert 35
+
+            buff=0.1,        for i in insert_path:
+
+            color=WHITE,            highlight = Circle(radius=0.4, color=BLUE, stroke_width=4)
+
+            stroke_width=4            highlight.move_to(nodes[i].get_center())
+
+        )            self.play(Create(highlight))
+
+                    self.wait(0.5)
+
+        # Epic sequential reveal            self.play(FadeOut(highlight))
+
+        self.play(        
+
+            AnimationGroup(        # Add new node
+
+                GrowFromCenter(step1_title),        new_circle = Circle(radius=0.3, color=WHITE, fill_opacity=0.3)
+
+                DrawBorderThenFill(step1_shape),        new_circle.shift(LEFT * 0.5 + DOWN * 4.5)
+
+                lag_ratio=0.3,        new_label = Text("35", font_size=16)
+
+                run_time=1.2        new_label.move_to(new_circle.get_center())
+
+            )        new_node = VGroup(new_circle, new_label)
+
+        )        new_line = Line(nodes[5][0].get_center(), new_circle.get_center(), color=YELLOW)
+
+                
+
+        self.play(GrowArrow(arrow1), run_time=0.8)        self.play(Create(new_line), Create(new_node))
+
+                self.wait(2)
+
+        self.play(        
+
+            AnimationGroup(        # Time complexity
+
+                GrowFromCenter(step2_title),        self.play(FadeOut(insert_text))
+
+                DrawBorderThenFill(step2_shape),        complexity_text = Text("Average Time Complexity: O(log n)", font_size=20, color=PURPLE)
+
+                lag_ratio=0.3,        worst_case_text = Text("Worst Case: O(n) for skewed tree", font_size=18, color=RED)
+
+                run_time=1.2        
+
+            )        complexity_text.to_edge(DOWN).shift(UP * 0.5)
+
+        )        worst_case_text.to_edge(DOWN)
+
+                
+
+        self.play(GrowArrow(arrow2), run_time=0.8)        self.play(Write(complexity_text))
+
+                self.play(Write(worst_case_text))
+
+        self.play(        self.wait(3)
+
+            AnimationGroup(
+
+                GrowFromCenter(step3_title),# Script 6: Hash Table
+
+                DrawBorderThenFill(step3_shape),from manim import *
+
+                lag_ratio=0.3,
+
+                run_time=1.2class HashTableVisualization(Scene):
+
+            )    def construct(self):
+
+        )        # Title
+
+                title = Text("Hash Table Data Structure", font_size=48, color=BLUE)
+
+        # Flash finale        title.to_edge(UP)
+
+        self.play(        self.play(Write(title))
+
+            Flash(step3_shape, color=GOLD, num_lines=20, flash_radius=1.5),        self.wait(1)
+
+            run_time=1.0        
+
+        )        # Hash function explanation
+
+                hash_text = Text("Hash Function: key % table_size", font_size=20, color=YELLOW)
+
+        self.wait(0.5)        hash_text.shift(UP * 2.5)
+
+                self.play(Write(hash_text))
+
+        # Professional exit        self.wait(1)
+
+        everything = VGroup(title, step1_title, step1_shape, step2_title, step2_shape,        
+
+                           step3_title, step3_shape, arrow1, arrow2)        # Create hash table
+
+        self.play(FadeOut(everything, shift=DOWN*2, lag_ratio=0.05), run_time=1.5)        table_size = 7
+
         table_boxes = VGroup()
+
         index_labels = VGroup()
-        
-        for i in range(table_size):
-            box = Rectangle(width=1.5, height=0.8, color=WHITE, fill_opacity=0.2)
-            box.shift(DOWN * (i - 3) * 1.1)
-            
-            index_label = Text(str(i), font_size=18, color=GRAY)
-            index_label.move_to(box.get_left() + LEFT * 0.5)
-            
-            table_boxes.add(box)
-            index_labels.add(index_label)
-        
-        self.play(Create(table_boxes))
-        self.play(Write(index_labels))
-        self.wait(1)
-        
-        # Hash table operations
-        keys_values = [(22, "Apple"), (15, "Banana"), (29, "Cherry"), (8, "Date")]
-        
-        for key, value in keys_values:
-            # Show hash calculation
-            calc_text = Text(f"Hash({key}) = {key} % {table_size} = {key % table_size}", 
-                           font_size=18, color=GREEN)
-            calc_text.to_edge(DOWN)
+
+# ═══════════════════════════════════════════════════════════════════════════════        
+
+# 🎓 KEY LEARNINGS - GEMINI AI MUST REMEMBER:        for i in range(table_size):
+
+# ═══════════════════════════════════════════════════════════════════════════════            box = Rectangle(width=1.5, height=0.8, color=WHITE, fill_opacity=0.2)
+
+#            box.shift(DOWN * (i - 3) * 1.1)
+
+# ✅ ALWAYS use .scale_to_fit_width() on EVERY Text object            
+
+# ✅ Font sizes: Titles ≤48px, Body ≤36px, Small ≤30px            index_label = Text(str(i), font_size=18, color=GRAY)
+
+# ✅ Vertical spacing: Minimum 1.5 units between text objects            index_label.move_to(box.get_left() + LEFT * 0.5)
+
+# ✅ Use zones: TOP (UP*3), MIDDLE (ORIGIN), BOTTOM (DOWN*3)            
+
+# ✅ Split long text (>50 chars) into multiple Text objects            table_boxes.add(box)
+
+# ✅ For 9:16, use narrower width (0.65) and stack vertically            index_labels.add(index_label)
+
+# ✅ For columns, use narrower constraints (0.35-0.40)        
+
+# ✅ Data structures: Keep simple, 3-5 elements max, proper spacing        self.play(Create(table_boxes))
+
+# ✅ Use spectacular animations: Write, GrowFromCenter, Transform, Flash, Indicate        self.play(Write(index_labels))
+
+# ✅ Combine movements: .animate.shift().scale() for dynamic effects        self.wait(1)
+
+# ✅ Exit professionally: FadeOut with lag_ratio, shift directions        
+
+#        # Hash table operations
+
+# 🚫 NEVER place text without .scale_to_fit_width()        keys_values = [(22, "Apple"), (15, "Banana"), (29, "Cherry"), (8, "Date")]
+
+# 🚫 NEVER use font sizes >48px for titles or >36px for body        
+
+# 🚫 NEVER place objects closer than 1.5 units vertically        for key, value in keys_values:
+
+# 🚫 NEVER put long text in single Text object            # Show hash calculation
+
+# 🚫 NEVER create complex overlapping structures            calc_text = Text(f"Hash({key}) = {key} % {table_size} = {key % table_size}", 
+
+#                           font_size=18, color=GREEN)
+
+# ═══════════════════════════════════════════════════════════════════════════════            calc_text.to_edge(DOWN)
+
             self.play(Write(calc_text))
             
             # Calculate hash index
