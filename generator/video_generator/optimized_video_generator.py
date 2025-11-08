@@ -2217,27 +2217,114 @@ def stitch_segment_worker_no_sync(args):
         logger.error(f"❌ Stitching failed for segment {i}: {e}")
         return {'success': False, 'error': str(e), 'index': i}
 
-def validate_segment_alignment(segments: List[NarrationSegment]) -> bool:
+def recover_missing_video_paths(segments: List[NarrationSegment]) -> int:
     """
-    Validate that all segments have properly aligned video and audio files.
+    Scan output folders to recover missing video paths.
+    Returns number of paths recovered.
     """
-    logger.info("🔍 Validating segment alignment...")
+    logger.info("🔍 Scanning output folders for missing video paths...")
+    recovered_count = 0
     
     for i, segment in enumerate(segments):
-        if not segment.video_path or not segment.audio_path:
-            logger.error(f"❌ Segment {i+1} missing video or audio path")
-            return False
+        # Check if video_path is missing
+        if not segment.video_path:
+            # Try to find the video in standard output location
+            possible_paths = [
+                Path(f"output/segment_{i:03d}/Segment{i:03d}.mp4"),
+                Path(f"temp/media/videos/segment_{i:03d}/480p15/Segment{i:03d}.mp4"),
+                Path(f"temp/media/videos/segment_{i:03d}/720p30/Segment{i:03d}.mp4"),
+            ]
             
+            for possible_path in possible_paths:
+                if possible_path.exists():
+                    segment.video_path = str(possible_path.resolve())
+                    recovered_count += 1
+                    logger.warning(f"⚠️ Recovered missing video path for segment {i}: {segment.video_path}")
+                    break
+            else:
+                logger.error(f"❌ Could not recover video path for segment {i} - file not found in any expected location")
+        
+        # Check if audio_path is missing
+        if not segment.audio_path:
+            possible_audio_paths = [
+                Path(f"output/segment_{i:03d}/narration.mp3"),
+                Path(f"temp/narration_segment_{i}.mp3"),
+            ]
+            
+            for possible_path in possible_audio_paths:
+                if possible_path.exists():
+                    segment.audio_path = str(possible_path.resolve())
+                    recovered_count += 1
+                    logger.warning(f"⚠️ Recovered missing audio path for segment {i}: {segment.audio_path}")
+                    break
+            else:
+                logger.error(f"❌ Could not recover audio path for segment {i} - file not found in any expected location")
+    
+    if recovered_count > 0:
+        logger.info(f"✅ Recovered {recovered_count} missing path(s)")
+    else:
+        logger.info("ℹ️ No missing paths needed recovery")
+    
+    return recovered_count
+
+def validate_segment_alignment(segments: List[NarrationSegment]) -> Tuple[bool, List[int]]:
+    """
+    Validate that all segments have properly aligned video and audio files.
+    Returns (is_valid, list_of_missing_indices)
+    """
+    logger.info("🔍 Validating segment alignment...")
+    logger.info(f"📊 Total segments to validate: {len(segments)}")
+    
+    missing_segments = []
+    
+    for i, segment in enumerate(segments):
+        # Detailed logging for each segment
+        logger.info(f"  Segment {i+1}: video_path={segment.video_path}, audio_path={segment.audio_path}")
+        
+        # Check if paths are set
+        if not segment.video_path:
+            logger.error(f"❌ Segment {i+1} missing VIDEO PATH")
+            missing_segments.append(i)
+            continue
+            
+        if not segment.audio_path:
+            logger.error(f"❌ Segment {i+1} missing AUDIO PATH")
+            missing_segments.append(i)
+            continue
+        
+        # Check if files exist on disk
         if not Path(segment.video_path).exists():
             logger.error(f"❌ Segment {i+1} video file doesn't exist: {segment.video_path}")
-            return False
+            missing_segments.append(i)
+            continue
             
         if not Path(segment.audio_path).exists():
             logger.error(f"❌ Segment {i+1} audio file doesn't exist: {segment.audio_path}")
-            return False
+            missing_segments.append(i)
+            continue
+        
+        # Check file sizes
+        video_size = Path(segment.video_path).stat().st_size
+        audio_size = Path(segment.audio_path).stat().st_size
+        
+        if video_size < 1024:
+            logger.error(f"❌ Segment {i+1} video file too small: {video_size} bytes")
+            missing_segments.append(i)
+            continue
+            
+        if audio_size < 100:
+            logger.error(f"❌ Segment {i+1} audio file too small: {audio_size} bytes")
+            missing_segments.append(i)
+            continue
+        
+        logger.info(f"  ✅ Segment {i+1} validated: video={video_size/1024:.1f}KB, audio={audio_size/1024:.1f}KB")
+    
+    if missing_segments:
+        logger.error(f"❌ Validation failed: {len(missing_segments)} segment(s) have issues: {[i+1 for i in missing_segments]}")
+        return False, missing_segments
     
     logger.info("✅ All segments have valid video and audio paths")
-    return True
+    return True, []
 
 
 class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
@@ -3448,34 +3535,89 @@ class Segment{index:03d}(Scene):
 
             results = await asyncio.gather(*video_tasks)
 
+            # ENHANCED: Detailed result processing with validation
+            logger.info("📊 Processing worker results...")
             failed_segments = []
-            for result in results:
-                if result['success']:
-                    segments[result['index']].video_path = result['video_path']
-                else:
-                    error_message = result.get('error', 'Unknown error')
-                    logger.error(f"❌ Video rendering failed for segment {result['index']+1}: {error_message}")
-                    failed_segments.append(result['index'])
-                    
-                    # Generate ultra-simple fallback video instead of crashing
-                    try:
-                        logger.warning(f"🔄 Creating fallback video for segment {result['index']+1}")
-                        fallback_path = await self._generate_emergency_fallback_video(
-                            segments[result['index']], 
-                            result['index']
-                        )
-                        segments[result['index']].video_path = fallback_path
-                        logger.info(f"✅ Fallback video created for segment {result['index']+1}")
-                    except Exception as fallback_error:
-                        logger.error(f"❌ Even fallback failed for segment {result['index']+1}: {fallback_error}")
-                        # As last resort, skip this segment
-                        continue
-
-            if failed_segments:
-                logger.warning(f"⚠️ {len(failed_segments)} segment(s) used fallback videos: {[i+1 for i in failed_segments]}")
-            else:
-                logger.info("✅ All segments rendered successfully.")
             
+            for result in results:
+                index = result.get('index', -1)
+                success = result.get('success', False)
+                video_path = result.get('video_path', None)
+                error = result.get('error', 'Unknown error')
+                
+                # Detailed logging for each result
+                logger.info(f"🔍 Result for segment {index+1}: success={success}, video_path={video_path}")
+                
+                if success:
+                    # Validate that video_path is actually provided
+                    if not video_path:
+                        logger.error(f"❌ Segment {index+1} marked as success but NO VIDEO PATH returned!")
+                        failed_segments.append(index)
+                        continue
+                    
+                    # Validate that file actually exists
+                    if not Path(video_path).exists():
+                        logger.error(f"❌ Segment {index+1} returned path doesn't exist: {video_path}")
+                        failed_segments.append(index)
+                        continue
+                    
+                    # Validate file size
+                    file_size = Path(video_path).stat().st_size
+                    if file_size < 1024:
+                        logger.error(f"❌ Segment {index+1} video too small: {file_size} bytes")
+                        failed_segments.append(index)
+                        continue
+                    
+                    # All validations passed - assign the path
+                    segments[index].video_path = video_path
+                    logger.info(f"✅ Segment {index+1} assigned: {video_path} ({file_size/1024:.1f}KB)")
+                    
+                else:
+                    logger.error(f"❌ Video rendering failed for segment {index+1}: {error}")
+                    failed_segments.append(index)
+            
+            # RECOVERY PHASE 1: Attempt to recover missing paths from file system
+            if failed_segments:
+                logger.warning(f"⚠️ {len(failed_segments)} segment(s) failed. Attempting file system recovery...")
+                recovered = recover_missing_video_paths(segments)
+                
+                # Re-check which segments are still missing
+                still_missing = []
+                for idx in failed_segments:
+                    if not segments[idx].video_path or not Path(segments[idx].video_path).exists():
+                        still_missing.append(idx)
+                    else:
+                        logger.info(f"✅ Segment {idx+1} recovered from file system!")
+                
+                failed_segments = still_missing
+            
+            # RECOVERY PHASE 2: Generate fallback videos for unrecoverable segments
+            if failed_segments:
+                logger.warning(f"⚠️ {len(failed_segments)} segment(s) still missing. Creating fallback videos...")
+                for idx in failed_segments:
+                    try:
+                        logger.warning(f"🔄 Creating fallback video for segment {idx+1}")
+                        fallback_path = await self._generate_emergency_fallback_video(
+                            segments[idx], 
+                            idx
+                        )
+                        segments[idx].video_path = fallback_path
+                        logger.info(f"✅ Fallback video created for segment {idx+1}")
+                    except Exception as fallback_error:
+                        logger.error(f"❌ Even fallback failed for segment {idx+1}: {fallback_error}")
+                        # Critical failure - cannot proceed
+                        raise RuntimeError(f"Cannot generate video for segment {idx+1}. Both rendering and fallback failed.")
+
+            # Final status report
+            logger.info("📋 Final segment status:")
+            for i, segment in enumerate(segments):
+                if segment.video_path and Path(segment.video_path).exists():
+                    file_size = Path(segment.video_path).stat().st_size
+                    logger.info(f"  ✅ Segment {i+1}: {segment.video_path} ({file_size/1024:.1f}KB)")
+                else:
+                    logger.error(f"  ❌ Segment {i+1}: STILL MISSING")
+            
+            logger.info("✅ Parallel video generation completed.")
             return segments
 
     def _write_concat_list_file(self, segment_paths: List[str], concat_path: str):
@@ -3490,9 +3632,44 @@ class Segment{index:03d}(Scene):
         """
         logger.info("🎞️ Starting parallel final assembly with proper sync...")
         
-        # Validate segment alignment first
-        if not validate_segment_alignment(segments):
-            raise RuntimeError("Segment alignment validation failed")
+        # RECOVERY: Attempt to recover any missing paths before validation
+        logger.info("🔍 Pre-assembly recovery check...")
+        recover_missing_video_paths(segments)
+        
+        # Validate segment alignment with detailed reporting
+        is_valid, missing_indices = validate_segment_alignment(segments)
+        if not is_valid:
+            logger.error(f"❌ Segment alignment validation failed for segments: {[i+1 for i in missing_indices]}")
+            
+            # Last-ditch recovery attempt
+            logger.warning("⚠️ Attempting final recovery before aborting...")
+            for idx in missing_indices:
+                # Try to find video file in ANY possible location
+                search_patterns = [
+                    f"output/segment_{idx:03d}/*.mp4",
+                    f"temp/media/videos/segment_{idx:03d}/**/*.mp4",
+                    f"media/videos/segment_{idx:03d}/**/*.mp4",
+                ]
+                
+                found = False
+                for pattern in search_patterns:
+                    import glob
+                    matches = glob.glob(pattern, recursive=True)
+                    if matches:
+                        segments[idx].video_path = matches[0]
+                        logger.warning(f"⚠️ EMERGENCY RECOVERY: Found segment {idx+1} at {matches[0]}")
+                        found = True
+                        break
+                
+                if not found:
+                    logger.error(f"❌ Cannot recover segment {idx+1}. Video generation failed.")
+            
+            # Re-validate after emergency recovery
+            is_valid, still_missing = validate_segment_alignment(segments)
+            if not is_valid:
+                raise RuntimeError(f"Segment alignment validation failed even after recovery. Missing: {[i+1 for i in still_missing]}")
+            else:
+                logger.warning("⚠️ Recovery successful! Proceeding with final assembly.")
         
         # Prepare synchronization workers
         worker_args = []
