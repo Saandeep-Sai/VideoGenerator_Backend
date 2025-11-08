@@ -949,22 +949,20 @@ Begin your response now.
             # Aspect ratio is now configured inside the script itself
             # Use -qp (production quality, 1440p60) which Manim handles correctly
             # Alternative: -qh (high quality, 1080p60), -qm (medium, 720p30), -ql (low, 480p15)
-            # We use -qm for 720p30 as good balance of quality and speed
+            # We use -ql for 480p15 as fastest rendering (2-3x faster than -qm)
             # On Windows, use "python -m manim" instead of just "manim"
             # Caching is enabled by default and controlled via script config
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, "Scene", 
-                "-qm",                        # Medium quality: 720p30 (proper fps handling!)
+                "-ql",                        # Low quality: 480p15 (FASTEST - 2-3x faster!)
                 "--format", "mp4",
                 # Caching controlled in script config (flush_cache=False)
             ]
             
-            logger.info(f"🎬 Running Manim render (720p30 using -qm quality preset): {' '.join(cmd)}")
-            logger.info(f"📊 Progress tracking enabled - watch for real-time updates below:")
-            logger.info("=" * 70)
+            logger.info(f"🎬 Running Manim render (480p15 using -ql quality preset): {' '.join(cmd)}")
             
-            # Stream output in real-time for progress visibility
+            # Stream output with progress bar
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -976,20 +974,45 @@ Begin your response now.
                 universal_newlines=True
             )
             
-            # Collect output while streaming it
+            # Collect output and show progress bar
             output_lines = []
-            for line in process.stdout:
-                line = line.rstrip()
-                if line:  # Only print non-empty lines
-                    # Log progress indicators with special formatting
-                    if any(keyword in line.lower() for keyword in ['animation', 'rendering', 'writing', '%', 'file ready']):
-                        logger.info(f"  ▶️  {line}")
-                    else:
-                        logger.debug(f"      {line}")
-                    output_lines.append(line)
+            progress_shown = False
+            
+            try:
+                from tqdm import tqdm
+                
+                # Create indeterminate progress bar (we don't know total frames)
+                with tqdm(desc=f"🎬 Rendering Segment {segment_index if segment_index is not None else '?'}", 
+                         unit=" frames", 
+                         bar_format="{desc}: {elapsed} | {rate_fmt}",
+                         ncols=80) as pbar:
+                    
+                    for line in process.stdout:
+                        line = line.rstrip()
+                        if line:
+                            output_lines.append(line)
+                            
+                            # Update progress bar on animation/rendering lines
+                            if any(keyword in line.lower() for keyword in ['animation', 'rendering', '%']):
+                                pbar.set_postfix_str(line[:60])  # Show last status (truncated)
+                                pbar.update(1)
+                                progress_shown = True
+                
+            except ImportError:
+                # Fallback if tqdm not available - show minimal output
+                logger.info("📊 Rendering in progress (install 'tqdm' for progress bar: pip install tqdm)")
+                for line in process.stdout:
+                    line = line.rstrip()
+                    if line:
+                        output_lines.append(line)
+                        # Only show key progress indicators
+                        if any(keyword in line.lower() for keyword in ['animation', 'rendering', '%', 'file ready']):
+                            print(f"  ▶️  {line}")
             
             process.wait()
-            logger.info("=" * 70)
+            
+            if progress_shown:
+                logger.info("✅ Rendering complete!")
 
         except Exception as e:
             return None, f"❌ Manim execution error: {str(e)}"
@@ -998,16 +1021,16 @@ Begin your response now.
             full_output = '\n'.join(output_lines) if output_lines else "No output captured"
             return None, f"❌ Manim failed with code {process.returncode}:\n{full_output}"
 
-        # Expected output file path - 720p30 quality (-qm flag) outputs to 720p30 folder
+        # Expected output file path - 480p15 quality (-ql flag) outputs to 480p15 folder
         if segment_index is not None:
             # Try expected filename first
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / f"Segment{segment_index:03d}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / f"Segment{segment_index:03d}.mp4"
             if expected_path.exists():
                 logger.info(f"✅ Found expected video: {expected_path}")
                 return str(expected_path), None
             
             # Fallback: Manim uses class name "Scene" so file is Scene.mp4
-            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / "Scene.mp4"
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / "Scene.mp4"
             if scene_path.exists():
                 logger.info(f"✅ Found video as Scene.mp4, renaming to Segment{segment_index:03d}.mp4")
                 scene_path.rename(expected_path)
@@ -1141,26 +1164,26 @@ Begin your response now.
         
         # Use concat FILTER instead of concat demuxer to handle any encoding mismatches
         # This ensures both videos are properly normalized and concatenated without speed issues
-        logger.info("� Concatenating intro + main using concat filter (handles mismatched specs)...")
+        logger.info("🔗 Concatenating intro + main using concat filter (handles mismatched specs)...")
         
         # Concat filter approach: Reads both inputs, normalizes them, then concatenates
         # This is more reliable than concat demuxer which requires perfect matching specs
         cmd_concat = [
             "ffmpeg", "-y",
             "-i", str(scaled_intro),  # Input 0: intro (already 480p)
-            "-i", str(generated_video_path),  # Input 1: main video (720p30 from Manim -qm)
+            "-i", str(generated_video_path),  # Input 1: main video (480p15 from Manim -ql)
             "-filter_complex",
-            # Scale both to same resolution (720p), ensure same fps (30), then concat
-            "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v0];"
-            "[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v1];"
+            # Scale both to same resolution (480p), ensure same fps (15), then concat
+            "[0:v]scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,fps=15,setsar=1[v0];"
+            "[1:v]scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,fps=15,setsar=1[v1];"
             "[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
             "-map", "[outv]",
             "-map", "[outa]",
             "-c:v", "libx264",
             "-preset", "ultrafast",  # Fast encoding
-            "-crf", "23",  # Good quality
+            "-crf", "28",  # Lower quality for speed (was 23)
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", "128k",  # Lower audio bitrate (was 192k)
             "-ar", "44100",
             "-ac", "2",
             "-movflags", "+faststart",
