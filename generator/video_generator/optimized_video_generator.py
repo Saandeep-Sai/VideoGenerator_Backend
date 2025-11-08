@@ -3551,8 +3551,8 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
         logger.info(f"🎯 Bulk generation: {len(segments)} segments → max_tokens={max_tokens} (calculated: {calculated_max_tokens})")
 
         # Call Gemini with dynamic token limit
-        response = self.gemini_client.generate_content(prompt, max_tokens=max_tokens)
-        full_script = response.text.strip()
+        response = await self.gemini_client.generate_content(prompt, max_tokens=max_tokens)
+        full_script = response.strip()
 
         logger.debug(f"🔎 FULL BULK SCRIPT:\n{full_script[:1000]}...")  # Preview only
 
