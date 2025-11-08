@@ -3538,9 +3538,20 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
       
                     """
 
+        # 🎯 CRITICAL FIX: Calculate max_tokens based on number of segments
+        # Each script needs ~1500-2000 tokens (300-500 lines of code)
+        # Formula: (num_segments × 2000) + 2000 buffer
+        estimated_tokens_per_script = 2000
+        buffer_tokens = 2000
+        calculated_max_tokens = (len(segments) * estimated_tokens_per_script) + buffer_tokens
+        
+        # Ensure minimum 8192, maximum 32768 (Gemini's limit)
+        max_tokens = max(8192, min(calculated_max_tokens, 32768))
+        
+        logger.info(f"🎯 Bulk generation: {len(segments)} segments → max_tokens={max_tokens} (calculated: {calculated_max_tokens})")
 
-        # Call Gemini
-        response = self.gemini_client.generate_content(prompt)
+        # Call Gemini with dynamic token limit
+        response = self.gemini_client.generate_content(prompt, max_tokens=max_tokens)
         full_script = response.text.strip()
 
         logger.debug(f"🔎 FULL BULK SCRIPT:\n{full_script[:1000]}...")  # Preview only
@@ -3549,8 +3560,16 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
         scripts = re.split(r'===SCRIPT START===', full_script)
         scripts = [s.strip() for s in scripts if s.strip()]
 
+        # Enhanced diagnostic logging
+        logger.info(f"📊 Gemini bulk response stats:")
+        logger.info(f"   - Total response length: {len(full_script)} chars (~{len(full_script)//4} tokens)")
+        logger.info(f"   - Scripts extracted: {len(scripts)}/{len(segments)}")
+        logger.info(f"   - Max tokens allowed: {max_tokens}")
+        
         if len(scripts) < len(segments):
             logger.warning(f"⚠️ Gemini returned {len(scripts)} scripts for {len(segments)} segments.")
+            logger.warning(f"   - Possible cause: Response truncated at {max_tokens} token limit")
+            logger.warning(f"   - Response ended with: ...{full_script[-200:]}")
             logger.info(f"🎯 Smart Recovery: Saving {len(scripts)} valid scripts, generating remaining {len(segments) - len(scripts)} scripts...")
             return await self._smart_continue_generation(segments, scripts)
 
