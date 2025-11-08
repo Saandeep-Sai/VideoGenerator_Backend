@@ -3539,16 +3539,21 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
                     """
 
         # 🎯 CRITICAL FIX: Calculate max_tokens based on number of segments
-        # Each script needs ~1500-2000 tokens (300-500 lines of code)
-        # Formula: (num_segments × 2000) + 2000 buffer
-        estimated_tokens_per_script = 2000
-        buffer_tokens = 2000
+        # Each script needs ~2500-3000 tokens (500-700 lines of code with verbose comments)
+        # Gemini often adds extra explanations, so we need more headroom
+        # Formula: (num_segments × 3000) + 3000 buffer
+        estimated_tokens_per_script = 3000  # Increased from 2000
+        buffer_tokens = 3000  # Increased from 2000
         calculated_max_tokens = (len(segments) * estimated_tokens_per_script) + buffer_tokens
         
-        # Ensure minimum 8192, maximum 32768 (Gemini's limit)
-        max_tokens = max(8192, min(calculated_max_tokens, 32768))
+        # Ensure minimum 12000, maximum 32768 (Gemini's limit)
+        max_tokens = max(12000, min(calculated_max_tokens, 32768))
         
-        logger.info(f"🎯 Bulk generation: {len(segments)} segments → max_tokens={max_tokens} (calculated: {calculated_max_tokens})")
+        logger.info(f"🎯 Bulk generation settings:")
+        logger.info(f"   - Segments: {len(segments)}")
+        logger.info(f"   - Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+        logger.info(f"   - Max output tokens: {max_tokens} (calculated: {calculated_max_tokens})")
+
 
         # Call Gemini with dynamic token limit using GenerationConfig
         generation_config = genai.GenerationConfig(
@@ -3560,7 +3565,31 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
             prompt,
             generation_config=generation_config
         )
-        full_script = response.text.strip()
+        
+        # Handle response with finish_reason checking
+        if response.candidates:
+            finish_reason = response.candidates[0].finish_reason
+            if finish_reason == 2:  # MAX_TOKENS
+                logger.warning(f"⚠️ Response truncated at {max_tokens} tokens (finish_reason=MAX_TOKENS)")
+                logger.warning(f"   Prompt length: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+                # Try to get partial text if available
+                try:
+                    partial_text = ""
+                    for part in response.candidates[0].content.parts:
+                        partial_text += part.text
+                    logger.info(f"   Partial response retrieved: {len(partial_text)} chars")
+                    full_script = partial_text.strip()
+                except Exception as e:
+                    logger.error(f"   Could not extract partial response: {e}")
+                    raise ValueError(f"Response truncated and no partial text available")
+            elif finish_reason == 1:  # STOP (normal completion)
+                full_script = response.text.strip()
+            else:
+                logger.warning(f"   Unexpected finish_reason: {finish_reason}")
+                full_script = response.text.strip()
+        else:
+            logger.error("❌ No candidates in response")
+            raise ValueError("Empty response from Gemini")
 
         logger.debug(f"🔎 FULL BULK SCRIPT:\n{full_script[:1000]}...")  # Preview only
 
