@@ -842,15 +842,28 @@ Begin your response now.
         Fully regenerate a fresh Manim script using Gemini.
         Uses the original narration, visuals, and audio duration.
         """
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
         prompt = f"""
     You are a Manim Python expert.
     Rewrite a complete script for this segment from scratch.
 
     - Class name must be: GeneratedAnimation{segment_number}
     - Use ONLY 'from manim import *'
+    - Must include aspect ratio configuration immediately after imports
     - Must match exact duration: {segment.duration:.2f} seconds
     - Visuals: {segment.visual_description}
     - Narration: {segment.text}
+
+    REQUIRED FORMAT:
+    from manim import *
+
+    {aspect_ratio_config}
+
+    class GeneratedAnimation{segment_number}(Scene):
+        def construct(self):
+            # Your code here
+            self.wait({segment.duration:.2f})
 
     Output ONLY raw Python code. No markdown, no explanations.
         """
@@ -2084,8 +2097,24 @@ You are a Manim script debugging expert. The following Python script has an erro
 1. Fix the error in the script
 2. Ensure the class is named `Segment{index:03d}`
 3. Ensure proper Manim imports and syntax
-4. Return ONLY the corrected Python code, no explanations or markdown
-5. Remove any MarkpText in the program and convert it into text
+4. **CRITICAL**: Ensure aspect ratio configuration is present immediately after imports:
+   - Must have config.frame_width, config.frame_height, config.pixel_width, config.pixel_height
+   - If missing, add it from the original script or use default 16:9 configuration
+5. Return ONLY the corrected Python code, no explanations or markdown
+6. Remove any MarkupText in the program and convert it into Text
+
+**Required Format:**
+from manim import *
+
+# Aspect Ratio Configuration (REQUIRED!)
+config.frame_width = ...
+config.frame_height = ...
+config.pixel_width = ...
+config.pixel_height = ...
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Fixed code here
 
 **Corrected Script:**
 """
@@ -2128,7 +2157,26 @@ You are a Manim script debugging expert. The following Python script has an erro
 1. Fix the error in the script
 2. Ensure the class is named `Segment{index:03d}`
 3. Ensure proper Manim imports and syntax
-4. Return ONLY the corrected Python code, no explanations or markdown
+4. **CRITICAL**: Ensure aspect ratio configuration is present immediately after imports:
+   - Must have config.frame_width, config.frame_height, config.pixel_width, config.pixel_height
+   - If missing, preserve it from the original script or add default 16:9 configuration
+5. Return ONLY the corrected Python code, no explanations or markdown
+
+**Required Format:**
+from manim import *
+
+# Aspect Ratio Configuration (REQUIRED!)
+config.frame_width = ...
+config.frame_height = ...
+config.pixel_width = ...
+config.pixel_height = ...
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Fixed code here
+
+**Corrected Script:**
+
 5. Remove any MarkpText in the program and convert it into text
 
 **Corrected Script:**
@@ -3573,6 +3621,8 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
                 logger.info(f"🎯 Segment {i+1}: Using actual audio duration {actual_duration:.2f}s")
             
             # Build prompt for this single segment
+            aspect_ratio_config = self._get_aspect_ratio_config()
+            
             prompt = f"""
 You are a senior Manim Community Python developer.
 
@@ -3583,11 +3633,22 @@ Generate one valid Manim script for this segment:
 - Use only plain Text or MarkupText (only <b>, <i>, <u> allowed).
 - DO NOT use <code> or unsupported tags.
 - Do NOT wrap in markdown — output ONLY raw Python code.
+- **CRITICAL**: Include aspect ratio configuration immediately after imports
 
 Segment Details:
 Class Name: Segment{i:03d}
 Narration: "{segment.text}"
 Visuals: {segment.visual_description}
+
+Required Format:
+from manim import *
+
+{aspect_ratio_config}
+
+class Segment{i:03d}(Scene):
+    def construct(self):
+        # Your code here
+        self.wait({segment.duration:.2f})
 """
             
             try:
@@ -3627,6 +3688,8 @@ Visuals: {segment.visual_description}
                 logger.info(f"🎯 Segment {i+1}: Using actual audio duration {actual_duration:.2f}s")
 
             # Build prompt for this single segment
+            aspect_ratio_config = self._get_aspect_ratio_config()
+            
             prompt = f"""
     You are a senior Manim Community Python developer.
 
@@ -3637,11 +3700,22 @@ Visuals: {segment.visual_description}
     - Use only plain Text or MarkupText (only <b>, <i>, <u> allowed).
     - DO NOT use <code> or unsupported tags.
     - Do NOT wrap in markdown — output ONLY raw Python code.
+    - **CRITICAL**: Include aspect ratio configuration immediately after imports
 
     Segment Details:
     Class Name: Segment{i:03d}
     Narration: "{segment.text}"
     Visuals: {segment.visual_description}
+    
+    Required Format:
+    from manim import *
+
+    {aspect_ratio_config}
+
+    class Segment{i:03d}(Scene):
+        def construct(self):
+            # Your code here
+            self.wait({segment.duration:.2f})
     """
 
             response = self.gemini_client.generate_content(prompt)
@@ -3722,40 +3796,48 @@ Visuals: {segment.visual_description}
 
     def _generate_fallback_script(self, segment: Optional[NarrationSegment], index: int, duration: float, is_dummy: bool = False) -> str:
         """Generate a reliable fallback script."""
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
         if is_dummy:
             # This script does nothing, as the main script handles everything.
             # It just needs to be a valid Manim script to not break the pipeline.
             return f'''from manim import *
 
-    class Segment{index:03d}(Scene):
-        def construct(self):
-            # This is a dummy segment. The main animation is in the first script.
-            self.wait(max(0.1, {duration}))
-    '''
+{aspect_ratio_config}
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # This is a dummy segment. The main animation is in the first script.
+        self.wait(max(0.1, {duration}))
+'''
 
         content = segment.text[:80].replace('"', "'") if segment else f"Educational content for segment {index}"
         
         return f'''from manim import *
 
-    class Segment{index:03d}(Scene):
-        def construct(self):
-            # Main title
-            title = Text("{content}...", font_size=32)
-            title.set_color(BLUE)
-            title.move_to(UP * 1.5)
-            
-            # Subtitle
-            subtitle = Text(f"Segment {index}", font_size=24)
-            subtitle.set_color(GRAY)
-            subtitle.move_to(DOWN * 1.5)
-            
-            # Animations
-            self.play(Write(title), run_time=1.5)
-            self.play(FadeIn(subtitle), run_time=1.0)
-            
-            # Wait for remaining duration
-            remaining_time = max(0.1, {duration} - 2.5)
-            self.wait(remaining_time)'''
+{aspect_ratio_config}
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Main title
+        title = Text("{content}...", font_size=32)
+        title.scale_to_fit_width(config.frame_width * 0.85)
+        title.set_color(BLUE)
+        title.move_to(UP * 1.5)
+        
+        # Subtitle
+        subtitle = Text(f"Segment {index}", font_size=24)
+        subtitle.scale_to_fit_width(config.frame_width * 0.75)
+        subtitle.set_color(GRAY)
+        subtitle.move_to(DOWN * 1.5)
+        
+        # Animations
+        self.play(Write(title), run_time=1.5)
+        self.play(FadeIn(subtitle), run_time=1.0)
+        
+        # Wait for remaining duration
+        remaining_time = max(0.1, {duration} - 2.5)
+        self.wait(remaining_time)'''
 
     async def _generate_emergency_fallback_video(self, segment: NarrationSegment, index: int) -> str:
         """
@@ -3766,13 +3848,18 @@ Visuals: {segment.visual_description}
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"Segment{index:03d}.mp4"
         
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
         # Create ultra-simple script with just text and timing
         fallback_script = f'''from manim import *
+
+{aspect_ratio_config}
 
 class Segment{index:03d}(Scene):
     def construct(self):
         # Ultra-simple fallback
         text = Text("Segment {index+1}", font_size=48, color=WHITE)
+        text.scale_to_fit_width(config.frame_width * 0.75)
         self.add(text)
         self.wait({segment.duration:.2f})
 '''
