@@ -1621,12 +1621,12 @@ def render_single_video_worker(args):
             if correction_cycle % 2 == 1:  # Odd attempts: use Gemini
                 logger.info(f"🔧 Fixing script {i+1} with Gemini (correction {correction_cycle})")
                 script_content = _fix_script_errors_with_gemini(
-                    script_content, error, i, config_dict['gemini_api_key']
+                    script_content, error, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
                 )
             else:  # Even attempts: use Groq
                 logger.info(f"🔧 Fixing script {i+1} with Groq (correction {correction_cycle})")
                 script_content = _fix_script_errors_with_groq(
-                    script_content, error, i, config_dict['groq_api_key']
+                    script_content, error, i, config_dict['groq_api_key'], config_dict.get('aspect_ratio', '16:9')
                 )
             Path(script_path).write_text(script_content, encoding="utf-8")
         
@@ -1669,11 +1669,11 @@ def render_single_video_worker(args):
                         # Alternate between Gemini and Groq for fixes
                         if fix_attempt % 2 == 0:
                             script_content = _fix_script_errors_with_gemini(
-                                script_content, error, i, config_dict['gemini_api_key']
+                                script_content, error, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
                             )
                         else:
                             script_content = _fix_script_errors_with_groq(
-                                script_content, error, i, config_dict['groq_api_key']
+                                script_content, error, i, config_dict['groq_api_key'], config_dict.get('aspect_ratio', '16:9')
                             )
                         
                         Path(script_path).write_text(script_content, encoding="utf-8")
@@ -2300,7 +2300,7 @@ def _clean_script_for_execution(script_content: str, index: int) -> str:
         logger.warning(f"⚠️ Script cleaning failed: {e}")
         return script_content
 
-def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, gemini_api_key: str) -> str:
+def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, gemini_api_key: str, aspect_ratio: str = "16:9") -> str:
     """Fix script errors using Gemini AI."""
     try:
         import google.generativeai as genai
@@ -2308,6 +2308,21 @@ def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, 
         # Configure Gemini
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # Generate aspect ratio config for reference
+        aspect_ratio_configs = {
+            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
+            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
+            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
+            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
+        }
+        config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
+        aspect_ratio_config = f"""# Aspect Ratio Configuration: {aspect_ratio}
+config.frame_width = {config['frame_width']}
+config.frame_height = {config['frame_height']}
+config.pixel_width = {config['pixel_width']}
+config.pixel_height = {config['pixel_height']}
+"""
         
         correction_prompt = f"""
 You are a Manim script debugging expert. The following Python script has an error:
@@ -2324,10 +2339,13 @@ You are a Manim script debugging expert. The following Python script has an erro
 1. Fix the error in the script
 2. Ensure the class is named `Segment{index:03d}`
 3. Ensure proper Manim imports and syntax
-4. **CRITICAL**: Ensure aspect ratio configuration is present immediately after imports:
-   - Must have config.frame_width, config.frame_height, config.pixel_width, config.pixel_height
-   - If missing, add it from the original script or use default 16:9 configuration
-5. Return ONLY the corrected Python code, no explanations or markdown
+4. **CRITICAL**: Ensure aspect ratio configuration for {aspect_ratio} is present immediately after imports:
+```python
+{aspect_ratio_config}```
+5. For {aspect_ratio} aspect ratio:
+   - {"Stack elements vertically, use full height" if aspect_ratio == "9:16" else "Arrange side-by-side, use width" if aspect_ratio == "16:9" else "Center elements, balanced composition"}
+   - Text must use .scale_to_fit_width(config.frame_width * {"0.65" if aspect_ratio == "9:16" else "0.85"})
+6. Return ONLY the corrected Python code, no explanations or markdown
 6. Remove any MarkupText in the program and convert it into Text
 
 **Required Format:**
@@ -2363,11 +2381,20 @@ class Segment{index:03d}(Scene):
     except Exception as e:
         logger.warning(f"⚠️ Gemini script correction failed: {e}")
 
-def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str) -> str:
+def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "16:9") -> str:
     """Fix script errors using Groq LLM."""
     try:
         from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
+        
+        # Generate aspect ratio config for reference
+        aspect_ratio_configs = {
+            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
+            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
+            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
+            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
+        }
+        config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
         
         prompt = f"""
 You are a Manim script debugging expert. The following Python script has an error:
@@ -2384,19 +2411,22 @@ You are a Manim script debugging expert. The following Python script has an erro
 1. Fix the error in the script
 2. Ensure the class is named `Segment{index:03d}`
 3. Ensure proper Manim imports and syntax
-4. **CRITICAL**: Ensure aspect ratio configuration is present immediately after imports:
-   - Must have config.frame_width, config.frame_height, config.pixel_width, config.pixel_height
-   - If missing, preserve it from the original script or add default 16:9 configuration
-5. Return ONLY the corrected Python code, no explanations or markdown
+4. **CRITICAL**: Ensure aspect ratio configuration for {aspect_ratio} is present immediately after imports:
+   - frame_width: {config['frame_width']}
+   - frame_height: {config['frame_height']}
+   - pixel_width: {config['pixel_width']}
+   - pixel_height: {config['pixel_height']}
+5. For {aspect_ratio}: {"stack vertically" if aspect_ratio == "9:16" else "arrange horizontally" if aspect_ratio == "16:9" else "center elements"}
+6. Return ONLY the corrected Python code, no explanations or markdown
 
 **Required Format:**
 from manim import *
 
-# Aspect Ratio Configuration (REQUIRED!)
-config.frame_width = ...
-config.frame_height = ...
-config.pixel_width = ...
-config.pixel_height = ...
+# Aspect Ratio Configuration: {aspect_ratio}
+config.frame_width = {config['frame_width']}
+config.frame_height = {config['frame_height']}
+config.pixel_width = {config['pixel_width']}
+config.pixel_height = {config['pixel_height']}
 
 class Segment{index:03d}(Scene):
     def construct(self):
@@ -2629,16 +2659,35 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         # PHASE 7: Warmup Manim cache before rendering
         self._warmup_manim_cache()
         
-        # Detect cloud environment (Render) - use conservative settings
+        # Detect cloud environment and set workers based on available resources
         is_cloud = os.environ.get('PORT') == '10000' or not os.environ.get('DISPLAY')
         
+        # Get system resources
+        cpu_count = mp.cpu_count()
+        total_ram_gb = psutil.virtual_memory().total / (1024**3)  # Convert to GB
+        available_ram_gb = psutil.virtual_memory().available / (1024**3)
+        
         if is_cloud:
-            # PHASE 5: CRITICAL BUG FIX - Ultra-conservative settings for Oracle VM free tier (1GB RAM, 1 OCPU)
-            self.max_workers = 4  # ✅ FIXED: Was 4 (causing thrashing), now 1 for Oracle VM (40-60% faster!)
-            logger.info("☁️ Cloud environment detected (Oracle VM) - using 1 worker (avoid CPU thrashing)")
+            # Cloud environment (Oracle VM, Render, etc.)
+            # Formula: min(cpu_count - 1, available_ram_gb / 1.5)
+            # Each Manim worker needs ~1.5GB RAM
+            workers_by_cpu = max(1, cpu_count - 1)
+            workers_by_ram = max(1, int(available_ram_gb / 1.5))
+            self.max_workers = min(workers_by_cpu, workers_by_ram)
+            
+            logger.info(f"☁️ Cloud environment detected:")
+            logger.info(f"   - CPU Cores: {cpu_count}")
+            logger.info(f"   - Total RAM: {total_ram_gb:.1f}GB")
+            logger.info(f"   - Available RAM: {available_ram_gb:.1f}GB")
+            logger.info(f"   - Workers (CPU limit): {workers_by_cpu}")
+            logger.info(f"   - Workers (RAM limit): {workers_by_ram}")
+            logger.info(f"   - USING: {self.max_workers} worker(s)")
         else:
-            # Local development - moderate parallelization (PHASE 5: reduced from 8 to 4)
-            self.max_workers = min(4, mp.cpu_count())  # ✅ OPTIMIZED: Cap at 4 to prevent overload
+            # Local development - more resources available
+            workers_by_cpu = min(4, cpu_count)
+            workers_by_ram = max(1, int(available_ram_gb / 1.5))
+            self.max_workers = min(workers_by_cpu, workers_by_ram)
+            
             logger.info(f"💻 Local environment detected - using {self.max_workers} workers")
         
         self.gpu_workers = 2 if self.device == "cuda" else 1
@@ -4375,7 +4424,8 @@ class Segment{index:03d}(Scene):
             'manim_quality': self.config.manim_quality,
             'ffmpeg_timeout': self.config.ffmpeg_timeout,
             'max_correction_attempts': self.config.max_correction_attempts,
-            'manim_timeout': self.config.manim_timeout,  # Add this!
+            'manim_timeout': self.config.manim_timeout,
+            'aspect_ratio': self.config.aspect_ratio,  # ✅ FIXED: Pass aspect ratio to workers
         }
 
         for i, segment in enumerate(segments):
