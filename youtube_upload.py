@@ -22,7 +22,27 @@ def authenticate_youtube():
             flow = InstalledAppFlow.from_client_secrets_file(
                 "client_secret.json", SCOPES
             )
-            creds = flow.run_local_server(port=0)
+            
+            # Try browser-based authentication first (works on local machines with GUI)
+            # If that fails (headless instances), provide manual instructions
+            try:
+                creds = flow.run_local_server(port=0)
+            except Exception as e:
+                if "could not locate runnable browser" in str(e):
+                    print("\n" + "=" * 70)
+                    print("⚠️  NO BROWSER DETECTED (Headless Environment)")
+                    print("=" * 70)
+                    print("\n📋 Run this on your LOCAL machine instead:")
+                    print("   python3 generate_youtube_token.py")
+                    print("\n   OR copy token.json from your local machine:")
+                    print("   scp token.json ubuntu@<instance-ip>:~/VideoGenerator_Backend/")
+                    print("\n" + "=" * 70)
+                    raise RuntimeError(
+                        "YouTube authentication requires token.json. "
+                        "Generate it on your local machine using: python3 generate_youtube_token.py"
+                    )
+                else:
+                    raise
         
         # Save the credentials for the next run
         with open("token.json", "w") as token:
