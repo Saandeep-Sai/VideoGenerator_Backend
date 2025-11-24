@@ -541,31 +541,106 @@ Generate the segments now (output ONLY the SEGMENT lines, no extra text):
     def _generate_batch_scripts(self, batch_segments: List[NarrationSegment], batch_start: int) -> bool:
         """Generate scripts for a batch of segments."""
         
-        # Create concise batch prompt
+        # Get aspect ratio configuration
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
+        # Aspect ratio-specific layout guidelines
+        aspect_ratio_guidelines = {
+            "16:9": {
+                "guide": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
+                "max_text_width": "config.frame_width * 0.85",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "layout_example": "Place title at TOP (UP * 3), content at CENTER, footer at BOTTOM (DOWN * 3)"
+            },
+            "9:16": {
+                "guide": "CRITICAL: Vertical/portrait layout for mobile. Frame is NARROW (9 wide × 16 tall). Text MUST be constrained to prevent overflow.",
+                "max_text_width": "config.frame_width * 0.65",
+                "max_font_title": 32,
+                "max_font_body": 24,
+                "layout_example": "Stack vertically: title at UP*6, content1 at UP*2, content2 at ORIGIN, content3 at DOWN*2, footer at DOWN*6"
+            },
+            "1:1": {
+                "guide": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
+                "max_text_width": "config.frame_width * 0.75",
+                "max_font_title": 42,
+                "max_font_body": 30,
+                "layout_example": "Center everything with balanced spacing"
+            },
+            "4:3": {
+                "guide": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
+                "max_text_width": "config.frame_width * 0.80",
+                "max_font_title": 44,
+                "max_font_body": 32,
+                "layout_example": "Traditional TV layout with centered content"
+            },
+            "21:9": {
+                "guide": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible.",
+                "max_text_width": "config.frame_width * 0.90",
+                "max_font_title": 48,
+                "max_font_body": 36,
+                "layout_example": "Use full width, place elements side-by-side"
+            }
+        }
+        layout_info = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
+        layout_guide = layout_info["guide"]
+        max_text_width = layout_info["max_text_width"]
+        max_font_title = layout_info["max_font_title"]
+        max_font_body = layout_info["max_font_body"]
+        
+        # Create batch prompt with aspect ratio guidance
         segment_info = ""
         for i, segment in enumerate(batch_segments):
-            segment_info += f"SEGMENT_{i+1}: {segment.duration}s | {segment.text[:50]}... | {segment.visual_description[:50]}...\n"
+            segment_info += f"SEGMENT_{i+1}: {segment.duration}s | {segment.text[:60]}... | {segment.visual_description[:60]}...\n"
 
-        batch_prompt = f"""Generate {len(batch_segments)} separate Manim scripts:
+        batch_prompt = f"""Generate {len(batch_segments)} separate Manim scripts for aspect ratio {self.config.aspect_ratio}:
 
 {segment_info}
 
-Format:
+🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
+{layout_guide}
+
+🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES:
+
+1. **MANDATORY TEXT WIDTH CONSTRAINT:**
+   - EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
+   - NO EXCEPTIONS - even single words need scaling
+
+2. **STRICT FONT SIZE LIMITS:**
+   - Titles: MAX {max_font_title}px
+   - Body text: MAX {max_font_body}px
+
+3. **MANDATORY VERTICAL SPACING:**
+   - Minimum 1.5 units between ANY two text objects
+   - Use .next_to(other_object, DOWN, buff=1.5)
+
+4. **ASPECT RATIO CONFIG MUST BE INCLUDED:**
+{aspect_ratio_config}
+
+Output Format - STRICTLY FOLLOW:
 === SCRIPT_1 ===
 from manim import *
+
+{aspect_ratio_config}
+
 class GeneratedAnimation1(Scene):
     def construct(self):
-        # Animation code here
+        # Every text: text.scale_to_fit_width({max_text_width})
+        # Minimum vertical spacing: 1.5 units
         self.wait({batch_segments[0].duration})
 
 === SCRIPT_2 ===
 from manim import *
+
+{aspect_ratio_config}
+
 class GeneratedAnimation2(Scene):
     def construct(self):
-        # Animation code here
+        # Every text: text.scale_to_fit_width({max_text_width})
+        # Minimum vertical spacing: 1.5 units
         self.wait({batch_segments[1].duration if len(batch_segments) > 1 else 10})
 
-Continue for all segments. Output ONLY scripts with separators.
+Continue for all {len(batch_segments)} segments. Output ONLY scripts with separators. Include aspect ratio config in EVERY script.
 """
 
         safety_settings = {
