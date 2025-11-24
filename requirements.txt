@@ -111,3 +111,5 @@ urllib3==2.5.0
 watchdog==6.0.0
 yarl==1.20.1
 gunicorn
+google-auth-oauthlib==1.2.0
+schedule==1.2.0

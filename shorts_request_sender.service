@@ -1,0 +1,20 @@
+[Unit]
+Description=YouTube Shorts Request Sender (lightweight)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/video_generator/backend
+Environment="PATH=/home/ubuntu/video_generator/backend/.venv/bin"
+EnvironmentFile=/home/ubuntu/video_generator/backend/.env
+ExecStart=/home/ubuntu/video_generator/backend/.venv/bin/python shorts_request_sender.py --schedule
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shorts-requester
+
+[Install]
+WantedBy=multi-user.target

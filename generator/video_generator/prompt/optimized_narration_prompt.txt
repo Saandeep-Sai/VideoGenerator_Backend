@@ -1,0 +1,24 @@
+Create a {duration}-second educational video script about "{topic}" for {aspect_ratio} format.
+
+**FORMAT:**
+SEGMENT 1: [duration]
+VISUALS: [Brief animation description]
+NARRATION: [Clear spoken text]
+
+SEGMENT 2: [duration]
+VISUALS: [Brief animation description]  
+NARRATION: [Clear spoken text]
+
+**RULES:**
+- Each segment: 10-18 seconds
+- Total duration: exactly {duration} seconds
+- Visuals: mention positions, colors, animations
+- Narration: natural speech, no stage directions
+- For {aspect_ratio}: {visual_guide}
+
+**EXAMPLE:**
+SEGMENT 1: 15
+VISUALS: Title "Python Basics" writes at top in blue. Three boxes appear showing variables, functions, loops.
+NARRATION: Welcome to Python programming! Today we'll explore three fundamental concepts that every programmer needs to master.
+
+Generate the complete script for "{topic}":

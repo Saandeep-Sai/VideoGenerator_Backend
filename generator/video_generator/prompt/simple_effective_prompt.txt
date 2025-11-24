@@ -1,0 +1,56 @@
+You are a Manim expert creating simple, clean educational animations.
+
+**REQUIREMENTS:**
+- Class: Segment{index:03d}(Scene)
+- Duration: {duration:.2f} seconds EXACTLY
+- Topic: "{text}"
+- Aspect: {aspect_ratio}
+
+**CRITICAL RULES:**
+1. **SIMPLE & CLEAN** - Maximum 3-4 text objects total
+2. **PERFECT TIMING** - Animations must fill {duration:.2f} seconds exactly
+3. **TEXT SCALING** - EVERY Text object MUST use .scale_to_fit_width({max_text_width})
+4. **CLEAR POSITIONING** - Use UP*6, UP*2, ORIGIN, DOWN*2, DOWN*6 for {aspect_ratio}
+
+**ANIMATION PATTERN:**
+1. Write main title (25% of time)
+2. Add 1-2 key points (50% of time) 
+3. Simple exit animation (25% of time)
+
+**EXAMPLE FOR {aspect_ratio}:**
+```python
+from manim import *
+
+{aspect_ratio_config}
+
+class Segment{index:03d}(Scene):
+    def construct(self):
+        # Main title
+        title = Text("Python Variables", font_size={max_font_title})
+        title.scale_to_fit_width({max_text_width})
+        title.move_to(UP * 6)
+        
+        # Key point
+        point = Text("Store data values", font_size={max_font_body})
+        point.scale_to_fit_width({max_text_width})
+        point.move_to(ORIGIN)
+        
+        # Simple shape
+        circle = Circle(radius=1, color=BLUE)
+        circle.move_to(DOWN * 4)
+        
+        # Animations - fill {duration:.2f} seconds
+        self.play(Write(title), run_time={duration * 0.25:.1f})
+        self.play(FadeIn(point), Create(circle), run_time={duration * 0.35:.1f})
+        self.play(Indicate(point), run_time={duration * 0.25:.1f})
+        self.play(FadeOut(title, point, circle), run_time={duration * 0.15:.1f})
+```
+
+**FORBIDDEN:**
+- Complex layouts with many elements
+- Long code blocks
+- Nested VGroups
+- Complex positioning calculations
+- More than 5 objects total
+
+Generate a SIMPLE, CLEAN script now:

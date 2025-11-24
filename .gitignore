@@ -3,6 +3,13 @@
 .env.local
 .env.*.local
 
+# Credentials (NEVER commit these!)
+client_secret.json
+token.json
+firebase-key.json
+*.key
+*.pem
+
 # Python bytecode
 __pycache__/
 *.py[cod]

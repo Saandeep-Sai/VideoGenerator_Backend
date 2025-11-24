@@ -1,0 +1,21 @@
+[Unit]
+Description=YouTube Shorts Scheduler (Generate → Upload → Firebase)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/video_generator/backend
+Environment="PATH=/home/ubuntu/video_generator/backend/.venv/bin"
+EnvironmentFile=/home/ubuntu/video_generator/backend/.env
+ExecStart=/home/ubuntu/video_generator/backend/.venv/bin/python youtube_shorts_scheduler.py --schedule
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=youtube-shorts-scheduler
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

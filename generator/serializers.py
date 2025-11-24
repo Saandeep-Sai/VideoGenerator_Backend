@@ -8,3 +8,8 @@ class VideoRequestSerializer(serializers.Serializer):
         default="16:9",
         required=False
     )
+    video_type = serializers.ChoiceField(
+        choices=["regular", "short"],
+        default="regular",
+        required=False
+    )

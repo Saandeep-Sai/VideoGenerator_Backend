@@ -1,0 +1,42 @@
+Generate {num_segments} Manim scripts. Each script must be complete and executable.
+
+**GLOBAL REQUIREMENTS:**
+- Aspect ratio: {aspect_ratio}
+- Use diverse animations: Write(), GrowFromCenter(), Indicate(), Transform()
+- EVERY Text object needs .scale_to_fit_width({max_text_width})
+- Fill entire duration with animations (max 1s wait per script)
+
+**SEGMENTS:**
+{segments_info}
+
+**OUTPUT FORMAT:**
+```
+===SCRIPT START===
+from manim import *
+
+{aspect_ratio_config}
+
+class Segment001(Scene):
+    def construct(self):
+        # Your animation code here
+        self.wait(exact_duration)
+
+===SCRIPT START===
+from manim import *
+
+{aspect_ratio_config}
+
+class Segment002(Scene):
+    def construct(self):
+        # Your animation code here
+        self.wait(exact_duration)
+```
+
+**ANIMATION PATTERNS:**
+- Entry: Write(title) → shift/scale
+- Content: GrowFromCenter(text) → Indicate() → movement
+- Exit: FadeOut() or Uncreate()
+
+**COLORS:** WHITE, BLUE, GREEN, RED, YELLOW, ORANGE, PINK, PURPLE
+
+Generate all {num_segments} scripts now:
