@@ -38,20 +38,27 @@ def generate_token_headless():
         )
         
         # Generate the authorization URL
-        # run_local_server would require a browser, so we use run_console instead
+        # Use redirect_uri='urn:ietf:wg:oauth:2.0:oob' for out-of-band (manual code entry)
+        # This avoids the port/localhost issue
         print("\n📋 STEP 1: Copy this URL and paste it in your LOCAL browser:")
         print("-" * 70)
         
-        # For headless, we need to manually handle the flow
-        auth_url, _ = flow.authorization_url(prompt='consent')
+        # Use OOB (Out-of-Band) flow - more reliable for headless
+        auth_url, _ = flow.authorization_url(
+            prompt='consent',
+            access_type='offline'  # Ensures refresh token is included
+        )
         
         print(auth_url)
         print("-" * 70)
         
         print("\n✅ STEP 2: After visiting the URL and granting permission:")
-        print("   1. You'll be redirected to: http://localhost/?code=AUTH_CODE")
-        print("   2. Copy the 'code' parameter from the URL")
-        print("   3. Paste it below (you may only see the code, not the full URL)")
+        print("   1. Google will show you a code on the screen")
+        print("   2. Copy that code (it looks like: 4/0A4tK9r...)")
+        print("   3. Paste it below")
+        print("\n   ⚠️  If you see 'localhost' redirect error:")
+        print("      - Click 'Advanced' → 'Go to localhost'")
+        print("      - Copy the code from: http://localhost/?code=...")
         
         auth_code = input("\n🔑 Paste the authorization code here: ").strip()
         
@@ -64,7 +71,11 @@ def generate_token_headless():
             creds = flow.fetch_token(code=auth_code)
         except Exception as e:
             print(f"❌ Failed to exchange authorization code: {e}")
-            print("   Make sure you copied the exact code (letters, numbers, hyphens)")
+            print("   Make sure you copied the exact code (letters, numbers, hyphens, slashes)")
+            print("   Common issues:")
+            print("   - Code expired (valid for 10 minutes only)")
+            print("   - Code already used (try again from step 1)")
+            print("   - Trailing spaces in code (paste carefully)")
             return False
         
         # Save the token
