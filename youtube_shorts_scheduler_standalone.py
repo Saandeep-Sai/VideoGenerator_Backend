@@ -33,6 +33,7 @@ from generator.video_generator.optimized_video_generator import OptimizedVideoGe
 from generator.oracle_storage import OracleStorageClient
 from youtube_upload import upload_short
 from generator.firebase_utils import create_job, update_video_status_with_url
+from resource_monitor import resource_monitor
 from dotenv import load_dotenv
 
 # Load environment
@@ -127,7 +128,7 @@ class StandaloneYouTubeShortsGenerator:
             logger.error(f"❌ Failed to save history: {e}")
     
     def get_next_topic(self) -> str:
-        """Get next topic (avoid repeats within 30 days)"""
+        """Get next topic (proper rotation, no repeats within 30 days)"""
         history = self.load_topic_history()
         today = datetime.now()
         thirty_days_ago = today - timedelta(days=30)
@@ -142,15 +143,30 @@ class StandaloneYouTubeShortsGenerator:
             except ValueError:
                 logger.warning(f"⚠️ Invalid date format for topic: {topic}")
         
-        # Find available topic
-        available_topics = [t for t in PROGRAMMING_TOPICS if t not in recent_topics]
+        # Find next topic in rotation order
+        if history:
+            # Get last used topic and find next in sequence
+            last_topic = max(history.items(), key=lambda x: x[1])[0]
+            try:
+                last_index = PROGRAMMING_TOPICS.index(last_topic)
+                # Start from next topic in sequence
+                for i in range(len(PROGRAMMING_TOPICS)):
+                    next_index = (last_index + 1 + i) % len(PROGRAMMING_TOPICS)
+                    next_topic = PROGRAMMING_TOPICS[next_index]
+                    if next_topic not in recent_topics:
+                        logger.info(f"📋 Selected topic: {next_topic} (continuing rotation from {last_topic})")
+                        return next_topic
+            except ValueError:
+                # Last topic not in current list, start from beginning
+                pass
         
-        if available_topics:
-            next_topic = available_topics[0]
-            logger.info(f"📋 Selected topic: {next_topic} ({len(available_topics)} available, {len(recent_topics)} used recently)")
-            return next_topic
+        # Fallback: find first available topic
+        for topic in PROGRAMMING_TOPICS:
+            if topic not in recent_topics:
+                logger.info(f"📋 Selected topic: {topic} (first available)")
+                return topic
         
-        # If all topics used recently, start fresh
+        # If all topics used recently, start fresh cycle
         logger.warning("⚠️ All topics used in last 30 days, starting fresh cycle")
         return PROGRAMMING_TOPICS[0]
     
@@ -162,8 +178,18 @@ class StandaloneYouTubeShortsGenerator:
         logger.info(f"✅ Topic marked as used: {topic}")
     
     async def generate_video(self, topic: str, duration: int = 60) -> Optional[str]:
-        """Generate video locally (no API call)"""
+        """Generate video locally with resource monitoring for E2.Micro."""
         try:
+            # Check system resources before starting
+            resource_monitor.log_system_status()
+            overloaded, reason = resource_monitor.is_system_overloaded()
+            
+            if overloaded:
+                logger.warning(f"⚠️ System overloaded before generation: {reason}")
+                if not resource_monitor.wait_for_resources(max_wait=180):
+                    logger.error("❌ System resources unavailable - aborting generation")
+                    return None
+            
             logger.info(f"🎬 Generating video locally...")
             logger.info(f"   Topic: {topic}")
             logger.info(f"   Duration: {duration}s")
@@ -175,11 +201,16 @@ class StandaloneYouTubeShortsGenerator:
                 duration
             )
             
+            # Cleanup after generation
+            resource_monitor.cleanup_memory()
+            
             logger.info(f"✅ Video generated: {final_video_path}")
             return final_video_path
             
         except Exception as e:
             logger.error(f"❌ Video generation failed: {e}")
+            # Cleanup on failure
+            resource_monitor.cleanup_memory()
             return None
     
     def upload_to_youtube(self, video_path: str, topic: str, duration: int) -> Optional[str]:
@@ -293,6 +324,10 @@ Thanks to Code Tapasya for the amazing content!
                 logger.info("🧹 Local video cleaned up")
             except:
                 pass
+            
+            # Force memory cleanup after upload
+            resource_monitor.cleanup_memory()
+            resource_monitor.log_system_status()
             
             logger.info("=" * 70)
             logger.info("✅ COMPLETE: Video generated and uploaded successfully!")

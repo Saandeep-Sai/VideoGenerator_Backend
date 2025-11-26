@@ -130,14 +130,17 @@ class VideoGenerationConfig:
     manim_quality: str = "medium"  # Medium quality config for 720p30
     audio_sample_rate: int = 22050
     use_groq_for_correction: bool = True
-    manim_timeout: int = 1800  # Oracle VM: 30 minutes per segment rendering
+git    manim_timeout: int = 2400  # E2.Micro: 40 minutes per segment rendering (slower CPU)
     ffmpeg_timeout: int = 300  # FFmpeg operations: 5 minutes
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
     max_generation_attempts: int = 3
     max_correction_attempts: int = 3  # Max attempts to fix script with Gemini/Groq before regenerating
     max_regeneration_attempts: int = 4  # Max attempts to regenerate script from scratch
-    batch_size: int = 1  # Oracle VM: Process 1 segment at a time (avoid resource overload)
+    batch_size: int = 1  # E2.Micro: Process 1 segment at a time (avoid resource overload)
+    # E2.Micro resource limits
+    memory_limit_mb: int = 800  # Leave 200MB for system
+    max_concurrent_tts: int = 1  # Only 1 TTS at a time
     aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     
     def __post_init__(self):
