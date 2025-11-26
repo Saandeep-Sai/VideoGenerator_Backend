@@ -3,6 +3,7 @@
 **The Problem:** Google OAuth doesn't recognize the redirect URI used by your script.
 
 **Root Cause:** Your `client_secret.json` has:
+
 ```json
 "redirect_uris":["http://localhost"]
 ```
@@ -22,6 +23,7 @@ python3 generate_token_local.py
 ```
 
 **What happens:**
+
 1. Browser opens automatically
 2. You log in to Google
 3. Grant permissions
@@ -47,6 +49,7 @@ If you want to use the headless script on your instance, update your Google Clou
 ### Step 2: Add Redirect URIs
 
 In the "Authorized redirect URIs" section, add:
+
 - `http://localhost` (already there)
 - `http://localhost:8080` (add this)
 - `http://localhost:0` (add this - for random port)
@@ -82,11 +85,13 @@ scp token.json ubuntu@<instance-ip>:~/VideoGenerator_Backend/
 The error occurs because:
 
 1. **User's Client Secret has:**
+
    ```json
    "redirect_uris": ["http://localhost"]
    ```
 
 2. **Headless script tries to use:**
+
    ```
    http://localhost:0  (or random port)
    OR
@@ -94,6 +99,7 @@ The error occurs because:
    ```
 
 3. **Google rejects it:**
+
    ```
    Error 400: invalid_request
    Reason: redirect_uri doesn't match registered URIs
@@ -115,6 +121,7 @@ python3 generate_token_local.py
 ```
 
 It's:
+
 - ✅ Simplest
 - ✅ Fastest
 - ✅ Most reliable

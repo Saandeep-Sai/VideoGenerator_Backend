@@ -107,11 +107,13 @@ if client_secret_b64:
 ```
 
 **Pros**:
+
 - No files to copy
 - Works with environment variables
 - Good for containerized deployments
 
 **Cons**:
+
 - More complex
 - Larger .env file
 - Need to update code
@@ -238,6 +240,7 @@ python setup_youtube_automation.py
 ```
 
 This will:
+
 1. Open a browser for you to authorize
 2. Create `token.json` after authorization
 3. Save refresh tokens for future use
@@ -268,12 +271,14 @@ If using Firebase Firestore:
 **Step 2: Encode it for .env (Option 2) or copy it (Option 1)**
 
 Option 1 (file-based):
+
 ```bash
 scp firebase-key.json ubuntu@<VM_IP>:~/video_generator/backend/
 chmod 600 firebase-key.json
 ```
 
 Option 2 (environment variable):
+
 ```bash
 cat firebase-key.json | base64 -w 0
 # Paste into .env as FIREBASE_CREDENTIALS_B64
@@ -293,6 +298,7 @@ FIREBASE_CREDENTIALS_BASE64=<base64 encoded key>
 Create a template (safe to commit) and a real one (git-ignored):
 
 **`.env.example`** (commit this to git):
+
 ```env
 # YouTube
 GENERATOR_URL=http://localhost:8000
@@ -311,6 +317,7 @@ ELEVENLABS_API_KEY=<your-key>
 ```
 
 **`.env`** (git-ignored, fill in real values):
+
 ```env
 GENERATOR_URL=http://192.0.2.100:8000
 FIREBASE_PROJECT_ID=my-actual-project
@@ -328,6 +335,7 @@ Users can copy `.env.example` to `.env` and fill in their own credentials.
 ## Security Best Practices
 
 ✅ **DO:**
+
 - Keep `.env`, `client_secret.json`, `token.json` in `.gitignore`
 - Use file permissions `600` (only owner can read)
 - Rotate API keys regularly
@@ -335,6 +343,7 @@ Users can copy `.env.example` to `.env` and fill in their own credentials.
 - Store credentials in secure vaults for team sharing
 
 ❌ **DON'T:**
+
 - Commit credentials to git (even private repos)
 - Share credentials via email or Slack
 - Hardcode API keys in Python files
@@ -353,6 +362,7 @@ python youtube_shorts_scheduler.py --test
 ```
 
 Should show:
+
 ```
 ✅ YouTube API: Connected
 ```
@@ -395,19 +405,23 @@ ssh ubuntu@<E2_IP> "cd ~/video_generator/backend && source .venv/bin/activate &&
 ## Troubleshooting
 
 ### "FileNotFoundError: client_secret.json"
+
 - Copy `client_secret.json` to VM: `scp client_secret.json ubuntu@<IP>:~/video_generator/backend/`
 - Verify it exists: `ssh ubuntu@<IP> ls -la ~/video_generator/backend/client_secret.json`
 
 ### "Token expired"
+
 - Run: `python setup_youtube_automation.py`
 - Or let the script auto-refresh (if implemented)
 
 ### "Firebase credentials invalid"
+
 - Check base64 encoding: `cat firebase-key.json | base64 -w 0`
 - Ensure `FIREBASE_PROJECT_ID` matches your project ID
 - Test: `python -c "from generator.firebase_utils import initialize_firebase; initialize_firebase()"`
 
 ### "Permission denied: .env"
+
 - Fix permissions: `chmod 600 .env client_secret.json token.json`
 
 ---

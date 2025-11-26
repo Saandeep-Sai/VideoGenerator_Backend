@@ -109,14 +109,22 @@ class StandaloneYouTubeShortsGenerator:
         """Load topic generation history"""
         history_file = Path("youtube_shorts_history.json")
         if history_file.exists():
-            with open(history_file, "r") as f:
-                return json.load(f)
+            try:
+                with open(history_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                logger.warning("⚠️ Corrupted history file, starting fresh")
+                return {}
         return {}
     
     def save_topic_history(self, history: dict):
         """Save topic generation history"""
-        with open("youtube_shorts_history.json", "w") as f:
-            json.dump(history, f, indent=2)
+        try:
+            with open("youtube_shorts_history.json", "w") as f:
+                json.dump(history, f, indent=2)
+            logger.debug(f"📝 History saved: {len(history)} topics tracked")
+        except Exception as e:
+            logger.error(f"❌ Failed to save history: {e}")
     
     def get_next_topic(self) -> str:
         """Get next topic (avoid repeats within 30 days)"""
@@ -127,17 +135,23 @@ class StandaloneYouTubeShortsGenerator:
         # Filter out recently used topics
         recent_topics = set()
         for topic, last_used_str in history.items():
-            last_used = datetime.fromisoformat(last_used_str)
-            if last_used > thirty_days_ago:
-                recent_topics.add(topic)
+            try:
+                last_used = datetime.fromisoformat(last_used_str)
+                if last_used > thirty_days_ago:
+                    recent_topics.add(topic)
+            except ValueError:
+                logger.warning(f"⚠️ Invalid date format for topic: {topic}")
         
         # Find available topic
-        for topic in PROGRAMMING_TOPICS:
-            if topic not in recent_topics:
-                return topic
+        available_topics = [t for t in PROGRAMMING_TOPICS if t not in recent_topics]
+        
+        if available_topics:
+            next_topic = available_topics[0]
+            logger.info(f"📋 Selected topic: {next_topic} ({len(available_topics)} available, {len(recent_topics)} used recently)")
+            return next_topic
         
         # If all topics used recently, start fresh
-        logger.warning("⚠️ All topics used in last 30 days, starting fresh")
+        logger.warning("⚠️ All topics used in last 30 days, starting fresh cycle")
         return PROGRAMMING_TOPICS[0]
     
     def mark_topic_used(self, topic: str):
@@ -232,9 +246,19 @@ Thanks to Code Tapasya for the amazing content!
             job_id = create_job(topic, duration, "9:16", "short")
             logger.info(f"📝 Firebase job created: {job_id}")
             
-            # Step 1: Generate video locally
+            # Step 1: Generate video locally (with timeout - max 20 minutes)
             logger.info("🎬 Step 1: Generating video locally...")
-            video_path = await self.generate_video(topic, duration)
+            logger.info("⚠️ NOTE: This may take 10-20 minutes on E2.Micro (1 vCPU)")
+            logger.info("🔄 Generating narration → scripts → rendering → final assembly...")
+            try:
+                video_path = await asyncio.wait_for(
+                    self.generate_video(topic, duration),
+                    timeout=1200  # 20 minutes timeout
+                )
+            except asyncio.TimeoutError:
+                logger.error("❌ Video generation timed out (>20 minutes). E2.Micro may be too slow.")
+                logger.error("💡 Consider upgrading instance type or reducing video duration")
+                raise RuntimeError("Video generation timeout")
             if not video_path:
                 raise RuntimeError("Video generation failed")
             

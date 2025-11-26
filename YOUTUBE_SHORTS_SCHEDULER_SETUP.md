@@ -3,6 +3,7 @@
 ## Overview
 
 This scheduler runs on a small VM (E2.1.Micro) and automatically:
+
 1. **Generates** a YouTube Short (9:16 vertical format) by calling your main backend
 2. **Uploads** to YouTube as **PUBLIC** (not private or unlisted)
 3. **Tracks** in Firebase `youtube-shorts` collection with status, video ID, URL
@@ -19,11 +20,13 @@ This scheduler runs on a small VM (E2.1.Micro) and automatically:
 ## Setup Steps
 
 ### Step 1: SSH into E2.1.Micro
+
 ```bash
 ssh ubuntu@<YOUR_E2_MICRO_IP>
 ```
 
 ### Step 2: Clone and Setup Python
+
 ```bash
 # Create directory
 mkdir -p ~/video_generator
@@ -45,6 +48,7 @@ pip install python-dotenv schedule
 ```
 
 ### Step 3: Copy YouTube Credentials
+
 Copy these files from your main backend to E2.1.Micro:
 
 ```bash
@@ -54,6 +58,7 @@ scp token.json ubuntu@<E2_MICRO_IP>:~/video_generator/backend/
 ```
 
 ### Step 4: Configure .env
+
 On the E2.1.Micro, edit `.env`:
 
 ```bash
@@ -61,6 +66,7 @@ nano .env
 ```
 
 Add/update these:
+
 ```env
 # Main backend instance (where generation happens)
 GENERATOR_URL=http://<MAIN_BACKEND_IP>:8000
@@ -74,6 +80,7 @@ UPLOAD_TIMES=09:00,18:00
 ```
 
 **To get FIREBASE_CREDENTIALS_BASE64**:
+
 ```bash
 # On local machine, encode your Firebase JSON:
 cat firebase-key.json | base64 -w 0
@@ -81,24 +88,28 @@ cat firebase-key.json | base64 -w 0
 ```
 
 ### Step 5: Test Connections
+
 ```bash
 source .venv/bin/activate
 python youtube_shorts_scheduler.py --test
 ```
 
 Expected output:
+
 ```
 ✅ YouTube API: Connected
 ✅ Firebase: Connected
 ```
 
 ### Step 6: Test Single Upload Cycle
+
 ```bash
 source .venv/bin/activate
 python youtube_shorts_scheduler.py --once
 ```
 
 This will:
+
 1. Pick a random programming topic
 2. Request generation from main backend
 3. Wait for the video to be ready
@@ -106,6 +117,7 @@ This will:
 5. Save to Firebase `youtube-shorts` collection
 
 ### Step 7: Setup Systemd Auto-Start
+
 ```bash
 # Copy service file
 sudo cp youtube_shorts_scheduler.service /etc/systemd/system/
@@ -125,6 +137,7 @@ sudo journalctl -u youtube_shorts_scheduler -f
 ## Usage
 
 ### Manual Modes
+
 ```bash
 source .venv/bin/activate
 
@@ -139,6 +152,7 @@ python youtube_shorts_scheduler.py --test
 ```
 
 ### Systemd Commands
+
 ```bash
 # View status
 sudo systemctl status youtube_shorts_scheduler
@@ -161,6 +175,7 @@ sudo systemctl disable youtube_shorts_scheduler
 ## What Gets Uploaded
 
 Each short is uploaded with:
+
 - **Title**: `{topic} in {duration} Seconds! #Shorts`
 - **Description**: Programming tips + hashtags
 - **Privacy**: `PUBLIC` (not private, not unlisted)
@@ -186,6 +201,7 @@ Videos are saved in the `youtube-shorts` collection:
 ```
 
 Failed uploads are also logged:
+
 ```json
 {
   "topic": "Python Exception Handling",
@@ -199,17 +215,22 @@ Failed uploads are also logged:
 ## Configuration
 
 ### Change Schedule Times
+
 Edit `.env`:
+
 ```env
 # Wake up at 7 AM, upload at 2 PM
 UPLOAD_TIMES=07:00,14:00
 ```
 
 ### Retry on Failure
+
 The script automatically retries up to 3 times on failure (configurable in code).
 
 ### Topic List
+
 Topics are hardcoded in the script. Edit the `self.programming_topics` list to add more:
+
 ```python
 self.programming_topics = [
     "Your Topic Here",
@@ -221,31 +242,37 @@ self.programming_topics = [
 ## Troubleshooting
 
 ### "Cannot reach backend"
+
 - Check `GENERATOR_URL` in `.env` is correct
 - Ensure main backend is running: `curl http://<MAIN_IP>:8000/api/health/`
 - Check firewall rules allow port 8000 from E2.Micro
 
 ### "YouTube authentication failed"
+
 - Make sure `token.json` exists
 - Run `python setup_youtube_automation.py` to refresh token
 - Check `client_secret.json` is valid
 
 ### "Firebase not enabled"
+
 - Check `FIREBASE_CREDENTIALS_BASE64` and `FIREBASE_PROJECT_ID` in `.env`
 - Ensure Firebase JSON is valid (base64 encoded correctly)
 - Check Firebase project allows read/write to `youtube-shorts` collection
 
 ### "Generation timed out"
+
 - Default timeout is 10 minutes (600s)
 - Check generation on main backend is working
 - View main backend logs to diagnose generation issues
 
 ### Videos not uploading
+
 - Check YouTube quota (50 uploads/day per default quota)
 - Ensure `token.json` has fresh credentials
 - Check YouTube API is enabled in Google Cloud Console
 
 ### High CPU/Memory on E2.Micro
+
 - This script uses ~10-20MB RAM
 - If spiking, check if generation is running locally (shouldn't be)
 - Restart: `sudo systemctl restart youtube_shorts_scheduler`
@@ -253,6 +280,7 @@ self.programming_topics = [
 ## Logs
 
 Log files:
+
 - **Systemd journal**: `sudo journalctl -u youtube_shorts_scheduler -f`
 - **Local file**: `youtube_shorts_scheduler.log` (in backend directory)
 - **History file**: `youtube_shorts_history.json` (uploaded shorts)
@@ -276,6 +304,7 @@ Log files:
 ---
 
 **Quick Start Command** (copy-paste on E2.1.Micro):
+
 ```bash
 cd ~/video_generator/backend && source .venv/bin/activate && python youtube_shorts_scheduler.py --test
 ```

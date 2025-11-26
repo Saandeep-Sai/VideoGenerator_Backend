@@ -271,8 +271,26 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
     def _validate_dependencies(self) -> None:
         try:
             subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-        except Exception:
-            raise RuntimeError("FFmpeg is required but not found or failed.")
+        except Exception as e:
+            # Try with full path on Linux systems
+            import shutil
+            ffmpeg_path = shutil.which('ffmpeg')
+            if not ffmpeg_path:
+                # Last resort: check common installation paths
+                import os
+                for path in ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/snap/bin/ffmpeg']:
+                    if os.path.exists(path):
+                        ffmpeg_path = path
+                        break
+            
+            if not ffmpeg_path:
+                raise RuntimeError(f"FFmpeg is required but not found or failed. Error: {e}")
+            
+            # Verify it works
+            try:
+                subprocess.run([ffmpeg_path, '-version'], capture_output=True, check=True)
+            except Exception as verify_error:
+                raise RuntimeError(f"FFmpeg found at {ffmpeg_path} but failed to execute: {verify_error}")
 
     def _setup_models(self) -> None:
         self._setup_gemini()

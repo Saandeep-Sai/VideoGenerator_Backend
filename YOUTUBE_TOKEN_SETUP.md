@@ -21,6 +21,7 @@ python3 -c "from youtube_upload import authenticate_youtube; authenticate_youtub
 ```
 
 **What happens:**
+
 - A browser window opens
 - You log in with your Google account
 - Grant YouTube upload permissions
@@ -80,7 +81,7 @@ https://accounts.google.com/o/oauth2/auth?client_id=589521187290...
    2. Copy the 'code' parameter from the URL
    3. Paste it below (you may only see the code, not the full URL)
 
-🔑 Paste the authorization code here: 
+🔑 Paste the authorization code here:
 ```
 
 ### Step 3: On your LOCAL machine
@@ -220,27 +221,27 @@ curl -X POST http://localhost:8000/api/generate/ \
 
 ## 🛠️ Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| `FileNotFoundError: token.json` | Use **Option 1**: Generate locally and copy |
-| `webbrowser.Error: could not locate runnable browser` | Use **Option 1** or **Option 2** (headless script) |
-| `TokenError: code not recognized` | Make sure you copied the EXACT code from the URL |
-| `Permission denied on token.json` | Run `chmod 600 token.json` |
-| `ModuleNotFoundError: google_auth_oauthlib` | Run `pip3 install -r requirements.txt` |
-| Token expired | Delete token.json, regenerate (refresh token auto-renews) |
+| Problem                                               | Solution                                                  |
+| ----------------------------------------------------- | --------------------------------------------------------- |
+| `FileNotFoundError: token.json`                       | Use **Option 1**: Generate locally and copy               |
+| `webbrowser.Error: could not locate runnable browser` | Use **Option 1** or **Option 2** (headless script)        |
+| `TokenError: code not recognized`                     | Make sure you copied the EXACT code from the URL          |
+| `Permission denied on token.json`                     | Run `chmod 600 token.json`                                |
+| `ModuleNotFoundError: google_auth_oauthlib`           | Run `pip3 install -r requirements.txt`                    |
+| Token expired                                         | Delete token.json, regenerate (refresh token auto-renews) |
 
 ---
 
 ## 📋 Quick Reference
 
-| Task | Command |
-|------|---------|
-| Generate token (local machine) | `python3 generate_youtube_token.py` |
-| Copy to instance | `scp token.json ubuntu@<ip>:~/VideoGenerator_Backend/` |
-| Secure permissions | `chmod 600 token.json` |
-| Test authentication | `python3 -c "from youtube_upload import authenticate_youtube; authenticate_youtube()"` |
-| Start worker | `python3 run_generate_worker.py` |
-| Send test request | `curl -X POST http://localhost:8000/api/generate/ ...` |
+| Task                           | Command                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Generate token (local machine) | `python3 generate_youtube_token.py`                                                    |
+| Copy to instance               | `scp token.json ubuntu@<ip>:~/VideoGenerator_Backend/`                                 |
+| Secure permissions             | `chmod 600 token.json`                                                                 |
+| Test authentication            | `python3 -c "from youtube_upload import authenticate_youtube; authenticate_youtube()"` |
+| Start worker                   | `python3 run_generate_worker.py`                                                       |
+| Send test request              | `curl -X POST http://localhost:8000/api/generate/ ...`                                 |
 
 ---
 
@@ -252,7 +253,7 @@ Once token.json is in place:
 2. **Worker receives job** from Firebase
 3. **Video is generated** (narration → audio → Manim scripts → rendering)
 4. **Video uploads** to Oracle Object Storage
-5. **YouTube upload starts** ← *This is where token.json is used*
+5. **YouTube upload starts** ← _This is where token.json is used_
 6. **Firebase updates** with YouTube URL and video ID
 7. **Video is LIVE** on YouTube as PUBLIC
 
