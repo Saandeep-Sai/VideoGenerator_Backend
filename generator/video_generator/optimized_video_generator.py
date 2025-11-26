@@ -130,7 +130,7 @@ class VideoGenerationConfig:
     manim_quality: str = "medium"  # Medium quality config for 720p30
     audio_sample_rate: int = 22050
     use_groq_for_correction: bool = True
-git    manim_timeout: int = 2400  # E2.Micro: 40 minutes per segment rendering (slower CPU)
+    manim_timeout: int = 2400  # E2.Micro: 40 minutes per segment rendering (slower CPU)
     ffmpeg_timeout: int = 300  # FFmpeg operations: 5 minutes
     gemini_temperature: float = 0.2
     gemini_max_tokens: int = 8192
