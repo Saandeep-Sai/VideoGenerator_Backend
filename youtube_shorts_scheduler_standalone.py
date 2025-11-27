@@ -13,6 +13,7 @@ import sys
 import json
 import asyncio
 import logging
+import gc
 # Removed: import schedule, time (using systemd timer now)
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -289,6 +290,9 @@ Generate topic:"""
             logger.info(f"   Duration: {duration}s")
             logger.info(f"   Format: 9:16 (YouTube Shorts)")
             
+            # Set memory optimization before video generation
+            os.environ["MALLOC_TRIM_THRESHOLD_"] = "65536"
+            
             # Generate video using local pipeline
             final_video_path = await self.pipeline.generate_video_full_parallel(
                 topic, 
@@ -296,6 +300,7 @@ Generate topic:"""
             )
             
             # Cleanup after generation
+            gc.collect()
             resource_monitor.cleanup_memory()
             
             logger.info(f"✅ Video generated: {final_video_path}")
@@ -423,6 +428,8 @@ Thanks to Code Tapasya for the amazing content!
                 pass
             
             # Force memory cleanup after upload
+            del video_path
+            gc.collect()
             resource_monitor.cleanup_memory()
             resource_monitor.log_system_status()
             

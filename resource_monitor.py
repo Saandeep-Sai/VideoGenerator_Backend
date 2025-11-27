@@ -95,6 +95,9 @@ class ResourceMonitor:
         if hasattr(sys, '_clear_type_cache'):
             sys._clear_type_cache()
         
+        # Force garbage collection
+        gc.collect()
+        
         logger.info("✅ Memory cleanup complete")
 
 # Global instance

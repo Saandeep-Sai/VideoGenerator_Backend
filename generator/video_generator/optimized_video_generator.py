@@ -1150,17 +1150,17 @@ Begin your response now.
         logger.info(f"🛠️ Compiling Manim script for Segment {segment_index if segment_index is not None else '?'}")
 
         try:
-            # Set up environment for headless rendering (Render compatibility)
-            # PHASE 6: Enhanced environment variables for headless optimization
+            # Set up environment for headless rendering (E2.Micro optimization)
             env = os.environ.copy()
             
-            # Force headless mode for Render/cloud environments
-            if not os.environ.get('DISPLAY'):
-                env['DISPLAY'] = ':99'  # Virtual display
-                env['QT_QPA_PLATFORM'] = 'offscreen'  # Qt headless mode
-                env['MPLBACKEND'] = 'Agg'  # PHASE 6: Matplotlib headless (5-10% faster)
-                env['OPENCV_IO_ENABLE_OPENEXR'] = '0'  # PHASE 6: Disable OpenEXR (unused, saves init time)
-                logger.info("🖥️ Running in headless mode (no display detected)")
+            # Force headless mode for E2.Micro
+            env['DISPLAY'] = ':99'  # Virtual display
+            env['QT_QPA_PLATFORM'] = 'offscreen'  # Qt headless mode
+            env['MPLBACKEND'] = 'Agg'  # Matplotlib headless
+            env['OPENCV_IO_ENABLE_OPENEXR'] = '0'  # Disable OpenEXR
+            env['MANIM_DISABLE_CACHING'] = '1'  # Disable Manim caching
+            env['PYTHONUNBUFFERED'] = '1'  # Unbuffered output
+            logger.info("🖥️ Running in headless mode (E2.Micro optimized)")
             
             logger.info(f"📐 Using aspect ratio: {self.config.aspect_ratio} (configured in Manim script)")
             
@@ -1189,12 +1189,13 @@ Begin your response now.
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, class_name,  # Use correct class name
-                "-qm",                        # Medium quality: 720p30 (balanced quality & speed)
+                "-qm",                        # Low quality: 480p15 (E2.Micro optimized)
                 "--format", "mp4",
-                # Caching controlled in script config (flush_cache=False)
+                "--disable_caching",          # Disable caching to save RAM
+                "--flush_cache",              # Clear cache after render
             ]
             
-            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (720p30 -qm quality)")
+            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (480p15 -ql quality - E2.Micro optimized)")
             
             # Stream output with progress bar
             process = subprocess.Popen(
@@ -1204,9 +1205,18 @@ Begin your response now.
                 text=True,
                 cwd=temp_path,
                 env=env,
-                bufsize=1,  # Line buffered
+                bufsize=0,  # Unbuffered for E2.Micro
                 universal_newlines=True
             )
+            
+            # Add timeout for E2.Micro
+            import signal
+            def timeout_handler(signum, frame):
+                process.kill()
+                raise TimeoutError("Manim rendering timed out")
+            
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(self.config.manim_timeout)  # Set timeout
             
             # Collect output and show progress bar
             output_lines = []
@@ -1244,6 +1254,7 @@ Begin your response now.
                             print(f"  ▶️  {line}")
             
             process.wait()
+            signal.alarm(0)  # Cancel timeout
             
             if progress_shown:
                 logger.info("✅ Rendering complete!")
