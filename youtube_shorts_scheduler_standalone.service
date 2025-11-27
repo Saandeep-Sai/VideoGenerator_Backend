@@ -1,23 +1,18 @@
 [Unit]
-Description=YouTube Shorts Standalone Scheduler (E2.Micro #2)
-After=network-online.target
+Description=Standalone YouTube Shorts Generator
+After=network.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/VideoGenerator_Backend
-Environment="PATH=/home/ubuntu/VideoGenerator_Backend/venv/bin"
-EnvironmentFile=/home/ubuntu/VideoGenerator_Backend/.env
+Environment="PATH=/home/ubuntu/VideoGenerator_Backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/home/ubuntu/VideoGenerator_Backend/venv/bin/python3 /home/ubuntu/VideoGenerator_Backend/youtube_shorts_scheduler_standalone.py
 Restart=on-failure
-RestartSec=60
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=youtube-shorts-scheduler
-TimeoutStartSec=300
-# Allow it to run long (video generation can take 20+ minutes)
-TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target

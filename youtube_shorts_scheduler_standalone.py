@@ -13,8 +13,7 @@ import sys
 import json
 import asyncio
 import logging
-import schedule
-import time
+# Removed: import schedule, time (using systemd timer now)
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple
@@ -341,49 +340,33 @@ Thanks to Code Tapasya for the amazing content!
             logger.error("=" * 70)
             return False, None
     
-    def schedule_uploads(self):
-        """Schedule video generation at specified times"""
-        logger.info("\n📅 Scheduling video generation...")
-        logger.info(f"Upload times (UTC): {', '.join(UPLOAD_TIMES)}")
-        
-        for time_str in UPLOAD_TIMES:
-            time_str = time_str.strip()
-            schedule.every().day.at(time_str).do(self._run_async_task)
-            logger.info(f"  ✅ Scheduled for {time_str} UTC")
-        
-        logger.info("\n⏰ Waiting for scheduled time...")
-        logger.info("(Press Ctrl+C to stop)\n")
-        
-        # Keep scheduler running
-        while True:
-            schedule.run_pending()
-            time.sleep(60)  # Check every minute
-    
-    def _run_async_task(self):
-        """Wrapper to run async function in scheduler"""
-        try:
-            asyncio.run(self.generate_and_upload_short())
-        except Exception as e:
-            logger.error(f"❌ Scheduled task failed: {e}")
+
 
 def main():
-    """Main entry point"""
+    """Main entry point - systemd timer mode"""
     generator = StandaloneYouTubeShortsGenerator()
     
     # Check command line arguments
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--once":
-            # Run once and exit
-            logger.info("Running once mode...")
-            success, video_id = asyncio.run(generator.generate_and_upload_short())
-            sys.exit(0 if success else 1)
-    
-    # Default: run scheduler
-    try:
-        generator.schedule_uploads()
-    except KeyboardInterrupt:
-        logger.info("\n👋 Scheduler stopped by user")
-        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+        # Run once and exit (systemd timer mode)
+        logger.info("🔄 Running in systemd timer mode...")
+        success, video_id = asyncio.run(generator.generate_and_upload_short())
+        
+        # Force cleanup before exit
+        resource_monitor.cleanup_memory()
+        
+        if success:
+            logger.info("✅ Job completed successfully - exiting")
+            sys.exit(0)
+        else:
+            logger.error("❌ Job failed - exiting with error")
+            sys.exit(1)
+    else:
+        # Legacy mode warning
+        logger.error("❌ Legacy scheduler mode disabled!")
+        logger.error("📝 Use systemd timer instead:")
+        logger.error("   sudo systemctl start youtube-shorts-scheduler.timer")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

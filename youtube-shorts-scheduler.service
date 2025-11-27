@@ -1,0 +1,25 @@
+[Unit]
+Description=YouTube Shorts Generator (One Shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/VideoGenerator_Backend
+
+Environment="PATH=/home/ubuntu/VideoGenerator_Backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+ExecStart=/home/ubuntu/VideoGenerator_Backend/venv/bin/python3 /home/ubuntu/VideoGenerator_Backend/youtube_shorts_scheduler_standalone.py --once
+
+# Resource controls for E2.Micro
+MemoryMax=650M
+MemoryHigh=600M
+CPUQuota=80%
+OOMPolicy=kill
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
