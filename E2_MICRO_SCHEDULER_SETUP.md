@@ -87,12 +87,12 @@ ls client_secret.json token.json .env
 
 ```bash
 # From your local machine, copy to new instance
-scp -i ssh-key-2025-11-24.key client_secret.json ubuntu@144.24.56.59:~/VideoGenerator_Backend/
-scp -i ssh-key-2025-11-24.key token.json ubuntu@144.24.56.59:~/VideoGenerator_Backend/
-scp -i ssh-key-2025-11-24.key .env ubuntu@144.24.56.59:~/VideoGenerator_Backend/
+scp -i ssh-key-2025-11-24.key client_secret.json ubuntu@158.101.10.244:~/VideoGenerator_Backend/
+scp -i ssh-key-2025-11-24.key token.json ubuntu@158.101.10.244:~/VideoGenerator_Backend/
+scp -i ssh-key-2025-11-24.key .env ubuntu@158.101.10.244:~/VideoGenerator_Backend/
 
 # Verify on new instance (SSH into it first)
-ssh -i ssh-key-2025-11-24.key ubuntu@144.24.56.59
+ssh -i ssh-key-2025-11-24.key ubuntu@158.101.10.244
 cd ~/VideoGenerator_Backend
 ls -la client_secret.json token.json .env
 # Should all be there

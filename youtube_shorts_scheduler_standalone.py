@@ -42,6 +42,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 UPLOAD_TIMES = os.getenv("UPLOAD_TIMES", "09:00,18:00").split(",")
+AI_TOPIC_GENERATION = os.getenv("AI_TOPIC_GENERATION", "true").lower() == "true"
 
 if not GEMINI_API_KEY or not GROQ_API_KEY:
     logger.error("❌ Missing API keys! Set GEMINI_API_KEY and GROQ_API_KEY in .env")
@@ -53,38 +54,68 @@ logger.info("=" * 70)
 logger.info(f"📅 Upload times (UTC): {', '.join(UPLOAD_TIMES)}")
 logger.info("=" * 70)
 
-# Topics database - 30+ unique topics
+# Topics database - 100+ unique topics
 PROGRAMMING_TOPICS = [
-    "Object-Oriented Programming",
-    "Design Patterns in Python",
-    "Async/Await Programming",
-    "Data Structures and Algorithms",
-    "Database Design Principles",
-    "REST API Development",
-    "GraphQL Basics",
-    "Machine Learning Fundamentals",
-    "Docker and Containerization",
-    "Kubernetes Orchestration",
-    "Cloud Computing with AWS",
-    "Microservices Architecture",
-    "CI/CD Pipelines",
-    "Git and Version Control",
-    "Test-Driven Development",
-    "Code Refactoring Techniques",
-    "Performance Optimization",
-    "Security Best Practices",
-    "Authentication and Authorization",
-    "Caching Strategies",
-    "Load Balancing",
-    "API Gateway Design",
-    "Event-Driven Architecture",
-    "Distributed Systems",
-    "Database Optimization",
-    "NoSQL vs SQL",
-    "Functional Programming",
-    "Software Design Principles",
-    "Clean Code Practices",
-    "Debugging Techniques",
+    # Core Programming
+    "Object-Oriented Programming", "Design Patterns in Python", "Async/Await Programming",
+    "Data Structures and Algorithms", "Functional Programming", "Clean Code Practices",
+    "Code Refactoring Techniques", "Debugging Techniques", "Memory Management",
+    "Recursion and Dynamic Programming", "Big O Notation", "Sorting Algorithms",
+    
+    # Web Development
+    "REST API Development", "GraphQL Basics", "WebSocket Programming",
+    "Frontend Frameworks Comparison", "React Hooks Deep Dive", "Vue.js Essentials",
+    "Angular Components", "Node.js Best Practices", "Express.js Middleware",
+    "JavaScript ES6+ Features", "TypeScript Benefits", "CSS Grid vs Flexbox",
+    
+    # Database & Backend
+    "Database Design Principles", "SQL Query Optimization", "NoSQL vs SQL",
+    "MongoDB Aggregation", "Redis Caching", "Database Indexing",
+    "ACID Properties", "Database Normalization", "Stored Procedures",
+    
+    # DevOps & Cloud
+    "Docker and Containerization", "Kubernetes Orchestration", "CI/CD Pipelines",
+    "Cloud Computing with AWS", "Azure Services Overview", "Google Cloud Platform",
+    "Infrastructure as Code", "Terraform Basics", "Ansible Automation",
+    "Jenkins Pipeline", "GitHub Actions", "Monitoring and Logging",
+    
+    # Architecture & Design
+    "Microservices Architecture", "Monolith vs Microservices", "Event-Driven Architecture",
+    "Distributed Systems", "Load Balancing", "API Gateway Design",
+    "Caching Strategies", "Message Queues", "Service Mesh",
+    "Domain-Driven Design", "CQRS Pattern", "Event Sourcing",
+    
+    # Security
+    "Security Best Practices", "Authentication and Authorization", "OAuth 2.0 Explained",
+    "JWT Tokens", "SQL Injection Prevention", "XSS Protection",
+    "HTTPS and SSL", "API Security", "Password Hashing",
+    "Two-Factor Authentication", "Penetration Testing", "Secure Coding",
+    
+    # AI & Machine Learning
+    "Machine Learning Fundamentals", "Neural Networks Basics", "Deep Learning Introduction",
+    "Natural Language Processing", "Computer Vision", "Reinforcement Learning",
+    "TensorFlow vs PyTorch", "Data Preprocessing", "Model Training",
+    "Overfitting and Underfitting", "Feature Engineering", "AI Ethics",
+    
+    # Mobile Development
+    "React Native Development", "Flutter vs React Native", "iOS Swift Programming",
+    "Android Kotlin Development", "Mobile App Architecture", "Push Notifications",
+    "Mobile Security", "App Store Optimization", "Cross-Platform Development",
+    
+    # Testing & Quality
+    "Test-Driven Development", "Unit Testing Best Practices", "Integration Testing",
+    "End-to-End Testing", "Test Automation", "Code Coverage",
+    "Performance Testing", "Load Testing", "Selenium WebDriver",
+    
+    # Tools & Productivity
+    "Git and Version Control", "Git Branching Strategies", "Code Review Process",
+    "IDE Tips and Tricks", "VS Code Extensions", "Command Line Mastery",
+    "Regex Patterns", "Package Managers", "Build Tools",
+    
+    # Performance & Optimization
+    "Performance Optimization", "Code Profiling", "Memory Leaks Detection",
+    "Database Performance Tuning", "Web Performance", "CDN Implementation",
+    "Lazy Loading", "Image Optimization", "Minification and Compression",
 ]
 
 class StandaloneYouTubeShortsGenerator:
@@ -102,6 +133,16 @@ class StandaloneYouTubeShortsGenerator:
         )
         self.pipeline = OptimizedVideoGenerationPipeline(self.config)
         self.oracle_storage = OracleStorageClient()
+        
+        # Initialize Gemini for topic generation
+        if AI_TOPIC_GENERATION:
+            import google.generativeai as genai
+            genai.configure(api_key=GEMINI_API_KEY)
+            self.gemini_client = genai.GenerativeModel('gemini-2.5-flash')
+            logger.info("🤖 AI topic generation enabled")
+        else:
+            self.gemini_client = None
+            logger.info("📝 Using predefined topics only")
         
         logger.info("✅ Generator initialized")
     
@@ -126,8 +167,54 @@ class StandaloneYouTubeShortsGenerator:
         except Exception as e:
             logger.error(f"❌ Failed to save history: {e}")
     
+    def generate_ai_topic(self) -> Optional[str]:
+        """Generate a fresh programming topic using Gemini AI."""
+        if not self.gemini_client:
+            return None
+            
+        try:
+            history = self.load_topic_history()
+            recent_topics = list(history.keys())[-10:]  # Last 10 topics
+            
+            prompt = f"""Generate 1 unique programming/tech topic for a 60-second YouTube Short.
+
+Requirements:
+- Educational and engaging for developers
+- Different from recent topics: {', '.join(recent_topics) if recent_topics else 'None'}
+- Suitable for visual explanation
+- Trending in 2024
+
+Categories: Web Dev, AI/ML, DevOps, Mobile, Security, Databases, Architecture
+
+Output format: Just the topic title (no quotes, no explanation)
+Example: "Microservices vs Serverless Architecture"
+
+Generate topic:"""
+            
+            response = self.gemini_client.generate_content(prompt)
+            ai_topic = response.text.strip().replace('"', '').replace("'", "")
+            
+            if len(ai_topic) > 5 and len(ai_topic) < 80:
+                logger.info(f"🤖 AI generated topic: {ai_topic}")
+                return ai_topic
+            else:
+                logger.warning(f"⚠️ AI topic invalid length: {ai_topic}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ AI topic generation failed: {e}")
+            return None
+    
     def get_next_topic(self) -> str:
-        """Get next topic (proper rotation, no repeats within 30 days)"""
+        """Get next topic (AI generation + rotation fallback)."""
+        # Try AI generation first (if enabled)
+        if AI_TOPIC_GENERATION and self.gemini_client:
+            ai_topic = self.generate_ai_topic()
+            if ai_topic:
+                return ai_topic
+            logger.warning("⚠️ AI topic generation failed, using predefined topics")
+        
+        # Fallback to predefined topics with rotation
         history = self.load_topic_history()
         today = datetime.now()
         thirty_days_ago = today - timedelta(days=30)
@@ -170,11 +257,19 @@ class StandaloneYouTubeShortsGenerator:
         return PROGRAMMING_TOPICS[0]
     
     def mark_topic_used(self, topic: str):
-        """Mark topic as used"""
+        """Mark topic as used and log statistics"""
         history = self.load_topic_history()
         history[topic] = datetime.now().isoformat()
         self.save_topic_history(history)
+        
+        # Log topic statistics
+        total_topics = len(PROGRAMMING_TOPICS)
+        used_topics = len(history)
+        recent_topics = len([t for t, date_str in history.items() 
+                           if datetime.fromisoformat(date_str) > datetime.now() - timedelta(days=30)])
+        
         logger.info(f"✅ Topic marked as used: {topic}")
+        logger.info(f"📊 Topic Stats: {used_topics} total used, {recent_topics} recent (30d), {total_topics} available")
     
     async def generate_video(self, topic: str, duration: int = 60) -> Optional[str]:
         """Generate video locally with resource monitoring for E2.Micro."""
@@ -267,7 +362,10 @@ Thanks to Code Tapasya for the amazing content!
             topic = self.get_next_topic()
             duration = 60
             
-            logger.info(f"📋 Topic: {topic}")
+            # Log topic source
+            topic_source = "🤖 AI Generated" if AI_TOPIC_GENERATION and self.gemini_client else "📝 Predefined"
+            
+            logger.info(f"📋 Topic: {topic} ({topic_source})")
             logger.info(f"⏱️ Duration: {duration}s")
             logger.info(f"📅 Time: {datetime.now().isoformat()}")
             logger.info("=" * 70)
