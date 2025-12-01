@@ -4,8 +4,14 @@ Standalone YouTube Shorts Auto-Generator & Uploader
 Runs independently on E2.Micro #2 - NO external dependencies
 Generates videos locally, uploads to YouTube automatically
 
-Schedule: 2x daily (configurable via UPLOAD_TIMES env var)
-Topics: Rotates through 30+ programming topics (no repeats within 30 days)
+Schedule: 4x daily (configurable via UPLOAD_TIMES env var)
+Default Times (IST → UTC):
+  - 9:00 AM IST  = 03:30 UTC
+  - 12:00 PM IST = 06:30 UTC
+  - 3:00 PM IST  = 09:30 UTC
+  - 6:00 PM IST  = 12:30 UTC
+
+Topics: Rotates through 100+ programming topics (no repeats within 30 days)
 """
 
 import os
@@ -43,7 +49,8 @@ load_dotenv()
 # Get configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-UPLOAD_TIMES = os.getenv("UPLOAD_TIMES", "09:00,18:00").split(",")
+# Default: 4 uploads per day at 9AM, 12PM, 3PM, 6PM IST (converted to UTC)
+UPLOAD_TIMES = os.getenv("UPLOAD_TIMES", "03:30,06:30,09:30,12:30").split(",")
 AI_TOPIC_GENERATION = os.getenv("AI_TOPIC_GENERATION", "true").lower() == "true"
 
 if not GEMINI_API_KEY or not GROQ_API_KEY:
@@ -54,6 +61,7 @@ logger.info("=" * 70)
 logger.info("🎬 STANDALONE YOUTUBE SHORTS GENERATOR & UPLOADER")
 logger.info("=" * 70)
 logger.info(f"📅 Upload times (UTC): {', '.join(UPLOAD_TIMES)}")
+logger.info(f"📅 That's 9AM, 12PM, 3PM, 6PM IST")
 logger.info("=" * 70)
 
 # Topics database - 100+ unique topics
@@ -168,14 +176,37 @@ class StandaloneYouTubeShortsGenerator:
         except Exception as e:
             logger.error(f"❌ Failed to save history: {e}")
     
+    def get_used_topics_set(self) -> set:
+        """Get set of recently used topics (normalized for comparison)"""
+        history = self.load_topic_history()
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        
+        used_topics = set()
+        for topic, last_used_str in history.items():
+            try:
+                last_used = datetime.fromisoformat(last_used_str)
+                if last_used > thirty_days_ago:
+                    used_topics.add(topic.lower().strip())
+            except (ValueError, TypeError):
+                pass
+        return used_topics
+    
     def generate_ai_topic(self) -> Optional[str]:
         """Generate a fresh programming topic using dynamic content generator."""
         if not self.dynamic_content:
             return None
             
         try:
-            ai_topic = self.dynamic_content.generate_trending_topic()
-            logger.info(f"🤖 AI generated topic: {ai_topic}")
+            # Pass used topics to avoid repeats
+            used_topics = self.get_used_topics_set()
+            ai_topic = self.dynamic_content.generate_trending_topic(used_topics=used_topics)
+            
+            # Double-check the topic isn't too similar to recent ones
+            if ai_topic.lower().strip() in used_topics:
+                logger.warning(f"⚠️ AI generated duplicate topic: {ai_topic}, retrying...")
+                ai_topic = self.dynamic_content.generate_trending_topic(used_topics=used_topics)
+            
+            logger.info(f"🤖 AI generated unique topic: {ai_topic}")
             return ai_topic
         except Exception as e:
             logger.error(f"❌ AI topic generation failed: {e}")

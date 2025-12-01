@@ -5,7 +5,10 @@ Generates trending topics, titles, and tags using Gemini AI
 
 import logging
 import random
-from typing import Dict, List, Tuple
+import json
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional, Set
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
@@ -14,16 +17,91 @@ logger = logging.getLogger(__name__)
 class DynamicContentGenerator:
     """Generate trending topics and metadata for YouTube Shorts using Gemini AI"""
     
-    def __init__(self, gemini_api_key: str):
+    def __init__(self, gemini_api_key: str, history_file: str = "youtube_shorts_history.json"):
         self.gemini_api_key = gemini_api_key
+        self.history_file = Path(history_file)
         genai.configure(api_key=gemini_api_key)
         self.model = genai.GenerativeModel('gemini-2.5-flash')
         logger.info("✅ Dynamic Content Generator initialized")
     
-    def generate_trending_topic(self) -> str:
-        """Generate a trending technical topic with high YouTube potential"""
+    def load_topic_history(self) -> Dict[str, str]:
+        """Load topic history from file"""
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                logger.warning("⚠️ Corrupted history file, starting fresh")
+                return {}
+        return {}
+    
+    def get_used_topics(self, days: int = 30) -> Set[str]:
+        """Get set of topics used in the last N days (normalized for comparison)"""
+        history = self.load_topic_history()
+        cutoff = datetime.now() - timedelta(days=days)
         
-        prompt = """Generate ONE trending technical topic that would perform well on YouTube Shorts.
+        used_topics = set()
+        for topic, last_used_str in history.items():
+            try:
+                last_used = datetime.fromisoformat(last_used_str)
+                if last_used > cutoff:
+                    # Normalize topic for comparison (lowercase, strip)
+                    used_topics.add(self._normalize_topic(topic))
+            except (ValueError, TypeError):
+                pass
+        
+        logger.info(f"📊 Found {len(used_topics)} topics used in last {days} days")
+        return used_topics
+    
+    def _normalize_topic(self, topic: str) -> str:
+        """Normalize topic string for comparison"""
+        return topic.lower().strip().replace('"', '').replace("'", "")
+    
+    def _is_topic_similar(self, new_topic: str, used_topics: Set[str], threshold: float = 0.7) -> bool:
+        """Check if new topic is too similar to any used topic"""
+        normalized_new = self._normalize_topic(new_topic)
+        
+        # Exact match check
+        if normalized_new in used_topics:
+            return True
+        
+        # Check for significant word overlap
+        new_words = set(normalized_new.split())
+        
+        for used_topic in used_topics:
+            used_words = set(used_topic.split())
+            
+            # Calculate Jaccard similarity
+            if new_words and used_words:
+                intersection = len(new_words & used_words)
+                union = len(new_words | used_words)
+                similarity = intersection / union if union > 0 else 0
+                
+                if similarity >= threshold:
+                    logger.debug(f"🔍 Topic '{new_topic}' too similar to '{used_topic}' (similarity: {similarity:.2f})")
+                    return True
+        
+        return False
+    
+    def generate_trending_topic(self, used_topics: Optional[Set[str]] = None) -> str:
+        """Generate a trending technical topic with high YouTube potential, avoiding repeats"""
+        
+        # Get used topics if not provided
+        if used_topics is None:
+            used_topics = self.get_used_topics(days=30)
+        
+        # Create exclusion list for the prompt
+        recent_topics_list = list(used_topics)[:20]  # Limit to 20 for prompt size
+        exclusion_text = ""
+        if recent_topics_list:
+            exclusion_text = f"""
+IMPORTANT - DO NOT generate any topic similar to these recently used topics:
+{chr(10).join(f'- {t}' for t in recent_topics_list)}
+
+Generate something COMPLETELY DIFFERENT from the above list!
+"""
+        
+        prompt = f"""Generate ONE trending technical topic that would perform well on YouTube Shorts.
 
 REQUIREMENTS:
 - Must be technical/programming related
@@ -31,7 +109,8 @@ REQUIREMENTS:
 - Perfect for 45-60 second explanation
 - Trending in 2024/2025
 - Beginner to intermediate level
-
+- MUST BE UNIQUE - not a repeat of common topics
+{exclusion_text}
 FOCUS AREAS (pick one):
 - AI/Machine Learning basics
 - Web Development trends
@@ -43,41 +122,91 @@ FOCUS AREAS (pick one):
 - DevOps tools
 - Software engineering concepts
 - Tech career advice
+- New frameworks and tools
+- Programming tips and tricks
+- Code optimization
+- Developer productivity
 
 OUTPUT FORMAT:
-Just return the topic title, nothing else.
+Just return the topic title, nothing else. Make it specific and unique!
 
-EXAMPLES:
-"What is ChatGPT API and How to Use It"
-"Docker vs Kubernetes Explained"
-"Python vs JavaScript for Beginners"
-"How to Get Your First Tech Job in 2025"
+GOOD UNIQUE EXAMPLES:
+"Why Senior Devs Love TypeScript Enums"
+"The One Python Trick Nobody Teaches"
+"How Netflix Handles Millions of Users"
+"Why Your API is Slower Than It Should Be"
+"The CSS Property That Changed My Life"
 
-Generate ONE topic now:"""
+Generate ONE unique topic now:"""
 
-        try:
-            response = self.model.generate_content(prompt)
-            topic = response.text.strip().replace('"', '').replace("'", "")
-            logger.info(f"🎯 Generated trending topic: {topic}")
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                response = self.model.generate_content(prompt)
+                topic = response.text.strip().replace('"', '').replace("'", "")
+                
+                # Check if topic is too similar to used topics
+                if not self._is_topic_similar(topic, used_topics):
+                    logger.info(f"🎯 Generated unique topic: {topic}")
+                    return topic
+                else:
+                    logger.warning(f"⚠️ Attempt {attempt + 1}: Topic '{topic}' too similar to recent topics, retrying...")
+                    
+            except Exception as e:
+                logger.error(f"❌ Attempt {attempt + 1} failed: {e}")
+        
+        # Fallback to curated list (excluding used ones)
+        logger.warning("⚠️ AI generation failed, using fallback topics")
+        return self._get_unique_fallback_topic(used_topics)
+    
+    def _get_unique_fallback_topic(self, used_topics: Set[str]) -> str:
+        """Get a unique fallback topic that hasn't been used"""
+        fallback_topics = [
+            "What is ChatGPT API and How to Use It",
+            "Docker Containers Explained Simply",
+            "Python vs JavaScript for Beginners",
+            "Git Commands Every Developer Needs",
+            "What is Cloud Computing in 2025",
+            "How APIs Work in 60 Seconds",
+            "React vs Vue.js Comparison",
+            "SQL vs NoSQL Databases",
+            "What is Machine Learning",
+            "Cybersecurity Basics for Developers",
+            "Why TypeScript is Taking Over",
+            "Redis Cache Explained Simply",
+            "GraphQL vs REST API",
+            "Microservices Architecture Basics",
+            "CI/CD Pipeline Explained",
+            "Kubernetes for Beginners",
+            "MongoDB vs PostgreSQL",
+            "WebSockets Explained Simply",
+            "OAuth 2.0 How It Works",
+            "Clean Code Principles",
+            "SOLID Principles Explained",
+            "Design Patterns Every Dev Needs",
+            "Async Await in JavaScript",
+            "Python Decorators Explained",
+            "React Hooks vs Class Components",
+            "Next.js vs Create React App",
+            "Tailwind CSS Why Developers Love It",
+            "VS Code Tips and Tricks",
+            "Linux Commands for Developers",
+            "How HTTPS Works Simply"
+        ]
+        
+        # Filter out used topics
+        available = [t for t in fallback_topics if not self._is_topic_similar(t, used_topics)]
+        
+        if available:
+            topic = random.choice(available)
+            logger.info(f"📌 Selected unique fallback topic: {topic}")
             return topic
-        except Exception as e:
-            logger.error(f"❌ Failed to generate topic: {e}")
-            # Fallback to curated list
-            fallback_topics = [
-                "What is ChatGPT API and How to Use It",
-                "Docker Containers Explained Simply",
-                "Python vs JavaScript for Beginners",
-                "Git Commands Every Developer Needs",
-                "What is Cloud Computing in 2025",
-                "How APIs Work in 60 Seconds",
-                "React vs Vue.js Comparison",
-                "SQL vs NoSQL Databases",
-                "What is Machine Learning",
-                "Cybersecurity Basics for Developers"
-            ]
-            topic = random.choice(fallback_topics)
-            logger.warning(f"⚠️ Using fallback topic: {topic}")
-            return topic
+        else:
+            # All fallbacks used, generate a variation
+            base_topic = random.choice(fallback_topics)
+            variation = f"{base_topic} - {datetime.now().strftime('%B %Y')} Update"
+            logger.warning(f"⚠️ All topics used, creating variation: {variation}")
+            return variation
     
     def generate_youtube_metadata(self, topic: str, duration: int) -> Dict[str, str]:
         """Generate optimized YouTube title, description, and tags"""
@@ -133,7 +262,7 @@ Generate the metadata now:"""
             content = response.text.strip()
             
             # Parse the response
-            metadata = self._parse_metadata_response(content)
+            metadata = self._parse_metadata_response(content, topic)
             logger.info(f"✅ Generated metadata for: {topic}")
             return metadata
             
@@ -142,7 +271,7 @@ Generate the metadata now:"""
             # Fallback metadata
             return self._generate_fallback_metadata(topic, duration)
     
-    def _parse_metadata_response(self, content: str) -> Dict[str, str]:
+    def _parse_metadata_response(self, content: str, topic: str) -> Dict[str, str]:
         """Parse Gemini response into structured metadata"""
         
         lines = content.split('\n')
