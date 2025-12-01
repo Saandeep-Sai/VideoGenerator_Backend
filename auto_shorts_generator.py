@@ -8,6 +8,7 @@ import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
+from generator.dynamic_content_generator import DynamicContentGenerator
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,6 +18,16 @@ class AutoShortsGenerator:
     def __init__(self):
         self.upload_history_file = "upload_history.json"
         self.api_base_url = "http://localhost:8000"  # Django API URL
+        
+        # Initialize dynamic content generator
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if gemini_api_key:
+            self.dynamic_content = DynamicContentGenerator(gemini_api_key)
+            self.use_dynamic_topics = True
+            logger.info("✅ Dynamic content generator initialized")
+        else:
+            self.use_dynamic_topics = False
+            logger.warning("⚠️ No Gemini API key found, using static topics")
         
     def get_programming_topics(self):
         return [
@@ -59,6 +70,18 @@ class AutoShortsGenerator:
             json.dump(history, f, indent=2)
     
     def get_unused_topic(self):
+        # Use dynamic topic generation if available
+        if self.use_dynamic_topics:
+            try:
+                # Generate a fresh trending topic
+                topic = self.dynamic_content.generate_trending_topic()
+                logger.info(f"🎯 Generated dynamic topic: {topic}")
+                return topic
+            except Exception as e:
+                logger.warning(f"⚠️ Dynamic topic generation failed: {e}")
+                # Fall back to static topics
+        
+        # Fallback to static topic selection
         topics = self.get_programming_topics()
         history = self.load_upload_history()
         
@@ -71,7 +94,9 @@ class AutoShortsGenerator:
                 recent_topics.add(upload["topic"])
         
         unused_topics = [t for t in topics if t not in recent_topics]
-        return random.choice(unused_topics if unused_topics else topics)
+        selected_topic = random.choice(unused_topics if unused_topics else topics)
+        logger.info(f"📚 Selected static topic: {selected_topic}")
+        return selected_topic
     
     def create_short_job(self):
         """Send API request to Django to create a Short video job"""

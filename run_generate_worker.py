@@ -13,6 +13,7 @@ from generator.firebase_utils import (
 )
 from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline, VideoGenerationConfig
 from generator.oracle_storage import OracleStorageClient
+from generator.dynamic_content_generator import DynamicContentGenerator
 from youtube_shorts_uploader import upload_video_to_youtube
 
 # ✅ Setup logger with better formatting
@@ -39,6 +40,9 @@ pipeline = OptimizedVideoGenerationPipeline(config)
 
 # ✅ Initialize Oracle Storage Client
 oracle_storage = OracleStorageClient()
+
+# ✅ Initialize Dynamic Content Generator
+dynamic_content = DynamicContentGenerator(GEMINI_API_KEY)
 
 logger.info("=" * 60)
 logger.info("🎬 VIDEO GENERATION WORKER INITIALIZED")
@@ -75,8 +79,13 @@ async def run():
                 update_job_status(job_id, "processing")
 
                 try:
-                    # Update config with aspect ratio from job
+                    # Update config with aspect ratio and video type from job
                     config.aspect_ratio = aspect_ratio
+                    config.video_type = video_type
+                    
+                    # Reinitialize pipeline with updated config for shorts
+                    if video_type == "short":
+                        pipeline = OptimizedVideoGenerationPipeline(config)
                     
                     logger.info("🚀 Starting video generation pipeline...")
                     final_video_path = await pipeline.generate_video_full_parallel(
@@ -90,21 +99,27 @@ async def run():
                     video_url = oracle_storage.upload_video(final_video_path, job_id)
                     logger.info(f"✅ Video uploaded: {video_url}")
 
-                    # Check if this is a YouTube Short and upload
+                    # Check if this is a YouTube Short and upload with dynamic metadata
                     youtube_video_id = None
                     if video_type == "short":
-                        logger.info("🎬 Detected YouTube Short - uploading to YouTube...")
-                        youtube_video_id = upload_video_to_youtube(final_video_path, topic, duration)
+                        logger.info("🎬 Detected YouTube Short - generating dynamic metadata...")
+                        
+                        # Generate dynamic metadata for better YouTube performance
+                        try:
+                            metadata = dynamic_content.generate_youtube_metadata(topic, duration)
+                            logger.info(f"📈 Generated metadata - Title: {metadata['title'][:50]}...")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Failed to generate metadata, using fallback: {e}")
+                            metadata = None
+                        
+                        # Upload to YouTube with dynamic metadata
+                        youtube_video_id = upload_video_to_youtube(final_video_path, topic, duration, metadata)
                         if youtube_video_id:
                             logger.info(f"✅ YouTube Short uploaded: {youtube_video_id}")
                         else:
                             logger.error("❌ YouTube Short upload failed")
 
-                    # Update Firestore with video URL and YouTube ID
-                    update_data = {"video_url": video_url}
-                    if youtube_video_id:
-                        update_data["youtube_video_id"] = youtube_video_id
-                    
+                    # Update Firestore with video URL and YouTube ID (single update, no duplicates)
                     update_video_status_with_url(job_id, video_url, status="completed", youtube_video_id=youtube_video_id)
                     logger.info(f"✅ Job {job_id} completed successfully!")
                     logger.info("=" * 60)

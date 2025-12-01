@@ -31,7 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from generator.video_generator.optimized_video_generator import OptimizedVideoGenerationPipeline, VideoGenerationConfig
 from generator.oracle_storage import OracleStorageClient
-from youtube_upload import upload_short
+from generator.dynamic_content_generator import DynamicContentGenerator
+from youtube_upload import upload_short_with_metadata
 from generator.firebase_utils import create_job, update_video_status_with_url
 from resource_monitor import resource_monitor
 from dotenv import load_dotenv
@@ -126,23 +127,22 @@ class StandaloneYouTubeShortsGenerator:
         """Initialize pipeline and storage"""
         logger.info("🚀 Initializing generator...")
         
-        # Configure pipeline
+        # Configure pipeline for shorts
         self.config = VideoGenerationConfig(
             gemini_api_key=GEMINI_API_KEY,
             groq_api_key=GROQ_API_KEY,
-            aspect_ratio="9:16"  # YouTube Shorts format
+            aspect_ratio="9:16",  # YouTube Shorts format
+            video_type="short"  # Enable friendly voice and tone
         )
         self.pipeline = OptimizedVideoGenerationPipeline(self.config)
         self.oracle_storage = OracleStorageClient()
         
-        # Initialize Gemini for topic generation
+        # Initialize dynamic content generator
         if AI_TOPIC_GENERATION:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            self.gemini_client = genai.GenerativeModel('gemini-2.5-flash')
-            logger.info("🤖 AI topic generation enabled")
+            self.dynamic_content = DynamicContentGenerator(GEMINI_API_KEY)
+            logger.info("🤖 AI dynamic content generation enabled")
         else:
-            self.gemini_client = None
+            self.dynamic_content = None
             logger.info("📝 Using predefined topics only")
         
         logger.info("✅ Generator initialized")
@@ -169,39 +169,14 @@ class StandaloneYouTubeShortsGenerator:
             logger.error(f"❌ Failed to save history: {e}")
     
     def generate_ai_topic(self) -> Optional[str]:
-        """Generate a fresh programming topic using Gemini AI."""
-        if not self.gemini_client:
+        """Generate a fresh programming topic using dynamic content generator."""
+        if not self.dynamic_content:
             return None
             
         try:
-            history = self.load_topic_history()
-            recent_topics = list(history.keys())[-10:]  # Last 10 topics
-            
-            prompt = f"""Generate 1 unique programming/tech topic for a 60-second YouTube Short.
-
-Requirements:
-- Educational and engaging for developers
-- Different from recent topics: {', '.join(recent_topics) if recent_topics else 'None'}
-- Suitable for visual explanation
-- Trending in 2024
-
-Categories: Web Dev, AI/ML, DevOps, Mobile, Security, Databases, Architecture
-
-Output format: Just the topic title (no quotes, no explanation)
-Example: "Microservices vs Serverless Architecture"
-
-Generate topic:"""
-            
-            response = self.gemini_client.generate_content(prompt)
-            ai_topic = response.text.strip().replace('"', '').replace("'", "")
-            
-            if len(ai_topic) > 5 and len(ai_topic) < 80:
-                logger.info(f"🤖 AI generated topic: {ai_topic}")
-                return ai_topic
-            else:
-                logger.warning(f"⚠️ AI topic invalid length: {ai_topic}")
-                return None
-                
+            ai_topic = self.dynamic_content.generate_trending_topic()
+            logger.info(f"🤖 AI generated topic: {ai_topic}")
+            return ai_topic
         except Exception as e:
             logger.error(f"❌ AI topic generation failed: {e}")
             return None
@@ -209,7 +184,7 @@ Generate topic:"""
     def get_next_topic(self) -> str:
         """Get next topic (AI generation + rotation fallback)."""
         # Try AI generation first (if enabled)
-        if AI_TOPIC_GENERATION and self.gemini_client:
+        if AI_TOPIC_GENERATION and self.dynamic_content:
             ai_topic = self.generate_ai_topic()
             if ai_topic:
                 return ai_topic
@@ -313,22 +288,51 @@ Generate topic:"""
             return None
     
     def upload_to_youtube(self, video_path: str, topic: str, duration: int) -> Optional[str]:
-        """Upload video to YouTube"""
+        """Upload video to YouTube with dynamic metadata"""
         try:
             logger.info(f"📤 Uploading to YouTube...")
             
-            title = f"{topic} in {duration} Seconds! #Shorts #Programming #LearnToCode"
-            description = f"""Quick tutorial on {topic}!
+            # Generate dynamic metadata if available
+            if self.dynamic_content:
+                try:
+                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration)
+                    title = metadata['title']
+                    description = metadata['description']
+                    tags = metadata['tags']
+                    logger.info(f"📈 Using dynamic metadata - Title: {title[:50]}...")
+                except Exception as e:
+                    logger.warning(f"⚠️ Dynamic metadata failed: {e}, using fallback")
+                    # Friendly fallback metadata
+                    title = f"Wait, THIS is {topic}?! 🤯 #Shorts"
+                    if len(title) > 100:
+                        title = f"{topic} Made Simple! 💡 #Shorts"
+                    description = f"""Okay so I tried to explain {topic} like I'm telling a friend... and it's actually way simpler than it sounds! 💡
 
-🔥 Learn programming concepts in bite-sized videos
-💡 Perfect for developers on the go
-📚 Master coding one short at a time
+If this made sense to you, drop a 🔥 in the comments!
 
-Thanks to Code Tapasya for the amazing content!
+Hit subscribe if you want more bite-sized coding tips - we're making this stuff actually fun! 😄
+
+Huge shoutout to Code Tapasya for the amazing content! 🙌
 
 #Programming #Coding #Tutorial #LearnToCode #Developer #TechTips"""
+                    tags = ['Programming', 'Coding', 'Tutorial', 'Shorts', 'Education']
+            else:
+                # Friendly static metadata
+                title = f"I Learned {topic} in {duration}s! #Shorts"
+                if len(title) > 100:
+                    title = f"{topic} Explained! 🔥 #Shorts"
+                description = f"""Ever wonder how {topic} actually works? I got you! 💡
+
+This quick breakdown makes it SO much easier to understand. No boring lectures, just the good stuff!
+
+Drop a comment if this helped you out! 🙌
+
+Thanks to Code Tapasya for making coding fun!
+
+#Programming #Coding #Tutorial #LearnToCode #Developer #TechTips"""
+                tags = ['Programming', 'Coding', 'Tutorial', 'Shorts', 'Education']
             
-            response = upload_short(video_path, title, description)
+            response = upload_short_with_metadata(video_path, title, description, tags)
             video_id = response.get('id')
             
             if video_id:
@@ -368,7 +372,7 @@ Thanks to Code Tapasya for the amazing content!
             duration = 60
             
             # Log topic source
-            topic_source = "🤖 AI Generated" if AI_TOPIC_GENERATION and self.gemini_client else "📝 Predefined"
+            topic_source = "🤖 AI Generated" if AI_TOPIC_GENERATION and self.dynamic_content else "📝 Predefined"
             
             logger.info(f"📋 Topic: {topic} ({topic_source})")
             logger.info(f"⏱️ Duration: {duration}s")

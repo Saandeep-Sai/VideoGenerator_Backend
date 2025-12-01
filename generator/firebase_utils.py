@@ -26,8 +26,14 @@ def initialize_firebase():
         "storageBucket": f"{project_id}.appspot.com"
     })
 
-# Save a new Firestore document with status 'processing'
+# DEPRECATED: Use create_job instead to avoid Firebase duplicates
 def save_base64_segments_to_firestore(base64_str: str, topic: str, duration: int, status="processing"):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.warning(f"⚠️ DEPRECATED: save_base64_segments_to_firestore called")
+    logger.warning(f"⚠️ Use create_job + Oracle Storage instead to avoid duplicates")
+    
     initialize_firebase()
     db = firestore.client()
 
@@ -37,36 +43,34 @@ def save_base64_segments_to_firestore(base64_str: str, topic: str, duration: int
         "duration": duration,
         "status": status,
         "segment_count": 0,
+        "storage_method": "firebase_base64_deprecated",
         "created_at": firestore.SERVER_TIMESTAMP
     })
 
-    # If base64 provided, upload it
+    # SKIP base64 upload to prevent duplicates
     if base64_str:
-        segments = split_base64_string(base64_str)
-        segment_coll = doc_ref.collection("video_segments")
-        for i, (segment_id, content) in enumerate(segments.items(), start=1):
-            segment_coll.document(segment_id).set({
-                "segment_index": i,
-                "content": content
-            })
-
-        doc_ref.update({
-            "segment_count": len(segments)
-        })
+        logger.warning(f"⚠️ SKIPPING base64 upload to prevent duplicates")
+        logger.warning(f"⚠️ Base64 data size: {len(base64_str)} chars (not uploaded)")
+        logger.warning(f"⚠️ Use Oracle Storage for video files instead")
 
     return doc_ref.id
 
-# Update an existing video doc with completion and optionally upload base64
+# DEPRECATED: Use update_video_status_with_url instead to avoid Firebase duplicates
 def update_video_status(doc_id, base64_data=None, status="completed", error=None):
     import logging
     logger = logging.getLogger(__name__)
+    
+    logger.warning(f"⚠️ DEPRECATED: update_video_status called for {doc_id}")
+    logger.warning(f"⚠️ Use update_video_status_with_url instead to avoid Firebase duplicates")
     
     initialize_firebase()
     db = firestore.client()
     doc_ref = db.collection("videos").document(doc_id)
 
     update_fields = {
-        "status": status
+        "status": status,
+        "updated_at": firestore.SERVER_TIMESTAMP,
+        "storage_method": "firebase_base64_deprecated"
     }
     if error:
         update_fields["error"] = error
@@ -74,22 +78,12 @@ def update_video_status(doc_id, base64_data=None, status="completed", error=None
     doc_ref.update(update_fields)
     logger.info(f"✅ Updated job {doc_id} status to: {status}")
 
+    # SKIP base64 upload to prevent duplicates
     if base64_data:
-        logger.info(f"📦 Splitting base64 video data (size: {len(base64_data)} chars)")
-        segments = split_base64_string(base64_data)
-        segment_coll = doc_ref.collection("video_segments")
-        
-        for i, (segment_id, content) in enumerate(segments.items(), start=1):
-            segment_coll.document(segment_id).set({
-                "segment_index": i,
-                "content": content
-            })
-            logger.info(f"  ✅ Uploaded segment {i}/{len(segments)} ({len(content)} chars)")
-        
-        doc_ref.update({"segment_count": len(segments)})
-        logger.info(f"✅ Video uploaded to Firebase in {len(segments)} segments")
+        logger.warning(f"⚠️ SKIPPING base64 upload to prevent duplicates - use Oracle Storage instead")
+        logger.warning(f"⚠️ Base64 data size: {len(base64_data)} chars (not uploaded)")
 
-# Update job status with video URL (for Oracle Object Storage)
+# Update job status with video URL (for Oracle Object Storage) - SINGLE UPDATE, NO DUPLICATES
 def update_video_status_with_url(doc_id, video_url, status="completed", error=None, youtube_video_id=None):
     import logging
     logger = logging.getLogger(__name__)
@@ -100,22 +94,28 @@ def update_video_status_with_url(doc_id, video_url, status="completed", error=No
 
     update_fields = {
         "status": status,
-        "video_url": video_url
+        "video_url": video_url,
+        "updated_at": firestore.SERVER_TIMESTAMP
     }
     
     # Add YouTube video ID if provided (for uploaded shorts)
     if youtube_video_id:
         update_fields["youtube_video_id"] = youtube_video_id
         update_fields["youtube_url"] = f"https://youtube.com/watch?v={youtube_video_id}"
+        update_fields["platform"] = "youtube_short"
+    else:
+        update_fields["platform"] = "oracle_storage"
     
     if error:
         update_fields["error"] = error
 
+    # SINGLE UPDATE - no base64 video data, just metadata
     doc_ref.update(update_fields)
     logger.info(f"✅ Updated job {doc_id} status to: {status}")
     logger.info(f"📹 Video URL: {video_url}")
     if youtube_video_id:
         logger.info(f"📺 YouTube: https://youtube.com/watch?v={youtube_video_id}")
+    logger.info(f"🚫 NO duplicate Firebase upload - using Oracle Storage + YouTube only")
 
 # Helper: split long base64 into smaller segments
 def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limit

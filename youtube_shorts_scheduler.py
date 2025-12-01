@@ -54,6 +54,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import dynamic content generator
+try:
+    from generator.dynamic_content_generator import DynamicContentGenerator
+except ImportError:
+    logger.warning("⚠️ Could not import DynamicContentGenerator, using static topics")
+    DynamicContentGenerator = None
+
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 class YouTubeShortsScheduler:
@@ -101,8 +108,23 @@ class YouTubeShortsScheduler:
         # Initialize Firebase
         self._initialize_firebase()
         
+        # Initialize dynamic content generator
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if gemini_api_key and DynamicContentGenerator:
+            try:
+                self.dynamic_content = DynamicContentGenerator(gemini_api_key)
+                self.use_dynamic_topics = True
+                logger.info("✅ Dynamic content generator initialized")
+            except Exception as e:
+                logger.warning(f"⚠️ Dynamic content init failed: {e}")
+                self.use_dynamic_topics = False
+        else:
+            self.use_dynamic_topics = False
+            logger.warning("⚠️ Using static topics (no Gemini API key or import failed)")
+        
         logger.info("✅ YouTube Shorts Scheduler initialized")
         logger.info(f"   Topics available: {len(self.programming_topics)}")
+        logger.info(f"   Dynamic topics: {self.use_dynamic_topics}")
         logger.info(f"   Max retries: {self.max_retries}")
     
     def _initialize_firebase(self):
@@ -164,7 +186,17 @@ class YouTubeShortsScheduler:
             logger.error(f"Failed to save history: {e}")
     
     def get_unused_topic(self) -> str:
-        """Get a topic not used in last 30 days"""
+        """Get a topic not used in last 30 days (dynamic or static)"""
+        # Use dynamic topic generation if available
+        if self.use_dynamic_topics:
+            try:
+                topic = self.dynamic_content.generate_trending_topic()
+                logger.info(f"🎯 Generated dynamic topic: {topic}")
+                return topic
+            except Exception as e:
+                logger.warning(f"⚠️ Dynamic topic generation failed: {e}, falling back to static")
+        
+        # Fallback to static topic selection
         history = self.load_upload_history()
         recent_topics = set()
         
@@ -184,7 +216,7 @@ class YouTubeShortsScheduler:
             unused_topics = self.programming_topics
         
         topic = random.choice(unused_topics)
-        logger.info(f"📌 Selected topic: {topic}")
+        logger.info(f"📌 Selected static topic: {topic}")
         return topic
     
     def authenticate_youtube(self) -> build:
@@ -217,7 +249,7 @@ class YouTubeShortsScheduler:
             raise
     
     def upload_short_to_youtube(self, video_path: str, topic: str, duration: int) -> Optional[str]:
-        """Upload video to YouTube as PUBLIC Short"""
+        """Upload video to YouTube as PUBLIC Short with dynamic metadata"""
         try:
             if not Path(video_path).exists():
                 logger.error(f"❌ Video file not found: {video_path}")
@@ -229,9 +261,19 @@ class YouTubeShortsScheduler:
             
             youtube = self.authenticate_youtube()
             
-            # Title and description
-            title = f"{topic} in {duration} Seconds! #Shorts"
-            description = f"""Quick tutorial on {topic}!
+            # Generate dynamic metadata if available
+            if self.use_dynamic_topics:
+                try:
+                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration)
+                    title = metadata['title']
+                    description = metadata['description']
+                    tags = metadata['tags']
+                    logger.info(f"📈 Using dynamic metadata - Title: {title[:50]}...")
+                except Exception as e:
+                    logger.warning(f"⚠️ Dynamic metadata failed: {e}, using fallback")
+                    # Fallback to static metadata
+                    title = f"{topic} in {duration} Seconds! #Shorts"
+                    description = f"""Quick tutorial on {topic}!
 
 🔥 Learn programming concepts in bite-sized videos
 💡 Perfect for developers on the go
@@ -240,13 +282,27 @@ class YouTubeShortsScheduler:
 Thanks to Code Tapasya for the amazing content!
 
 #Programming #Coding #Tutorial #LearnToCode #Developer #TechTips"""
+                    tags = ["Shorts", "Programming", "Coding", "Tutorial", "Education"]
+            else:
+                # Static metadata
+                title = f"{topic} in {duration} Seconds! #Shorts"
+                description = f"""Quick tutorial on {topic}!
+
+🔥 Learn programming concepts in bite-sized videos
+💡 Perfect for developers on the go
+📚 More tutorials coming daily
+
+Thanks to Code Tapasya for the amazing content!
+
+#Programming #Coding #Tutorial #LearnToCode #Developer #TechTips"""
+                tags = ["Shorts", "Programming", "Coding", "Tutorial", "Education"]
             
             # Upload body - CRITICAL: privacyStatus = "public" and made for kids = false
             request_body = {
                 "snippet": {
                     "title": title[:100],
                     "description": description,
-                    "tags": ["Shorts", "Programming", "Coding", "Tutorial", "Education"],
+                    "tags": tags[:15],  # YouTube allows max 15 tags
                     "categoryId": "27"  # Education category
                 },
                 "status": {

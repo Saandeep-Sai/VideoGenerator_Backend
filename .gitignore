@@ -41,6 +41,7 @@ intro/
 !initial_video/**/*.mov
 !initial_video/**/*.avi
 
+generator/video_generator/__pycache__/optimized_video_generator.cpython-311.pyc
 # Manim intermediate files
 *.svg
 media/

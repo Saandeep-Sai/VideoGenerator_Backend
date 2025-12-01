@@ -92,7 +92,7 @@ class NarrationSegment:
 
 class EdgeTTSWrapper:
     """Enhanced Edge TTS wrapper with retry logic and custom headers."""
-    def __init__(self, voice: str = "en-US-AriaNeural"):
+    def __init__(self, voice: str = "en-US-AndrewNeural"):
         self.voice = voice
         self.max_retries = 2  # Reduced from 5 to 2 for faster failures
         self.retry_delay = 2  # Reduced from 3 to 2 seconds
@@ -142,6 +142,7 @@ class VideoGenerationConfig:
     memory_limit_mb: int = 800  # Leave 200MB for system
     max_concurrent_tts: int = 1  # Only 1 TTS at a time
     aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
+    video_type: str = "regular"  # Options: "regular", "short"
     
     def __post_init__(self):
         if not self.gemini_api_key:
@@ -332,9 +333,11 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
     def _setup_tts(self) -> None:
         try:
             from edge_tts import Communicate
-            self.tts_model = EdgeTTSWrapper(voice="en-US-AndrewNeural")
+            # Use friendly voice for shorts, professional for regular videos
+            voice = "en-US-AndrewNeural" if getattr(self.config, 'video_type', 'regular') == 'short' else "en-US-AndrewNeural"
+            self.tts_model = EdgeTTSWrapper(voice=voice)
             self.tts_available = True
-            logger.info("✅ Edge TTS initialized with voice: en-US-AriaNeural")
+            logger.info(f"✅ Edge TTS initialized with voice: {voice}")
         except ImportError:
             self.tts_model = None
             self.tts_available = False
@@ -1209,14 +1212,19 @@ Begin your response now.
                 universal_newlines=True
             )
             
-            # Add timeout for E2.Micro
-            import signal
-            def timeout_handler(signum, frame):
-                process.kill()
-                raise TimeoutError("Manim rendering timed out")
+
+            # Cross-platform timeout handling
+            import threading
+            import time
             
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(self.config.manim_timeout)  # Set timeout
+            def timeout_killer():
+                time.sleep(self.config.manim_timeout)
+                if process.poll() is None:  # Process still running
+                    process.kill()
+                    logger.warning(f"⏰ Manim process killed after {self.config.manim_timeout}s timeout")
+            
+            timeout_thread = threading.Thread(target=timeout_killer, daemon=True)
+            timeout_thread.start()
             
             # Collect output and show progress bar
             output_lines = []
@@ -1254,12 +1262,14 @@ Begin your response now.
                             print(f"  ▶️  {line}")
             
             process.wait()
-            signal.alarm(0)  # Cancel timeout
+            # Timeout thread will automatically stop when process ends
             
             if progress_shown:
                 logger.info("✅ Rendering complete!")
 
         except Exception as e:
+            if process and process.poll() is None:
+                process.kill()
             return None, f"❌ Manim execution error: {str(e)}"
 
         if process.returncode != 0:
@@ -2874,22 +2884,46 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
     async def _generate_narration_segments_with_gemini(self, topic: str, duration: int) -> List[NarrationSegment]:
         """Generate narration segments using Gemini, including visual descriptions."""
         try:
+            # Check if this is a short for friendly tone
+            is_short = getattr(self.config, 'video_type', 'regular') == 'short'
+            
+            # Enhanced friendly tone guide
+            if is_short:
+                tone_guide = """ULTRA FRIENDLY & CONVERSATIONAL - Like a friend explaining over coffee:
+- Talk like you're chatting with a buddy, not lecturing
+- Use casual language: "Hey!", "So basically...", "Here's the cool part..."
+- Add personality: "I love this one!", "Trust me on this", "You're gonna love this"
+- Be enthusiastic but genuine - not over-the-top
+- Use "you" and "we" to create connection
+- Add relatable moments: "We've all been there", "You know how..."
+- Include gentle humor when appropriate
+- Use contractions: "it's", "you're", "that's", "isn't it?"
+- Ask engaging questions: "Ever wonder why...?", "Cool, right?"
+- Celebrate small wins: "And boom!", "There you go!", "Nice!"
+- End segments with hooks: "But wait...", "Here's where it gets interesting..."
+"""
+            else:
+                tone_guide = "Clear, professional, and educational with a warm, approachable tone"
+            
             # Simplified and focused prompt
             prompt = f"""
 Create a narration script for a {duration}-second educational video about "{topic}".
+
+**PERSONALITY & VOICE:**
+{tone_guide}
 
 **REQUIREMENTS:**
 1. Break into 10-15 second segments
 2. Total duration ≤ {duration} seconds
 3. Format for {self.config.aspect_ratio} aspect ratio
-4. Clear, educational language
-5. Thank "Code Tapasya" at the end
+4. Thank "Code Tapasya" at the end
+5. Make it feel like a friend explaining, NOT a boring lecture!
 
 **OUTPUT FORMAT (STRICT - FOLLOW EXACTLY):**
 
 SEGMENT [number]: [duration]
 VISUALS: [Brief animation description - 1-2 sentences max]
-NARRATION: [What will be spoken - clear and concise]
+NARRATION: [What will be spoken - friendly and engaging]
 
 **VISUAL DESCRIPTION RULES:**
 - Keep visuals SHORT (1-2 sentences)
@@ -2897,23 +2931,37 @@ NARRATION: [What will be spoken - clear and concise]
 - For {self.config.aspect_ratio}: {"stack vertically" if self.config.aspect_ratio == "9:16" else "arrange horizontally" if self.config.aspect_ratio == "16:9" else "center elements"}
 - Suggest entry (Write, GrowFromCenter), movement (shift, scale), emphasis (Flash, Indicate)
 
-**NARRATION RULES:**
-- ONLY the spoken words - no stage directions
-- NO expressions like [Excited], [Calm], etc.
-- Keep each narration concise and natural
-- Match the segment duration
+**NARRATION STYLE GUIDE (CRITICAL!):**
 
-**EXAMPLE:**
+✅ DO:
+- "Hey! So you wanna learn about {topic}? Let's break it down together!"
+- "Okay, here's the thing - most people overcomplicate this. But you and me? We're keeping it simple."
+- "Now THIS is where it gets really cool. Ready?"
+- "I know what you're thinking... 'That sounds complicated.' Nope! Check this out."
+- "Boom! That's literally it. Told you it was simpler than it sounds!"
+- "And hey, thanks for hanging out with me! Big shoutout to Code Tapasya!"
+
+❌ DON'T:
+- "In this video, we will explore..."  (Too formal)
+- "It should be noted that..."  (Too academic)
+- "The following demonstrates..."  (Boring)
+- "Variables are a fundamental concept..."  (Textbook style)
+
+**EXAMPLE (FRIENDLY STYLE):**
 
 SEGMENT 1: 12
-VISUALS: Title "Variables in Python" writes at top in blue. Three boxes appear below showing Name, Type, Value.
-NARRATION: Let's explore variables in Python. Variables are containers that store data values like numbers, text, or lists.
+VISUALS: Title "{topic}" bounces in with fun animation. Colorful icons appear around it.
+NARRATION: Hey! Ever wondered what {topic} is all about? I get it - sounds fancy, right? But here's a secret... it's actually pretty simple once you see it in action!
 
-SEGMENT 2: 10
-VISUALS: Code example appears on left. On right, a diagram shows variable assignment with arrows.
-NARRATION: When you create a variable, Python allocates memory and links the name to that location. This makes data easy to reuse.
+SEGMENT 2: 11
+VISUALS: Simple diagram animates in with friendly colors. Key concept highlights with glow effect.
+NARRATION: So basically, think of it like this - you know how you organize stuff in your room? Same idea here! You're just organizing code in a smart way.
 
-**NOW GENERATE THE SCRIPT FOR "{topic}":**
+SEGMENT 3: 10
+VISUALS: Code example appears with step-by-step highlighting. Check marks appear after each line.
+NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just like that, we've got it working. Pretty neat, huh?
+
+**NOW GENERATE THE SCRIPT FOR "{topic}" - Make it feel like a fun chat, not a lecture!:**
 """
             
             response = self.gemini_client.generate_content(prompt)

@@ -51,21 +51,35 @@ def authenticate_youtube():
     return build("youtube", "v3", credentials=creds)
 
 def upload_short(video_path, title, description):
+    """Legacy function for backward compatibility"""
+    return upload_short_with_metadata(video_path, title, description, ["Shorts", "Programming", "Coding", "Tutorial", "Education"])
+
+def upload_short_with_metadata(video_path, title, description, tags):
+    """Upload short with dynamic metadata"""
     youtube = authenticate_youtube()
 
     print(f"Uploading {video_path}...")
+    print(f"Title: {title}")
+    print(f"Tags: {', '.join(tags[:10])}")
+
+    # Ensure description ends with #Shorts if not already present
+    if "#Shorts" not in description:
+        description += " #Shorts"
 
     # 2. Configure the upload body
     request_body = {
         "snippet": {
             "title": title[:100], 
-            "description": description + " #Shorts",
-            "tags": ["Shorts", "Programming", "Coding", "Tutorial", "Education"],
+            "description": description,
+            "tags": tags[:15],  # YouTube allows max 15 tags
             "categoryId": "27"  # Education category
         },
         "status": {
             "privacyStatus": "public",  # Auto-publish
-            "selfDeclaredMadeForKids": False
+            "selfDeclaredMadeForKids": False,
+            "embeddable": True,
+            "license": "creativeCommon",
+            "publicStatsViewable": True
         }
     }
 
@@ -80,6 +94,7 @@ def upload_short(video_path, title, description):
 
     response = request.execute()
     print(f"Upload Successful! Video ID: {response['id']}")
+    print(f"URL: https://youtube.com/watch?v={response['id']}")
     return response
 
 if __name__ == "__main__":
