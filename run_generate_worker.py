@@ -83,12 +83,11 @@ async def run():
                     config.aspect_ratio = aspect_ratio
                     config.video_type = video_type
                     
-                    # Reinitialize pipeline with updated config for shorts
-                    if video_type == "short":
-                        pipeline = OptimizedVideoGenerationPipeline(config)
+                    # Reinitialize pipeline with updated config
+                    pipeline_instance = OptimizedVideoGenerationPipeline(config)
                     
                     logger.info("🚀 Starting video generation pipeline...")
-                    final_video_path = await pipeline.generate_video_full_parallel(
+                    final_video_path = await pipeline_instance.generate_video_full_parallel(
                         topic,
                         duration
                     )
