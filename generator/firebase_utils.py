@@ -123,7 +123,8 @@ def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limi
         f"segment_{i+1}": b64_string[i:i+segment_size]
         for i in range(0, len(b64_string), segment_size)
     }
-# Create a new job in Firestore with 'pending' status
+
+# Create a new job in Firestore with 'pending' status (for API/manual requests)
 def create_job(topic, duration, aspect_ratio="16:9", video_type="regular"):
     initialize_firebase()
     db = firestore.client()
@@ -135,9 +136,76 @@ def create_job(topic, duration, aspect_ratio="16:9", video_type="regular"):
         "aspect_ratio": aspect_ratio,
         "video_type": video_type,
         "status": "pending",
-        "created_at": firestore.SERVER_TIMESTAMP
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "source": "manual_api"
     })
     return doc_ref.id
+
+# Create a scheduled job record (SEPARATE COLLECTION - won't be picked up by workers)
+def create_scheduled_job(topic, duration, aspect_ratio="16:16", video_type="short"):
+    """
+    Create a job record in the 'scheduled-videos' collection.
+    This collection is SEPARATE from 'videos' so workers won't pick it up.
+    Used only for scheduler-generated videos to avoid double generation.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    initialize_firebase()
+    db = firestore.client()
+
+    doc_ref = db.collection("scheduled-videos").document()
+    doc_ref.set({
+        "topic": topic,
+        "duration": duration,
+        "aspect_ratio": aspect_ratio,
+        "video_type": video_type,
+        "status": "processing",  # Start as processing (scheduler is generating)
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "source": "automated_scheduler"
+    })
+    
+    logger.info(f"📝 Created scheduled job in separate collection: {doc_ref.id}")
+    return doc_ref.id
+
+# Update scheduled job status (uses 'scheduled-videos' collection)
+def update_scheduled_job_status(doc_id, video_url, status="completed", error=None, youtube_video_id=None):
+    """
+    Update a scheduled job in the 'scheduled-videos' collection.
+    Separate from regular jobs to prevent worker pickup.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    initialize_firebase()
+    db = firestore.client()
+    doc_ref = db.collection("scheduled-videos").document(doc_id)
+
+    update_fields = {
+        "status": status,
+        "video_url": video_url,
+        "updated_at": firestore.SERVER_TIMESTAMP
+    }
+    
+    # Add YouTube video ID if provided
+    if youtube_video_id:
+        update_fields["youtube_video_id"] = youtube_video_id
+        update_fields["youtube_url"] = f"https://youtube.com/watch?v={youtube_video_id}"
+        update_fields["platform"] = "youtube_short"
+    else:
+        update_fields["platform"] = "oracle_storage"
+    
+    if error:
+        update_fields["error"] = error
+
+    # Update in separate collection
+    doc_ref.update(update_fields)
+    logger.info(f"✅ Updated scheduled job {doc_id} status to: {status}")
+    logger.info(f"📹 Video URL: {video_url}")
+    if youtube_video_id:
+        logger.info(f"📺 YouTube: https://youtube.com/watch?v={youtube_video_id}")
+    logger.info(f"🔒 Stored in 'scheduled-videos' collection (won't be picked up by workers)")
+
 
 # Fetch one pending job from Firestore
 def get_pending_jobs():
