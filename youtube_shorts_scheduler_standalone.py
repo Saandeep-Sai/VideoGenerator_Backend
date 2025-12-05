@@ -39,7 +39,7 @@ from generator.video_generator.optimized_video_generator import OptimizedVideoGe
 from generator.oracle_storage import OracleStorageClient
 from generator.dynamic_content_generator import DynamicContentGenerator
 from youtube_upload import upload_short_with_metadata
-from generator.firebase_utils import create_scheduled_short, update_scheduled_short_status
+from generator.firebase_utils import create_scheduled_job, update_scheduled_job_status
 from resource_monitor import resource_monitor
 from dotenv import load_dotenv
 
@@ -411,8 +411,8 @@ Thanks to Code Tapasya for making coding fun!
             logger.info("=" * 70)
             
             # Create Firebase job record in SEPARATE collection (won't be picked up by workers)
-            job_id = create_scheduled_short(topic, duration, "9:16", "short")
-            logger.info(f"📝 Scheduled short created in 'scheduled-shorts' collection: {job_id}")
+            job_id = create_scheduled_job(topic, duration, "9:16", "short")
+            logger.info(f"📝 Scheduled job created in 'scheduled-videos' collection: {job_id}")
             logger.info(f"🔒 This job won't be picked up by workers (different collection)")
             
             # Step 1: Generate video locally (with timeout - max 20 minutes)
@@ -444,14 +444,14 @@ Thanks to Code Tapasya for making coding fun!
                 raise RuntimeError("Oracle upload failed")
             
             # Step 4: Update Firebase (SEPARATE COLLECTION - won't trigger workers)
-            logger.info("🔥 Step 4: Updating Firebase (scheduled-shorts collection)...")
-            update_scheduled_short_status(
+            logger.info("🔥 Step 4: Updating Firebase (scheduled-videos collection)...")
+            update_scheduled_job_status(
                 job_id, 
                 video_url, 
                 status="completed", 
                 youtube_video_id=youtube_video_id
             )
-            logger.info("✅ Firebase updated in 'scheduled-shorts' collection")
+            logger.info("✅ Firebase updated in 'scheduled-videos' collection")
             logger.info("🔒 This job is isolated from worker queue")
             
             # Step 5: Mark topic as used
