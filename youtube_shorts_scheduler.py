@@ -1,23 +1,64 @@
 #!/usr/bin/env python3
 """
-YouTube Shorts Scheduler & Uploader for Oracle E2.1.Micro
+⚠️ ⚠️ ⚠️  DEPRECATED - DO NOT USE  ⚠️ ⚠️ ⚠️
 
-This script:
-1. Schedules 2 requests per day (morning & evening)
-2. Calls the video generator to create a short
-3. Uploads the generated video to YouTube as PUBLIC Short
-4. Updates Firebase "youtube-shorts" collection with status
-5. Retries on error with exponential backoff
+THIS FILE IS DEPRECATED AND CAUSES DUPLICATE VIDEO GENERATION!
 
-Setup:
-- Place in main backend directory
-- Ensure `token.json` exists (run setup_youtube_automation.py first)
-- Add to .env: FIREBASE_CREDENTIALS_BASE64, FIREBASE_PROJECT_ID
-- Run: python youtube_shorts_scheduler.py --schedule
+Use youtube_shorts_scheduler_standalone.py instead.
+
+See DUPLICATE_GENERATION_FIX.md for details.
+
+REASON FOR DEPRECATION:
+- This scheduler calls the API endpoint /api/generate/
+- The API creates jobs in the "videos" collection
+- The worker picks up these jobs and generates videos
+- This creates DUPLICATE generations (scheduler + worker both generate the same video)
+
+REPLACEMENT:
+- Use: youtube_shorts_scheduler_standalone.py
+- Service: youtube-shorts-scheduler.service (Type=oneshot)
+- Timer: youtube-shorts-scheduler.timer
+- Collection: "scheduled-videos" (separate from worker queue)
+
+⚠️ ⚠️ ⚠️  DEPRECATED - DO NOT USE  ⚠️ ⚠️ ⚠️
 """
 
 import os
 import sys
+
+# SAFETY CHECK: Prevent accidental execution
+FORCE_ENABLE = os.getenv("ENABLE_OLD_SCHEDULER", "false").lower() == "true"
+
+if not FORCE_ENABLE:
+    print("=" * 80)
+    print("❌ ERROR: This scheduler is DEPRECATED and causes duplicate generations!")
+    print("=" * 80)
+    print()
+    print("🚫 This file should NOT be used anymore.")
+    print()
+    print("✅ Instead, use: youtube_shorts_scheduler_standalone.py")
+    print()
+    print("📋 Reason:")
+    print("   - This script calls the API which creates jobs in 'videos' collection")
+    print("   - The worker then picks up the same job and generates the video")
+    print("   - Result: DUPLICATE video generation and upload")
+    print()
+    print("📋 Solution:")
+    print("   - Use youtube_shorts_scheduler_standalone.py (generates locally)")
+    print("   - Uses 'scheduled-videos' collection (worker ignores it)")
+    print("   - No API calls, no worker involvement, no duplicates")
+    print()
+    print("📖 See DUPLICATE_GENERATION_FIX.md for full details")
+    print()
+    print("=" * 80)
+    print()
+    print("To force enable (NOT RECOMMENDED):")
+    print("  export ENABLE_OLD_SCHEDULER=true")
+    print("  python youtube_shorts_scheduler.py")
+    print()
+    sys.exit(1)
+
+# Original imports (only reached if FORCE_ENABLE=true)
 import json
 import logging
 import random
