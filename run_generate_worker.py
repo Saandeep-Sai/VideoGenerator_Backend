@@ -115,8 +115,20 @@ async def run():
                         youtube_video_id = upload_video_to_youtube(final_video_path, topic, duration, metadata)
                         if youtube_video_id:
                             logger.info(f"✅ YouTube Short uploaded: {youtube_video_id}")
+                            
+                            # Delete from Oracle bucket since it's now on YouTube
+                            logger.info("🗑️ Deleting video from Oracle bucket...")
+                            try:
+                                deleted = oracle_storage.delete_video(job_id)
+                                if deleted:
+                                    logger.info("✅ Video deleted from Oracle bucket (already on YouTube)")
+                                else:
+                                    logger.warning("⚠️ Failed to delete video from Oracle bucket")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error deleting from Oracle: {e}")
                         else:
                             logger.error("❌ YouTube Short upload failed")
+                            logger.info("ℹ️ Keeping video in Oracle bucket as backup")
 
                     # Update Firestore with video URL and YouTube ID (single update, no duplicates)
                     update_video_status_with_url(job_id, video_url, status="completed", youtube_video_id=youtube_video_id)

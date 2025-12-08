@@ -145,10 +145,14 @@ class StandaloneYouTubeShortsGenerator:
         self.pipeline = OptimizedVideoGenerationPipeline(self.config)
         self.oracle_storage = OracleStorageClient()
         
-        # Initialize dynamic content generator
+        # Initialize dynamic content generator with absolute path to history file
+        script_dir = Path(__file__).parent
+        history_file = str(script_dir / "youtube_shorts_history.json")
+        
         if AI_TOPIC_GENERATION:
-            self.dynamic_content = DynamicContentGenerator(GEMINI_API_KEY)
+            self.dynamic_content = DynamicContentGenerator(GEMINI_API_KEY, history_file=history_file)
             logger.info("🤖 AI dynamic content generation enabled")
+            logger.info(f"📂 Using history file: {history_file}")
         else:
             self.dynamic_content = None
             logger.info("📝 Using predefined topics only")
@@ -157,24 +161,39 @@ class StandaloneYouTubeShortsGenerator:
     
     def load_topic_history(self) -> dict:
         """Load topic generation history"""
-        history_file = Path("youtube_shorts_history.json")
+        # Use absolute path relative to script location
+        script_dir = Path(__file__).parent
+        history_file = script_dir / "youtube_shorts_history.json"
+        
+        logger.info(f"📂 Loading history from: {history_file}")
+        
         if history_file.exists():
             try:
                 with open(history_file, "r") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError):
-                logger.warning("⚠️ Corrupted history file, starting fresh")
+                    data = json.load(f)
+                logger.info(f"✅ Loaded {len(data)} topics from history")
+                return data
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                logger.warning(f"⚠️ Corrupted history file: {e}, starting fresh")
                 return {}
+        else:
+            logger.info(f"ℹ️ History file not found, will create new one")
         return {}
     
     def save_topic_history(self, history: dict):
         """Save topic generation history"""
+        # Use absolute path relative to script location
+        script_dir = Path(__file__).parent
+        history_file = script_dir / "youtube_shorts_history.json"
+        
         try:
-            with open("youtube_shorts_history.json", "w") as f:
+            with open(history_file, "w") as f:
                 json.dump(history, f, indent=2)
-            logger.debug(f"📝 History saved: {len(history)} topics tracked")
+            logger.info(f"✅ History saved to {history_file}")
+            logger.info(f"📊 Total topics tracked: {len(history)}")
         except Exception as e:
-            logger.error(f"❌ Failed to save history: {e}")
+            logger.error(f"❌ Failed to save history to {history_file}: {e}")
+            logger.error(f"💡 Check file permissions: ls -la {history_file}")
     
     def get_used_topics_set(self) -> set:
         """Get set of recently used topics (normalized for comparison)"""
@@ -265,8 +284,14 @@ class StandaloneYouTubeShortsGenerator:
     
     def mark_topic_used(self, topic: str):
         """Mark topic as used and log statistics"""
+        logger.info(f"📝 Marking topic as used: {topic}")
+        
         history = self.load_topic_history()
-        history[topic] = datetime.now().isoformat()
+        timestamp = datetime.now().isoformat()
+        history[topic] = timestamp
+        
+        logger.info(f"📅 Timestamp: {timestamp}")
+        
         self.save_topic_history(history)
         
         # Log topic statistics
@@ -275,7 +300,7 @@ class StandaloneYouTubeShortsGenerator:
         recent_topics = len([t for t, date_str in history.items() 
                            if datetime.fromisoformat(date_str) > datetime.now() - timedelta(days=30)])
         
-        logger.info(f"✅ Topic marked as used: {topic}")
+        logger.info(f"✅ Topic successfully marked as used: {topic}")
         logger.info(f"📊 Topic Stats: {used_topics} total used, {recent_topics} recent (30d), {total_topics} available")
     
     async def generate_video(self, topic: str, duration: int = 60) -> Optional[str]:
@@ -454,10 +479,24 @@ Thanks to Code Tapasya for making coding fun!
             logger.info("✅ Firebase updated in 'scheduled-videos' collection")
             logger.info("🔒 This job is isolated from worker queue")
             
-            # Step 5: Mark topic as used
+            # Step 5: Delete from Oracle bucket (since it's now on YouTube)
+            if youtube_video_id:
+                logger.info("🗑️ Step 5: Deleting video from Oracle bucket...")
+                try:
+                    deleted = self.oracle_storage.delete_video(job_id)
+                    if deleted:
+                        logger.info("✅ Video deleted from Oracle bucket (already on YouTube)")
+                    else:
+                        logger.warning("⚠️ Failed to delete video from Oracle bucket")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error deleting from Oracle: {e}")
+            else:
+                logger.info("ℹ️ Step 5: Keeping video in Oracle (YouTube upload failed)")
+            
+            # Step 6: Mark topic as used
             self.mark_topic_used(topic)
             
-            # Step 6: Cleanup
+            # Step 7: Cleanup local file
             try:
                 Path(video_path).unlink()
                 logger.info("🧹 Local video cleaned up")
