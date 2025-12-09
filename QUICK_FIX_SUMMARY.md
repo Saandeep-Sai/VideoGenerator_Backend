@@ -1,9 +1,11 @@
 # Quick Reference: Duplicate Generation Fix
 
 ## Problem
+
 Two scheduler systems were running simultaneously, causing each video to be generated twice.
 
 ## Solution
+
 Disable old scheduler, enable only the timer-based standalone scheduler.
 
 ## Commands to Run on Server
@@ -40,10 +42,12 @@ sudo systemctl list-timers | grep youtube
 After running the fix, you should see:
 
 ✅ **CORRECT:**
+
 - `youtube-shorts-scheduler.timer` - **enabled** and **active**
 - `youtube-shorts-scheduler.service` - **enabled** (runs when timer triggers)
 
 ❌ **DISABLED:**
+
 - `youtube_shorts_scheduler.service` - **disabled** and **inactive**
 - `youtube_shorts_scheduler_standalone.service` - **disabled** and **inactive**
 
@@ -97,10 +101,12 @@ sudo journalctl -u youtube-shorts-scheduler.service -n 50
 ## Key Points
 
 1. **TWO separate Firebase collections:**
+
    - `videos` - Manual API requests (worker processes these)
    - `scheduled-videos` - Autonomous scheduler (worker ignores these)
 
 2. **Worker only queries `videos` collection:**
+
    - `get_pending_jobs()` only looks at `collection("videos")`
    - Never sees jobs in `scheduled-videos`
 

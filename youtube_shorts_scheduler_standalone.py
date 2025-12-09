@@ -39,6 +39,7 @@ from generator.video_generator.optimized_video_generator import OptimizedVideoGe
 from generator.oracle_storage import OracleStorageClient
 from generator.dynamic_content_generator import DynamicContentGenerator
 from youtube_upload import upload_short_with_metadata
+from instagram_upload import upload_reel_to_instagram
 from generator.firebase_utils import create_scheduled_job, update_scheduled_job_status
 from resource_monitor import resource_monitor
 from dotenv import load_dotenv
@@ -462,14 +463,34 @@ Thanks to Code Tapasya for making coding fun!
             if not youtube_video_id:
                 logger.warning("⚠️ YouTube upload failed, but continuing with Oracle")
             
-            # Step 3: Upload to Oracle Storage
-            logger.info("☁️ Step 3: Uploading to Oracle Object Storage...")
+            # Step 3: Upload to Instagram Reels
+            logger.info("📱 Step 3: Uploading to Instagram Reels...")
+            instagram_media_id = None
+            try:
+                # Generate metadata for Instagram (reuse YouTube metadata if available)
+                metadata = None
+                if youtube_video_id:
+                    try:
+                        metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
+                    except:
+                        pass
+                
+                instagram_media_id = upload_reel_to_instagram(video_path, topic, metadata)
+                if instagram_media_id:
+                    logger.info(f"✅ Instagram Reel uploaded: {instagram_media_id}")
+                else:
+                    logger.info("ℹ️ Instagram upload skipped or disabled")
+            except Exception as e:
+                logger.warning(f"⚠️ Instagram upload failed: {e}")
+            
+            # Step 4: Upload to Oracle Storage
+            logger.info("☁️ Step 4: Uploading to Oracle Object Storage...")
             video_url = self.upload_to_oracle(video_path, job_id)
             if not video_url:
                 raise RuntimeError("Oracle upload failed")
             
-            # Step 4: Update Firebase (SEPARATE COLLECTION - won't trigger workers)
-            logger.info("🔥 Step 4: Updating Firebase (scheduled-videos collection)...")
+            # Step 5: Update Firebase (SEPARATE COLLECTION - won't trigger workers)
+            logger.info("🔥 Step 5: Updating Firebase (scheduled-videos collection)...")
             update_scheduled_job_status(
                 job_id, 
                 video_url, 
@@ -479,24 +500,24 @@ Thanks to Code Tapasya for making coding fun!
             logger.info("✅ Firebase updated in 'scheduled-videos' collection")
             logger.info("🔒 This job is isolated from worker queue")
             
-            # Step 5: Delete from Oracle bucket (since it's now on YouTube)
-            if youtube_video_id:
-                logger.info("🗑️ Step 5: Deleting video from Oracle bucket...")
+            # Step 6: Delete from Oracle bucket (since it's now on YouTube/Instagram)
+            if youtube_video_id or instagram_media_id:
+                logger.info("🗑️ Step 6: Deleting video from Oracle bucket...")
                 try:
                     deleted = self.oracle_storage.delete_video(job_id)
                     if deleted:
-                        logger.info("✅ Video deleted from Oracle bucket (already on YouTube)")
+                        logger.info("✅ Video deleted from Oracle bucket (already on YouTube/Instagram)")
                     else:
                         logger.warning("⚠️ Failed to delete video from Oracle bucket")
                 except Exception as e:
                     logger.warning(f"⚠️ Error deleting from Oracle: {e}")
             else:
-                logger.info("ℹ️ Step 5: Keeping video in Oracle (YouTube upload failed)")
+                logger.info("ℹ️ Step 6: Keeping video in Oracle (uploads failed)")
             
-            # Step 6: Mark topic as used
+            # Step 7: Mark topic as used
             self.mark_topic_used(topic)
             
-            # Step 7: Cleanup local file
+            # Step 8: Cleanup local file
             try:
                 Path(video_path).unlink()
                 logger.info("🧹 Local video cleaned up")

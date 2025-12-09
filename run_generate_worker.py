@@ -15,6 +15,7 @@ from generator.video_generator.optimized_video_generator import OptimizedVideoGe
 from generator.oracle_storage import OracleStorageClient
 from generator.dynamic_content_generator import DynamicContentGenerator
 from youtube_shorts_uploader import upload_video_to_youtube
+from instagram_upload import upload_reel_to_instagram
 
 # ✅ Setup logger with better formatting
 logging.basicConfig(
@@ -100,6 +101,7 @@ async def run():
 
                     # Check if this is a YouTube Short and upload with dynamic metadata
                     youtube_video_id = None
+                    instagram_media_id = None
                     if video_type == "short":
                         logger.info("🎬 Detected YouTube Short - generating dynamic metadata...")
                         
@@ -115,19 +117,32 @@ async def run():
                         youtube_video_id = upload_video_to_youtube(final_video_path, topic, duration, metadata)
                         if youtube_video_id:
                             logger.info(f"✅ YouTube Short uploaded: {youtube_video_id}")
-                            
-                            # Delete from Oracle bucket since it's now on YouTube
+                        else:
+                            logger.error("❌ YouTube Short upload failed")
+                        
+                        # Upload to Instagram Reels
+                        logger.info("📱 Uploading to Instagram Reels...")
+                        try:
+                            instagram_media_id = upload_reel_to_instagram(final_video_path, topic, metadata)
+                            if instagram_media_id:
+                                logger.info(f"✅ Instagram Reel uploaded: {instagram_media_id}")
+                            else:
+                                logger.info("ℹ️ Instagram upload skipped or disabled")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Instagram upload failed: {e}")
+                        
+                        # Delete from Oracle bucket if uploaded to YouTube or Instagram
+                        if youtube_video_id or instagram_media_id:
                             logger.info("🗑️ Deleting video from Oracle bucket...")
                             try:
                                 deleted = oracle_storage.delete_video(job_id)
                                 if deleted:
-                                    logger.info("✅ Video deleted from Oracle bucket (already on YouTube)")
+                                    logger.info("✅ Video deleted from Oracle bucket (already on YouTube/Instagram)")
                                 else:
                                     logger.warning("⚠️ Failed to delete video from Oracle bucket")
                             except Exception as e:
                                 logger.warning(f"⚠️ Error deleting from Oracle: {e}")
                         else:
-                            logger.error("❌ YouTube Short upload failed")
                             logger.info("ℹ️ Keeping video in Oracle bucket as backup")
 
                     # Update Firestore with video URL and YouTube ID (single update, no duplicates)

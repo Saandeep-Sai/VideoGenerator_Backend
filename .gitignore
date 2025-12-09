@@ -7,9 +7,10 @@
 client_secret.json
 token.json
 firebase-key.json
+youtube_shorts.history.json
 *.key
 *.pem
-
+./generator/video_generator/__pycache__/optimized_video_generator.cpython-311.pyc
 # Python bytecode
 __pycache__/
 *.py[cod]
