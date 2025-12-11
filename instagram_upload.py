@@ -42,6 +42,14 @@ class InstagramUploader:
         self.client = None
         self.session_file = Path("instagram_session.json")
         
+        # Use more realistic device settings to avoid detection
+        self.device_settings = {
+            "manufacturer": "OnePlus",
+            "model": "ONEPLUS A6013",
+            "android_version": 29,
+            "android_release": "10.0"
+        }
+        
         if not self.username or not self.password:
             raise ValueError("Instagram credentials not provided. Set INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD_BASE64 (or INSTAGRAM_PASSWORD) in .env")
     
@@ -49,14 +57,31 @@ class InstagramUploader:
         """Login to Instagram with session persistence"""
         try:
             self.client = Client()
-            self.client.delay_range = [1, 3]  # Delay between requests to avoid rate limits
+            self.client.delay_range = [2, 5]  # Increased delay to appear more human-like
+            
+            # Set device settings to avoid detection
+            self.client.set_device(self.device_settings)
+            
+            # Set more realistic user agent
+            self.client.set_user_agent(
+                "Instagram 269.0.0.18.75 Android (29/10; 420dpi; 1080x2340; OnePlus; ONEPLUS A6013; OnePlus6T; qcom; en_US; 314665256)"
+            )
             
             # Try to load existing session
             if self.session_file.exists():
                 try:
                     logger.info("📱 Loading existing Instagram session...")
                     self.client.load_settings(self.session_file)
-                    self.client.login(self.username, self.password)
+                    
+                    # Relogin to refresh session
+                    try:
+                        self.client.relogin()
+                        logger.info("✅ Instagram session relogin successful")
+                        return True
+                    except:
+                        # If relogin fails, try full login
+                        logger.info("⚠️ Relogin failed, attempting full login...")
+                        self.client.login(self.username, self.password)
                     
                     # Verify session is valid
                     self.client.get_timeline_feed()
@@ -66,8 +91,10 @@ class InstagramUploader:
                     logger.warning(f"⚠️ Existing session invalid: {e}")
                     self.session_file.unlink(missing_ok=True)
             
-            # New login
-            logger.info("📱 Logging into Instagram...")
+            # New login - use verification_code parameter for more reliable login
+            logger.info("📱 Logging into Instagram (new session)...")
+            logger.info("💡 If this fails, try logging in from Instagram app/browser first")
+            
             self.client.login(self.username, self.password)
             
             # Save session for future use
@@ -92,6 +119,18 @@ class InstagramUploader:
             
         except Exception as e:
             logger.error(f"❌ Unexpected login error: {e}")
+            
+            # Provide helpful troubleshooting steps
+            logger.error("=" * 60)
+            logger.error("💡 TROUBLESHOOTING STEPS:")
+            logger.error("1. Login to Instagram from your phone/browser first")
+            logger.error("2. Complete any security challenges manually")
+            logger.error("3. Disable 2FA temporarily if enabled")
+            logger.error("4. Wait 30-60 minutes before retrying")
+            logger.error("5. Consider using a VPN or different network")
+            logger.error("6. Ensure account is Business/Creator type")
+            logger.error("=" * 60)
+            
             return False
     
     def generate_caption(self, topic: str, metadata: Dict = None) -> str:
