@@ -47,16 +47,17 @@ from dotenv import load_dotenv
 # Load environment
 load_dotenv()
 
-# Get configuration
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Get configuration - OpenRouter only (Gemini removed)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # Default: 4 uploads per day at 9AM, 12PM, 3PM, 6PM IST (converted to UTC)
 UPLOAD_TIMES = os.getenv("UPLOAD_TIMES", "03:30,06:30,09:30,12:30").split(",")
 AI_TOPIC_GENERATION = os.getenv("AI_TOPIC_GENERATION", "true").lower() == "true"
 
-if not GEMINI_API_KEY or not GROQ_API_KEY:
-    logger.error("❌ Missing API keys! Set GEMINI_API_KEY and GROQ_API_KEY in .env")
+if not OPENROUTER_API_KEY:
+    logger.error("❌ Missing OPENROUTER_API_KEY! Set it in .env file for all AI operations (topic selection and video generation)")
     sys.exit(1)
+
+logger.info("✅ OpenRouter API key loaded - using for all AI operations")
 
 logger.info("=" * 70)
 logger.info("🎬 STANDALONE YOUTUBE SHORTS GENERATOR & UPLOADER")
@@ -138,8 +139,8 @@ class StandaloneYouTubeShortsGenerator:
         
         # Configure pipeline for shorts
         self.config = VideoGenerationConfig(
-            gemini_api_key=GEMINI_API_KEY,
-            groq_api_key=GROQ_API_KEY,
+            openrouter_api_key=OPENROUTER_API_KEY,
+            groq_api_key=OPENROUTER_API_KEY,  # Also use OpenRouter for corrections
             aspect_ratio="9:16",  # YouTube Shorts format
             video_type="short"  # Enable friendly voice and tone
         )
@@ -151,8 +152,12 @@ class StandaloneYouTubeShortsGenerator:
         history_file = str(script_dir / "youtube_shorts_history.json")
         
         if AI_TOPIC_GENERATION:
-            self.dynamic_content = DynamicContentGenerator(GEMINI_API_KEY, history_file=history_file)
-            logger.info("🤖 AI dynamic content generation enabled")
+            # Pass OpenRouter API key for topic generation
+            self.dynamic_content = DynamicContentGenerator(
+                openrouter_api_key=OPENROUTER_API_KEY, 
+                history_file=history_file
+            )
+            logger.info("🤖 AI dynamic content generation enabled (using OpenRouter)")
             logger.info(f"📂 Using history file: {history_file}")
         else:
             self.dynamic_content = None

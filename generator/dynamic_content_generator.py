@@ -1,6 +1,6 @@
 """
 Dynamic Content Generator for YouTube Shorts
-Generates trending topics, titles, and tags using Gemini AI
+Generates trending topics, titles, and tags using OpenRouter AI
 """
 
 import logging
@@ -9,20 +9,37 @@ import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Set
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from openai import OpenAI
+from .openrouter_key_manager import OpenRouterKeyManager
 
 logger = logging.getLogger(__name__)
 
 class DynamicContentGenerator:
-    """Generate trending topics and metadata for YouTube Shorts using Gemini AI"""
+    """Generate trending topics and metadata for YouTube Shorts using OpenRouter AI"""
     
-    def __init__(self, gemini_api_key: str, history_file: str = "youtube_shorts_history.json"):
-        self.gemini_api_key = gemini_api_key
+    def __init__(self, openrouter_api_key: str = None, openrouter_api_keys: List[str] = None, history_file: str = "youtube_shorts_history.json"):
+        """
+        Initialize content generator with key rotation support.
+        
+        Args:
+            openrouter_api_key: Single API key (for backward compatibility)
+            openrouter_api_keys: List of API keys for rotation (preferred)
+            history_file: Path to topic history JSON file
+        """
         self.history_file = Path(history_file)
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
-        logger.info("✅ Dynamic Content Generator initialized")
+        self.model_name = "meta-llama/llama-3.3-70b-instruct:free"  # Use Llama for topic generation
+        
+        # Initialize key manager with rotation support
+        if openrouter_api_keys:
+            self.key_manager = OpenRouterKeyManager(api_keys=openrouter_api_keys)
+        elif openrouter_api_key:
+            self.key_manager = OpenRouterKeyManager(api_keys=[openrouter_api_key])
+        else:
+            # Load from environment
+            self.key_manager = OpenRouterKeyManager()
+        
+        logger.info(f"✅ Dynamic Content Generator initialized with {self.key_manager.get_stats()['total_keys']} API key(s)")
+        logger.info(f"📝 Topic Generation Model: {self.model_name}")
     
     def load_topic_history(self) -> Dict[str, str]:
         """Load topic history from file"""
@@ -142,8 +159,20 @@ Generate ONE unique topic now:"""
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                response = self.model.generate_content(prompt)
-                topic = response.text.strip().replace('"', '').replace("'", "")
+                def call_openrouter(client):
+                    response = client.chat.completions.create(
+                        model=self.model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=1000,
+                    )
+                    return response.choices[0].message.content
+                
+                response_text = self.key_manager.execute_with_rotation(
+                    call_openrouter,
+                    model=self.model_name
+                )
+                topic = response_text.strip().replace('"', '').replace("'", "")
                 
                 # Check if topic is too similar to used topics
                 if not self._is_topic_similar(topic, used_topics):
@@ -258,8 +287,20 @@ TAGS: tag1,tag2,tag3,tag4,tag5,tag6,tag7,tag8,tag9,tag10
 Generate the metadata now:"""
 
         try:
-            response = self.model.generate_content(prompt)
-            content = response.text.strip()
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=1000,
+                )
+                return response.choices[0].message.content
+            
+            response_text = self.key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.model_name
+            )
+            content = response_text.strip()
             
             # Parse the response
             metadata = self._parse_metadata_response(content, topic)
@@ -392,8 +433,20 @@ etc.
 Generate {count} high-demand topics:"""
 
         try:
-            response = self.model.generate_content(prompt)
-            content = response.text.strip()
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
+                return response.choices[0].message.content
+            
+            response_text = self.key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.model_name
+            )
+            content = response_text.strip()
             
             # Parse numbered list
             topics = []

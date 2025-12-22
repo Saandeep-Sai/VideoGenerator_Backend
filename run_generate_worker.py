@@ -24,13 +24,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ✅ Load from environment
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# ✅ Load from environment - Load ALL Gemini API keys for rotation
+GEMINI_API_KEYS = []
+for key_name in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+    key_value = os.getenv(key_name)
+    if key_value:
+        GEMINI_API_KEYS.append(key_value)
+        logger.info(f"✓ Loaded {key_name}")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not GEMINI_API_KEY or not GROQ_API_KEY:
-    logger.error("❌ Missing API keys! Check environment variables.")
+if not GEMINI_API_KEYS or not GROQ_API_KEY:
+    logger.error("❌ Missing API keys! Set GEMINI_API_KEY (and optionally _2, _3) and GROQ_API_KEY")
     sys.exit(1)
+
+logger.info(f"📊 Loaded {len(GEMINI_API_KEYS)} Gemini API key(s) for rotation")
+GEMINI_API_KEY = GEMINI_API_KEYS[0]  # Primary key for backward compatibility
 
 # ✅ Configure pipeline
 config = VideoGenerationConfig(
@@ -42,8 +51,8 @@ pipeline = OptimizedVideoGenerationPipeline(config)
 # ✅ Initialize Oracle Storage Client
 oracle_storage = OracleStorageClient()
 
-# ✅ Initialize Dynamic Content Generator
-dynamic_content = DynamicContentGenerator(GEMINI_API_KEY)
+# ✅ Initialize Dynamic Content Generator with all keys for rotation
+dynamic_content = DynamicContentGenerator(gemini_api_keys=GEMINI_API_KEYS)
 
 logger.info("=" * 60)
 logger.info("🎬 VIDEO GENERATION WORKER INITIALIZED")

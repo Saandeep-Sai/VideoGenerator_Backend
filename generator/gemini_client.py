@@ -174,17 +174,21 @@ class GeminiRateLimitedClient:
         """Load API keys from environment variables."""
         keys = []
         
-        # Try numbered keys first (GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...)
-        for i in range(1, 10):
+        # Load primary key first (GEMINI_API_KEY)
+        primary_key = os.getenv("GEMINI_API_KEY")
+        if primary_key:
+            keys.append(primary_key)
+            logger.debug("✓ Loaded GEMINI_API_KEY")
+        
+        # Load numbered backup keys (GEMINI_API_KEY_2, GEMINI_API_KEY_3, etc.)
+        for i in range(2, 10):
             key = os.getenv(f"GEMINI_API_KEY_{i}")
             if key:
                 keys.append(key)
+                logger.debug(f"✓ Loaded GEMINI_API_KEY_{i}")
         
-        # Fallback to single key
         if not keys:
-            single_key = os.getenv("GEMINI_API_KEY")
-            if single_key:
-                keys.append(single_key)
+            logger.warning("⚠️ No Gemini API keys found in environment")
         
         return keys
     

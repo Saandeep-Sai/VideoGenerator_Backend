@@ -67,8 +67,15 @@ from groq import Groq
 from pydub import AudioSegment
 
 # API and ML imports
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from openai import OpenAI
+
+# Import OpenRouterKeyManager with fallback for direct execution
+try:
+    from ..openrouter_key_manager import OpenRouterKeyManager
+except ImportError:
+    # Fallback for when running file directly
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from generator.openrouter_key_manager import OpenRouterKeyManager
 
 # TTS import with robust error handling
 
@@ -123,7 +130,7 @@ class EdgeTTSWrapper:
 @dataclass
 class VideoGenerationConfig:
     """Configuration for the entire video generation pipeline."""
-    gemini_api_key: str
+    openrouter_api_key: str  # Changed from gemini_api_key
     groq_api_key: str
     output_dir: str = "output"
     temp_dir: str = "temp"
@@ -132,10 +139,10 @@ class VideoGenerationConfig:
     use_groq_for_correction: bool = True
     manim_timeout: int = 2400  # E2.Micro: 40 minutes per segment rendering (slower CPU)
     ffmpeg_timeout: int = 300  # FFmpeg operations: 5 minutes
-    gemini_temperature: float = 0.2
-    gemini_max_tokens: int = 8192
+    gemini_temperature: float = 0.2  # Kept name for backward compatibility (used as temperature)
+    gemini_max_tokens: int = 8192  # Kept name for backward compatibility (used as max_tokens)
     max_generation_attempts: int = 3
-    max_correction_attempts: int = 3  # Max attempts to fix script with Gemini/Groq before regenerating
+    max_correction_attempts: int = 3  # Max attempts to fix script with AI/Groq before regenerating
     max_regeneration_attempts: int = 4  # Max attempts to regenerate script from scratch
     batch_size: int = 1  # E2.Micro: Process 1 segment at a time (avoid resource overload)
     # E2.Micro resource limits
@@ -145,10 +152,15 @@ class VideoGenerationConfig:
     video_type: str = "regular"  # Options: "regular", "short"
     
     def __post_init__(self):
-        if not self.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY is required.")
+        if not self.openrouter_api_key:
+            raise ValueError("OPENROUTER_API_KEY is required.")
         if self.use_groq_for_correction and not self.groq_api_key:
             raise ValueError("GROQ_API_KEY is required when correction is enabled.")
+        
+        # Validate aspect ratio
+        valid_ratios = ["16:9", "9:16", "1:1", "4:3", "21:9"]
+        if self.aspect_ratio not in valid_ratios:
+            raise ValueError(f"aspect_ratio must be one of {valid_ratios}, got {self.aspect_ratio}")
         
         # Validate aspect ratio
         valid_ratios = ["16:9", "9:16", "1:1", "4:3", "21:9"]
@@ -179,7 +191,9 @@ class VideoGenerationPipeline:
     
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
-        self.gemini_model = None
+        self.openrouter_key_manager = None
+        self.narration_model = "meta-llama/llama-3.3-70b-instruct:free"
+        self.script_model = "qwen/qwen3-coder:free"
         self.groq_client = None
         self.tts_model = None
         self.tts_available = False
@@ -297,30 +311,21 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
                 raise RuntimeError(f"FFmpeg found at {ffmpeg_path} but failed to execute: {verify_error}")
 
     def _setup_models(self) -> None:
-        self._setup_gemini()
+        self._setup_openrouter()
         if self.config.use_groq_for_correction:
             self._setup_groq()
         self._setup_tts()
 
-    def _setup_gemini(self) -> None:
+    def _setup_openrouter(self) -> None:
         try:
-            genai.configure(api_key=self.config.gemini_api_key)
-            
-            generation_config = genai.GenerationConfig(
-                temperature=self.config.gemini_temperature,
-                max_output_tokens=self.config.gemini_max_tokens,
-            )
-            
-            model_name = 'gemini-2.5-flash'  # Use more stable model
-
-            self.gemini_model = genai.GenerativeModel(
-                model_name,
-                generation_config=generation_config
-            )
-            logger.info(f"Gemini model ('{model_name}') initialized.")
+            # Initialize OpenRouterKeyManager for automatic rotation across all keys
+            self.openrouter_key_manager = OpenRouterKeyManager()
+            logger.info(f"✅ OpenRouterKeyManager initialized with {self.openrouter_key_manager.get_stats()['total_keys']} key(s)")
+            logger.info(f"📝 Narration Model: {self.narration_model}")
+            logger.info(f"🎬 Script Model: {self.script_model}")
 
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini model: {e}")
+            logger.error(f"Failed to initialize OpenRouter: {e}")
             raise
 
     def _setup_groq(self) -> None:
@@ -471,20 +476,33 @@ SEGMENT: 12 | [Calm] Let's learn about functions | Display information
 Generate the segments now (output ONLY the SEGMENT lines, no extra text):
 """
 
-        safety_settings = {
+        """ safety_settings = {
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        }
+        } """
 
         try:
-            response = self.gemini_model.generate_content(prompt, safety_settings=safety_settings)
+            # Use OpenRouter with Llama 3.3 70B for narration generation
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.narration_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self.config.gemini_temperature,
+                    max_tokens=self.config.gemini_max_tokens,
+                )
+                return response.choices[0].message.content
             
-            if not response.parts or not response.text:
-                raise ValueError("Gemini response was blocked or empty.")
+            response_text = self.openrouter_key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.narration_model
+            )
+            
+            if not response_text:
+                raise ValueError("OpenRouter response was empty.")
 
-            lines = response.text.strip().splitlines()
+            lines = response_text.strip().splitlines()
             segments = []
             current_time = 0.0
 
@@ -667,21 +685,26 @@ class GeneratedAnimation2(Scene):
 Continue for all {len(batch_segments)} segments. Output ONLY scripts with separators. Include aspect ratio config in EVERY script.
 """
 
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-
         try:
-            response = self.gemini_model.generate_content(batch_prompt, safety_settings=safety_settings)
+            # Use OpenRouter with Qwen Coder for batch script generation
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.script_model,
+                    messages=[{"role": "user", "content": batch_prompt}],
+                    temperature=self.config.gemini_temperature,
+                    max_tokens=self.config.gemini_max_tokens,
+                )
+                return response.choices[0].message.content
             
-            if not response.parts or not response.text:
+            response_text = self.openrouter_key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.script_model
+            )
+            
+            if not response_text:
                 return False
 
             # Parse the batch response
-            response_text = response.text.strip()
             script_sections = re.split(r'===\s*SCRIPT_(\d+)\s*===', response_text)[1:]
             
             temp_dir = Path(self.config.temp_dir)
@@ -767,13 +790,28 @@ Continue for all {len(batch_segments)} segments. Output ONLY scripts with separa
         max_font_body = layout_info["max_font_body"]
         layout_example = layout_info["layout_example"]
         
-        # Strict prompt with anti-overlap rules
-        prompt = f"""Create a Manim script for this segment:
+        # Enhanced prompt with professional animation requirements
+        prompt = f"""Create a PROFESSIONAL, ENGAGING Manim script for this segment:
 
 Duration: {segment.duration} seconds
 Content: {segment.text}
 Visual: {segment.visual_description}
 Aspect Ratio: {self.config.aspect_ratio}
+
+🎬 ANIMATION QUALITY REQUIREMENTS (CRITICAL!):
+═══════════════════════════════════════════════════════════════
+✨ Your animations must be:
+  • VISUALLY STUNNING - Use professional effects, not basic FadeIn/FadeOut
+  • DYNAMIC & ENGAGING - Multiple animation types, smooth transitions
+  • PROFESSIONALLY STYLED - Gradients, colors, glows, proper spacing
+  • ATTENTION-GRABBING - Use emphasis animations (Circumscribe, Flash, Indicate)
+  • SMOOTH & POLISHED - Always use rate_func=smooth, proper run_times
+
+🚨 BANNED: Plain FadeIn/FadeOut only scripts will be REJECTED!
+✅ REQUIRED: Use 3-5 different animation techniques per segment
+
+📚 ANIMATION REFERENCE:
+{self.animation_reference}
 
 🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
 {layout_guide}
@@ -823,25 +861,54 @@ Aspect Ratio: {self.config.aspect_ratio}
    ✓ No two objects in same zone
    ✓ Long text split into multiple lines
 
-📐 WORKING EXAMPLE (COPY THIS PATTERN):
+📐 PROFESSIONAL EXAMPLE (COPY THIS PATTERN FOR STUNNING RESULTS):
 ```python
-# CORRECT: No overlaps, proper spacing
-title = Text("Educational Topic", font_size={max_font_title})
+# ✨ PROFESSIONAL: Engaging animations, proper spacing, beautiful styling
+
+# 1. DRAMATIC TITLE REVEAL
+title = Text("Educational Topic", font_size={max_font_title}, weight=BOLD)
+title.set_color_by_gradient(BLUE, PURPLE)  # Gradient = professional!
 title.scale_to_fit_width({max_text_width})  # MANDATORY
 title.move_to(UP * {"6" if self.config.aspect_ratio == "9:16" else "3"})  # TOP zone
+self.play(DrawBorderThenFill(title, run_time=1.5), rate_func=smooth)  # Smooth entry
+self.play(Circumscribe(title, color=YELLOW, buff=0.2))  # Emphasize title
+self.wait(0.3)  # Let it breathe
 
-subtitle = Text("Key Concept", font_size={max_font_body})
-subtitle.scale_to_fit_width({max_text_width})  # MANDATORY
-subtitle.move_to(UP * {"2" if self.config.aspect_ratio == "9:16" else "1"})  # 1.5+ units below title - GOOD
+# 2. SUBTITLE WITH STYLE
+subtitle = Text("Key Concept", font_size={max_font_body}, color=YELLOW)
+subtitle.scale_to_fit_width({max_text_width})  # MANDATORY  
+subtitle.move_to(UP * {"2" if self.config.aspect_ratio == "9:16" else "1"})  # MIDDLE zone, 1.5+ units below
+self.play(Write(subtitle, run_time=1.2))  # Classic write effect
+self.wait(0.3)
 
+# 3. CONTENT WITH EMPHASIS
 content = Text("Main point here", font_size={max_font_body})
 content.scale_to_fit_width({max_text_width})  # MANDATORY
 content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "DOWN * 0.5"})  # MIDDLE zone
+self.play(FadeIn(content, shift=DOWN*0.5, run_time=1.0))  # Slide in smoothly
+self.play(Flash(content, color=YELLOW), Indicate(content, scale_factor=1.2))  # Attention!
+self.wait(0.4)
 
-# Add shapes with spacing
-circle = Circle(radius=0.8)
-circle.move_to(DOWN * {"4" if self.config.aspect_ratio == "9:16" else "2.5"})  # BOTTOM zone, clear of text
+# 4. SHAPE WITH PROFESSIONAL STYLING
+circle = Circle(radius=0.8, color=BLUE)
+circle.set_fill(BLUE, opacity=0.7)  # Semi-transparent fill
+circle.set_stroke(WHITE, width=3)  # White outline
+circle.move_to(DOWN * {"4" if self.config.aspect_ratio == "9:16" else "2.5"})  # BOTTOM zone
+self.play(GrowFromCenter(circle, run_time=1.2))  # Grow animation
+self.wait(0.3)
+
+# 5. CLEAN EXIT
+everything = VGroup(title, subtitle, content, circle)
+self.play(FadeOut(everything, shift=DOWN*0.5, run_time=1.0))  # Smooth exit
 ```
+
+💡 NOTICE THE DIFFERENCE:
+  ✅ Multiple animation types (DrawBorderThenFill, Write, FadeIn, GrowFromCenter)
+  ✅ Color gradients and styling (set_color_by_gradient, set_fill, set_stroke)
+  ✅ Emphasis effects (Circumscribe, Flash, Indicate)
+  ✅ Smooth timing (rate_func=smooth, strategic wait() calls)
+  ✅ Professional pacing (run_time 1.0-1.5s, not rushed)
+  ✅ Visual variety keeps viewer engaged!
 
 ❌ WRONG EXAMPLES (NEVER DO THIS):
 ```python
@@ -860,13 +927,61 @@ huge_text = Text("Text", font_size=72)  # WRONG! Exceeds {max_font_title}px limi
 long_text = Text("This is a very long sentence that will definitely overflow", font_size=36)  # WRONG! Must split
 ```
 
-Requirements:
-- Use class name: GeneratedAnimation{segment_number}
+🎬 PROFESSIONAL ANIMATION REQUIREMENTS:
+═══════════════════════════════════════════════════════════════
+✨ MANDATORY TECHNIQUES (Use 3-5 per segment):
+  1. ENTRY ANIMATIONS:
+     - Write(), DrawBorderThenFill(), GrowFromCenter() for text
+     - Create(), FadeIn(shift=DOWN*0.5) for shapes
+     - NO plain text.move_to() without animation!
+  
+  2. EMPHASIS EFFECTS (Use on key points!):
+     - Circumscribe(color=YELLOW, buff=0.2)
+     - Flash(color=YELLOW, flash_radius=0.5)
+     - Indicate(scale_factor=1.2-1.3)
+     - Wiggle() for playful emphasis
+  
+  3. PROFESSIONAL STYLING:
+     - Use .set_color_by_gradient(COLOR1, COLOR2) for titles
+     - Add .set_stroke(WHITE, width=2-3) for text outlines
+     - Use .set_fill(COLOR, opacity=0.7-0.9) for shapes
+     - SurroundingRectangle for boxing key content
+  
+  4. SMOOTH TRANSITIONS:
+     - Always use rate_func=smooth
+     - run_time between 1.2-1.8 seconds (not too fast!)
+     - Use .animate.shift().scale() for movements
+     - AnimationGroup with lag_ratio=0.2-0.3 for sequences
+  
+  5. TIMING & PACING:
+     - Add self.wait(0.3-0.5) between major sections
+     - Use different speeds: quick emphasis (0.8s), standard (1.2s), dramatic (1.8s)
+     - Never rush - let animations breathe!
+
+🎨 VISUAL EXCELLENCE CHECKLIST:
+  ✅ Use gradients on titles (set_color_by_gradient)
+  ✅ Add emphasis to key points (Circumscribe/Flash)
+  ✅ Smooth entry animations (Write, DrawBorderThenFill)
+  ✅ Professional colors (not plain white/black)
+  ✅ Sequenced reveals (lag_ratio for lists)
+  ✅ Strategic wait times (0.3-0.5s pauses)
+  ✅ Clean exits (FadeOut with shift)
+
+❌ AVOID (These make videos look amateur):
+  ❌ Only FadeIn/FadeOut (boring!)
+  ❌ No emphasis on key points
+  ❌ Rushed animations (run_time < 0.8s)
+  ❌ Plain white text only
+  ❌ No color variety
+  ❌ Jerky movements (missing rate_func=smooth)
+
+Technical Requirements:
+- Class name: GeneratedAnimation{segment_number}
 - Duration exactly {segment.duration} seconds
-- Simple, clean animations
 - EVERY text object MUST have .scale_to_fit_width({max_text_width})
 - Minimum 1.5 units vertical spacing between text objects
 - Maximum {max_font_title}px for titles, {max_font_body}px for body
+- Use 3-5 different animation techniques minimum
 
 Output format:
 from manim import *
@@ -879,20 +994,26 @@ class GeneratedAnimation{segment_number}(Scene):
         self.wait({segment.duration})
 """
         
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                response = self.gemini_model.generate_content(prompt, safety_settings=safety_settings)
+                # Use OpenRouter with Qwen Coder for individual script generation
+                def call_openrouter(client):
+                    response = client.chat.completions.create(
+                        model=self.script_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=self.config.gemini_temperature,
+                        max_tokens=self.config.gemini_max_tokens,
+                    )
+                    return response.choices[0].message.content
                 
-                if response.parts and response.text:
-                    script_content = self._clean_script(response.text)
+                response_text = self.openrouter_key_manager.execute_with_rotation(
+                    call_openrouter,
+                    model=self.script_model
+                )
+                
+                if response_text:
+                    script_content = self._clean_script(response_text)
                     if self._validate_script(script_content):
                         return script_content
                 
@@ -1077,16 +1198,22 @@ Begin your response now.
     Output ONLY raw Python code. No markdown, no explanations.
         """
 
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-
         try:
-            response = self.gemini_model.generate_content(prompt, safety_settings=safety_settings)
-            raw_script = response.text.strip()
+            # Use OpenRouter with Qwen Coder for script regeneration
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.script_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self.config.gemini_temperature,
+                    max_tokens=self.config.gemini_max_tokens,
+                )
+                return response.choices[0].message.content
+            
+            response_text = self.openrouter_key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.script_model
+            )
+            raw_script = response_text.strip()
             return self._clean_script(raw_script)
         except Exception as e:
             logger.error(f"❌ Last-resort regeneration failed for segment {segment_number}: {e}")
@@ -1192,10 +1319,11 @@ Begin your response now.
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, class_name,  # Use correct class name
-                "-qm",                        # Low quality: 480p15 (E2.Micro optimized)
+                "-qm",                        # HIGH quality: 1080p60 (professional output)
                 "--format", "mp4",
                 "--disable_caching",          # Disable caching to save RAM
                 "--flush_cache",              # Clear cache after render
+                "--renderer=cairo",           # Cairo renderer for better quality
             ]
             
             logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (480p15 -ql quality - E2.Micro optimized)")
@@ -1909,7 +2037,7 @@ def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gem
         from pydub import AudioSegment
         
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3-flash-preview')
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
@@ -2424,7 +2552,7 @@ def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, 
         
         # Configure Gemini
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3-flash-preview')
         
         # Generate aspect ratio config for reference
         aspect_ratio_configs = {
@@ -2823,15 +2951,9 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         self._initialize_gemini_client()
 
     def _initialize_gemini_client(self):
-        """Initialize Gemini client for AI operations."""
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.config.gemini_api_key)
-            self.gemini_client = genai.GenerativeModel('gemini-2.5-flash')
-            logger.info("✅ Gemini client initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Gemini client: {e}")
-            raise
+        """Gemini removed - using only OpenRouter for all AI operations."""
+        self.gemini_client = None
+        logger.info("ℹ️ Using OpenRouter for all AI operations (Gemini disabled)")
         
     async def generate_video_full_parallel(self, topic: str, duration: int, output_filename: Optional[str] = None) -> str:
         """Generate video for all segments in one go: audio → script → video → sync → final concat."""
@@ -2964,12 +3086,17 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
 **NOW GENERATE THE SCRIPT FOR "{topic}" - Make it feel like a fun chat, not a lecture!:**
 """
             
-            response = self.gemini_client.generate_content(prompt)
-            content = response.text.replace("**", "").strip()
-            
-            # Enhanced logging to debug parsing issues
-            logger.info(f"📄 Gemini response received ({len(content)} chars)")
-            logger.debug(f"📄 Full Gemini response:\n{content[:500]}...")  # First 500 chars for debugging
+            # Use OpenRouter for narration generation
+            client = self.openrouter_key_manager.get_client()
+            response = client.chat.completions.create(
+                model=self.narration_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=4096
+            )
+            content = response.choices[0].message.content.replace("**", "").strip()
+            logger.info(f"📄 OpenRouter response received ({len(content)} chars)")
+            logger.debug(f"📄 Full response:\n{content[:500]}...")  # First 500 chars for debugging
 
             segments = []
             current_time = 0.0
@@ -3041,19 +3168,19 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                 current_time += duration
             
             if not segments:
-                logger.warning("⚠️ Gemini segment parsing failed, using fallback...")
-                logger.warning("💡 TIP: Check if Gemini followed the SEGMENT X: Y\\nVISUALS: format")
+                logger.warning("⚠️ AI segment parsing failed, using fallback...")
+                logger.warning("💡 TIP: Check if AI followed the SEGMENT X: Y\\nVISUALS: format")
                 return self._generate_fallback_segments(topic, duration)
             
-            logger.info(f"✅ Generated {len(segments)} segments using Gemini")
+            logger.info(f"✅ Generated {len(segments)} segments using OpenRouter")
             return segments
         except Exception as e:
-            logger.error(f"❌ Gemini narration generation failed: {e}")
+            logger.error(f"❌ AI narration generation failed: {e}")
             # The line below was causing the crash, now the fallback is also fixed.
             return self._generate_fallback_segments(topic, duration)
 
     def _generate_fallback_segments(self, topic: str, duration: int) -> List[NarrationSegment]:
-        """Generate fallback segments if Gemini fails, now including a visual description."""
+        """Generate fallback segments if AI fails, now including a visual description."""
         segment_count = max(3, duration // 10)
         segment_duration = duration / segment_count
         
@@ -3211,10 +3338,16 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                     animation_reference, allowed_colors
                 )
                 
-                # Call Gemini with timeout
+                # Call OpenRouter for script generation
                 logger.info(f"🔄 Generating script for segment {index+1}...")
-                response = self.gemini_client.generate_content(prompt)
-                raw_script = response.text.strip()
+                client = self.openrouter_key_manager.get_client()
+                response = client.chat.completions.create(
+                    model=self.script_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=8192
+                )
+                raw_script = response.choices[0].message.content.strip()
                 
                 # Clean and validate
                 cleaned_script = self._clean_script_response(raw_script, index, segment.duration)
@@ -3280,7 +3413,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
         
         # LAYER 2: AGGRESSIVE RETRY - NO FALLBACKS, KEEP TRYING GEMINI
         if failed_segments:
-            logger.warning(f"⚠️ {len(failed_segments)} segment(s) failed. Retrying with Gemini (NO FALLBACKS)...")
+            logger.warning(f"⚠️ {len(failed_segments)} segment(s) failed. Retrying with OpenRouter (NO FALLBACKS)...")
             
             max_retries = 5  # Try up to 5 times per segment
             
@@ -3319,7 +3452,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
         if failed_segments:
             error_msg = f"❌ CRITICAL: {len(failed_segments)} segment(s) failed after {max_retries} retry attempts: {failed_segments}"
             logger.error(error_msg)
-            logger.error("❌ NO FALLBACK SCRIPTS - Generation must succeed. Please check Gemini API status and prompts.")
+            logger.error("❌ NO FALLBACK SCRIPTS - Generation must succeed. Please check OpenRouter API status and prompts.")
             raise RuntimeError(f"Script generation failed for segments {failed_segments} after {max_retries} retries. No fallback scripts allowed.")
         
         # LAYER 4: Final validation
@@ -4137,16 +4270,20 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
         logger.info(f"   - Max output tokens: {max_tokens} (calculated: {calculated_max_tokens})")
 
 
-        # Call Gemini with dynamic token limit using GenerationConfig
-        generation_config = genai.GenerationConfig(
+        # Call OpenRouter with dynamic token limit
+        client = self.openrouter_key_manager.get_client()
+        response_obj = client.chat.completions.create(
+            model=self.script_model,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_output_tokens=max_tokens,
+            max_tokens=max_tokens
         )
-        
-        response = self.gemini_client.generate_content(
-            prompt,
-            generation_config=generation_config
-        )
+        # Create a response object with .text and .candidates attributes for compatibility
+        class MockResponse:
+            def __init__(self, text):
+                self.text = text
+                self.candidates = None
+        response = MockResponse(response_obj.choices[0].message.content)
         
         # Handle response with finish_reason checking
         if response.candidates:
@@ -4309,8 +4446,15 @@ class Segment{i:03d}(Scene):
 """
             
             try:
-                response = self.gemini_client.generate_content(prompt)
-                raw_script = response.text.strip()
+                # Use OpenRouter for script generation
+                client = self.openrouter_key_manager.get_client()
+                response = client.chat.completions.create(
+                    model=self.script_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=8192
+                )
+                raw_script = response.choices[0].message.content.strip()
                 cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
                 
                 script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
@@ -4378,8 +4522,15 @@ class Segment{i:03d}(Scene):
         self.wait({segment.duration:.2f} - total_time)
 """
 
-            response = self.gemini_client.generate_content(prompt)
-            raw_script = response.text.strip()
+            # Use OpenRouter for script generation
+            client = self.openrouter_key_manager.get_client()
+            response = client.chat.completions.create(
+                model=self.script_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=8192
+            )
+            raw_script = response.choices[0].message.content.strip()
             cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
 
             script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
@@ -4866,18 +5017,18 @@ async def main_optimized():
     """Audio-first optimized main function."""
     import os
     
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
     groq_api_key = os.getenv("GROQ_API_KEY")
     
-    if not gemini_key:
-        raise ValueError("GEMINI_API_KEY environment variable is required.")
+    if not openrouter_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable is required.")
     
     config = VideoGenerationConfig(
-        groq_api_key= groq_api_key,
-        gemini_api_key=gemini_key,
+        groq_api_key=groq_api_key,
+        openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio = "9:16"
+        aspect_ratio="16:9"
     )
     
     try:
@@ -4888,8 +5039,8 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="Water simulation effects", 
-            duration=60,
+            topic="Differentiate between Streaming of Stored Media vs Live Media in detail", 
+            duration=180,
         )
 
         
