@@ -47,17 +47,24 @@ from dotenv import load_dotenv
 # Load environment
 load_dotenv()
 
-# Get configuration - OpenRouter only (Gemini removed)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# Get configuration - Load ALL OpenRouter API keys for rotation
+OPENROUTER_API_KEYS = []
+for key_name in ["OPENROUTER_API_KEY"] + [f"OPENROUTER_API_KEY_{i}" for i in range(2, 10)]:
+    key_value = os.getenv(key_name)
+    if key_value:
+        OPENROUTER_API_KEYS.append(key_value.strip().strip('"'))
+        logger.info(f"✓ Loaded {key_name}")
+
 # Default: 4 uploads per day at 9AM, 12PM, 3PM, 6PM IST (converted to UTC)
 UPLOAD_TIMES = os.getenv("UPLOAD_TIMES", "03:30,06:30,09:30,12:30").split(",")
 AI_TOPIC_GENERATION = os.getenv("AI_TOPIC_GENERATION", "true").lower() == "true"
 
-if not OPENROUTER_API_KEY:
+if not OPENROUTER_API_KEYS:
     logger.error("❌ Missing OPENROUTER_API_KEY! Set it in .env file for all AI operations (topic selection and video generation)")
     sys.exit(1)
 
-logger.info("✅ OpenRouter API key loaded - using for all AI operations")
+OPENROUTER_API_KEY = OPENROUTER_API_KEYS[0]  # Primary key for backward compatibility
+logger.info(f"✅ Loaded {len(OPENROUTER_API_KEYS)} OpenRouter API key(s) for rotation")
 
 logger.info("=" * 70)
 logger.info("🎬 STANDALONE YOUTUBE SHORTS GENERATOR & UPLOADER")
@@ -152,12 +159,12 @@ class StandaloneYouTubeShortsGenerator:
         history_file = str(script_dir / "youtube_shorts_history.json")
         
         if AI_TOPIC_GENERATION:
-            # Pass OpenRouter API key for topic generation
+            # Pass all OpenRouter API keys for rotation
             self.dynamic_content = DynamicContentGenerator(
-                openrouter_api_key=OPENROUTER_API_KEY, 
+                openrouter_api_keys=OPENROUTER_API_KEYS, 
                 history_file=history_file
             )
-            logger.info("🤖 AI dynamic content generation enabled (using OpenRouter)")
+            logger.info(f"🤖 AI dynamic content generation enabled with {len(OPENROUTER_API_KEYS)} API key(s)")
             logger.info(f"📂 Using history file: {history_file}")
         else:
             self.dynamic_content = None
