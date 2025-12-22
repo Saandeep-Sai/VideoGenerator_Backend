@@ -39,12 +39,18 @@ class OpenRouterKeyManager:
         """Load API keys from environment variables"""
         keys = []
         
-        # Try numbered keys first
-        for i in range(1, 10):
-            key_name = f"OPENROUTER_API_KEY_{i}" if i > 1 else "OPENROUTER_API_KEY"
+        # Load primary key
+        primary_key = os.getenv("OPENROUTER_API_KEY")
+        if primary_key:
+            keys.append(primary_key.strip().strip('"'))
+            logger.info("✓ Loaded OPENROUTER_API_KEY")
+        
+        # Load additional numbered keys (_2, _3, _4, etc.)
+        for i in range(2, 10):
+            key_name = f"OPENROUTER_API_KEY_{i}"
             key_value = os.getenv(key_name)
             if key_value:
-                keys.append(key_value)
+                keys.append(key_value.strip().strip('"'))
                 logger.info(f"✓ Loaded {key_name}")
         
         if not keys:
