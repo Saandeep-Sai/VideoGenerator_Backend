@@ -4724,7 +4724,7 @@ class Segment{index:03d}(Scene):
         worker_args = []
         config_dict = {
             'groq_api_key': self.config.groq_api_key,
-            'gemini_api_key': self.config.gemini_api_key,
+            'openrouter_api_key': self.config.openrouter_api_key,
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'manim_quality': self.config.manim_quality,
@@ -4896,7 +4896,7 @@ class Segment{index:03d}(Scene):
         worker_args = []
         config_dict = {
             'groq_api_key': self.config.groq_api_key,
-            'gemini_api_key': self.config.gemini_api_key,
+            'openrouter_api_key': self.config.openrouter_api_key,
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'ffmpeg_timeout': self.config.ffmpeg_timeout,
