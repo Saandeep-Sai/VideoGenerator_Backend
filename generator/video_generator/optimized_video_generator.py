@@ -193,7 +193,7 @@ class VideoGenerationPipeline:
         self.config = config
         self.openrouter_key_manager = None
         self.narration_model = "meta-llama/llama-3.3-70b-instruct:free"
-        self.script_model = "qwen/qwen3-coder:free"
+        self.script_model = "mistralai/devstral-2512:free"
         self.groq_client = None
         self.tts_model = None
         self.tts_available = False
