@@ -328,8 +328,6 @@ Generate the metadata now:"""
         try:
             # Call Gemini with model rotation
             response_text = self._call_gemini_with_rotation(prompt, temperature=0.7)
-                model=self.model_name
-            )
             content = response_text.strip()
             
             # Parse the response
