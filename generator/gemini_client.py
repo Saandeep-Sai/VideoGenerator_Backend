@@ -19,8 +19,8 @@ import os
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -195,11 +195,10 @@ class GeminiRateLimitedClient:
     def _initialize_model(self):
         """Initialize the Gemini model with the current API key."""
         try:
-            genai.configure(api_key=self.api_keys[self.current_key_index])
-            self._current_model = genai.GenerativeModel(self.model_name)
-            logger.debug(f"Initialized model with key index {self.current_key_index}")
+            self._client = genai.Client(api_key=self.api_keys[self.current_key_index])
+            logger.debug(f"Initialized client with key index {self.current_key_index}")
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini model: {e}")
+            logger.error(f"Failed to initialize Gemini client: {e}")
             raise
     
     def _get_next_healthy_key_index(self) -> Optional[int]:
@@ -284,15 +283,20 @@ class GeminiRateLimitedClient:
                     safety_settings=safety_settings
                 )
                 
-                # Validate response
-                if not response.parts or not response.text:
+                # Validate response - new SDK can return None for response.text
+                if response is None:
+                    logger.warning(f"⚠️ Gemini returned None response object")
+                    raise ValueError("None response from Gemini API")
+                
+                if not hasattr(response, 'text') or response.text is None:
                     # Log more details about why response is empty
-                    logger.warning(f"⚠️ Empty response details:")
-                    logger.warning(f"   - response.parts: {response.parts}")
-                    logger.warning(f"   - response.prompt_feedback: {response.prompt_feedback}")
+                    logger.warning(f"⚠️ Empty or missing text in response:")
+                    logger.warning(f"   - response type: {type(response)}")
                     if hasattr(response, 'candidates'):
                         logger.warning(f"   - candidates: {response.candidates}")
-                    raise ValueError("Empty response from Gemini")
+                    if hasattr(response, '__dict__'):
+                        logger.warning(f"   - attributes: {response.__dict__}")
+                    raise ValueError("Empty or None text in Gemini response")
                 
                 # Success!
                 self.key_health[self.current_key_index].mark_success()

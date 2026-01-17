@@ -8,7 +8,7 @@ import logging
 import time
 from typing import List, Optional, Callable, Any
 from functools import wraps
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,9 @@ class GeminiKeyManager:
         return keys
     
     def _configure_current_key(self):
-        """Configure genai with the current API key."""
+        """Configure genai client with the current API key."""
         current_key = self.api_keys[self.current_index]
-        genai.configure(api_key=current_key)
+        self._client = genai.Client(api_key=current_key)
         logger.debug(f"🔑 Using API key index {self.current_index}")
     
     def _is_quota_error(self, error: Exception) -> bool:

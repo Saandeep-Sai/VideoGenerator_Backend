@@ -27,7 +27,7 @@ class DynamicContentGenerator:
             history_file: Path to topic history JSON file
         """
         self.history_file = Path(history_file)
-        self.model_name = "meta-llama/llama-3.3-70b-instruct:free"  # Use Llama for topic generation
+        self.model_name = "meta-llama/llama-3.3-70b-instruct:free"
         
         # Initialize key manager with rotation support
         if openrouter_api_keys:

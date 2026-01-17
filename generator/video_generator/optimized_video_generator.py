@@ -2,6 +2,69 @@
 🚀 OPTIMIZED VIDEO GENERATION PIPELINE
 ========================================
 
+ARCHITECTURE: FOUR-STAGE PIPELINE (ENFORCED)
+=============================================
+
+STAGE 1 — NARRATION + VISUAL DESCRIPTION (Semantic Authority)
+--------------------------------------------------------
+Responsibility: Generate narration segments and high-level visual descriptions ONLY
+Output: narration_text, visual_description (immutable after creation)
+Rules:
+  - No Manim references
+  - No implementation details
+  - Scene intent describes WHAT, not HOW
+  - This data becomes READ-ONLY after generation
+
+STAGE 2 — AUDIO GENERATION (Temporal Authority)
+------------------------------------------------
+Responsibility: Convert narration_text into audio, measure EXACT duration
+Output: audio_path, _audio_duration_final (LOCKED - single source of truth)
+Rules:
+  - Audio duration is FINAL and immutable
+  - Downstream stages MUST conform to this duration
+  - No script regeneration based on audio length
+
+STAGE 3 — MANIM SCRIPT GENERATION (Implementation Only)
+--------------------------------------------------------
+Responsibility: Generate Manim scripts that implement visual_description
+PRIMARY PATH: Bulk generation (1 API call for all segments)
+FAIL-SAFE PATH: Per-segment generation (triggered on validation failure)
+
+Input (READ-ONLY):
+  - narration_text (from Stage 1)
+  - visual_description (from Stage 1)
+  - _audio_duration_final (from Stage 2)
+  - aspect_ratio
+
+Rules:
+  - Each segment = ONE script file = ONE Scene class
+  - No creative reinterpretation
+  - Total animation time MUST equal _audio_duration_final
+  - Cannot modify narration or audio duration
+  - Bulk validation routes failures to fail-safe path
+
+STAGE 4 — SCRIPT CORRECTION (Structural Repair Only)
+-----------------------------------------------------
+Responsibility: Fix broken Manim scripts ONLY
+Allowed: Syntax fixes, Manim API fixes, layout overlap fixes
+Forbidden: Changing narration, visual description, timing semantics, visual concepts
+
+Rules:
+  - Corrections cannot cross segment boundaries
+  - Retries never regenerate narration or audio
+  - Must preserve animation intent and timing logic
+
+GLOBAL RULES (ABSOLUTE)
+========================
+1. Each video segment is fully independent
+2. One segment → one script → one video file
+3. Bulk script generation is PRIMARY path
+4. Per-segment generation is FAIL-SAFE only
+5. Failures isolated to current segment
+6. Completed segments never invalidated
+7. Audio duration is FINAL (temporal authority)
+8. Narration + visual_description are IMMUTABLE (semantic authority)
+
 OPTION A QUICK WINS IMPLEMENTED (35-40% speed improvement):
 -----------------------------------------------------------
 ✅ 1. SMART UPDATER DETECTION (Balanced approach - speed + quality)
@@ -52,22 +115,14 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass , asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List, Optional, Tuple
-from pydub import AudioSegment
-import torchaudio as ta
-import torchaudio.functional as F
-
 
 # Third-party imports
-import numpy as np
 from dotenv import load_dotenv
 from groq import Groq
 from pydub import AudioSegment
-
-# API and ML imports
-from openai import OpenAI
 
 # Import OpenRouterKeyManager with fallback for direct execution
 try:
@@ -79,12 +134,10 @@ except ImportError:
 
 # TTS import with robust error handling
 
-# Setup logging
+# Setup logging with DEBUG level temporarily to diagnose key rotation
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 load_dotenv()
-
-from typing import Optional
 
 @dataclass
 class NarrationSegment:
@@ -92,10 +145,11 @@ class NarrationSegment:
     end_time: float
     duration: float
     text: str
-    visual_description: str
+    visual_description: str  # Stage 1: High-level visual description (immutable)
     audio_path: Optional[str] = None
     script_path: Optional[str] = None
-    video_path: Optional[str] = None  # Added this field
+    video_path: Optional[str] = None
+    _audio_duration_final: Optional[float] = None  # Stage 2: Temporal authority (immutable)
 
 class EdgeTTSWrapper:
     """Enhanced Edge TTS wrapper with retry logic and custom headers."""
@@ -148,7 +202,7 @@ class VideoGenerationConfig:
     # E2.Micro resource limits
     memory_limit_mb: int = 800  # Leave 200MB for system
     max_concurrent_tts: int = 1  # Only 1 TTS at a time
-    aspect_ratio: str = "16:9"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
+    aspect_ratio: str = "9:16"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     video_type: str = "regular"  # Options: "regular", "short"
     
     def __post_init__(self):
@@ -192,10 +246,11 @@ class VideoGenerationPipeline:
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
         self.openrouter_key_manager = None
-        self.narration_model = "meta-llama/llama-3.3-70b-instruct:free"
-        self.script_model = "mistralai/devstral-2512:free"
+        self.gemini_models = ["gemini-3-flash-preview","gemini-2.5-flash", "gemini-2.5-flash-lite"]
+        self.current_gemini_model_index = 0
+        self.groq_correction_models = ["llama-3.1-8b-instant"]
         self.groq_client = None
-        self.tts_model = None
+        self.tts_model = None   
         self.tts_available = False
         self.output_dir = Path(config.output_dir)
         self.device = "cpu"
@@ -318,11 +373,13 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
 
     def _setup_openrouter(self) -> None:
         try:
-            # Initialize OpenRouterKeyManager for automatic rotation across all keys
+            # Initialize OpenRouterKeyManager for STAGE 3: Script Correction (fallback only)
+            # Note: Scripts are now generated by Gemini (Stage 2), OpenRouter is only used for correction fallback
             self.openrouter_key_manager = OpenRouterKeyManager()
             logger.info(f"✅ OpenRouterKeyManager initialized with {self.openrouter_key_manager.get_stats()['total_keys']} key(s)")
-            logger.info(f"📝 Narration Model: {self.narration_model}")
-            logger.info(f"🎬 Script Model: {self.script_model}")
+            logger.info(f"🧠 STAGE 1 (Narration): Gemini with rotation ({', '.join(self.gemini_models)})")
+            logger.info(f"🎬 STAGE 2 (Scripts): Gemini with rotation (bulk + per-segment fallback)")
+            logger.info(f"🔧 STAGE 3 (Correction): Groq (llama-3.1-8b-instant) → OpenRouter (fallback)")
 
         except Exception as e:
             logger.error(f"Failed to initialize OpenRouter: {e}")
@@ -418,7 +475,13 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
 📋 TASK: Create a {duration}-second educational video script about "{topic}" optimized for {self.config.aspect_ratio} aspect ratio.
 
 🎯 OUTPUT FORMAT (STRICT):
-SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [detailed_visual_description]
+SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
+
+⚠️ VISUAL_DESCRIPTION FORMAT (CRITICAL):
+- Describe WHAT should be shown visually (brief conceptual phrase)
+- Keep it simple - one short phrase only
+- NO Manim code references
+- Example: "blue circle diagram" or "text with arrows" NOT complex descriptions
 
 ⚠️ CRITICAL REQUIREMENTS:
 
@@ -434,13 +497,17 @@ SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [detailed_visual_des
    - Build narrative flow: hook → explain → reinforce → conclude
    - Avoid filler words, be direct and engaging
 
-3. **VISUAL DESCRIPTION REQUIREMENTS (CRITICAL FOR MANIM):**
+3. **VISUAL DESCRIPTION REQUIREMENTS (CRITICAL FOR AUDIO-VIDEO SYNC):**
+   - Visuals MUST directly illustrate what's being said in narration
+   - If narration mentions "functions", show function diagrams immediately
+   - If narration says "three steps", display exactly three visual elements
+   - Timing: Visual actions should match narration beats (e.g., "First" → show item 1, "Then" → show item 2)
    - Be SPECIFIC about what should appear on screen
    - Describe shapes, colors, text content, animations, transitions
    - Aspect ratio consideration: {visual_guide}
    - Mention object positions (top, center, bottom, left, right)
    - Specify colors from: BLUE, RED, GREEN, YELLOW, WHITE, ORANGE, PINK, PURPLE, TEAL, GOLD
-   - Example: "Display blue circle at center, title 'Functions' at top in white text, animate arrow pointing down"
+   - Example: "Display blue circle at center labeled 'Function', title 'How Functions Work' at top, animate arrow pointing from 'Input' to 'Output' as narration explains flow"
    
 4. **VISUAL COMPLEXITY LEVELS:**
    - Simple: 1-2 objects (text + shape)
@@ -510,7 +577,7 @@ Generate the segments now (output ONLY the SEGMENT lines, no extra text):
                 if not line.strip().startswith("SEGMENT:"):
                     continue
                 try:
-                    # SEGMENT: 5 | [Calm] ... | show diagram ...
+                    # SEGMENT: 5 | [Calm] ... | blue circle diagram ...
                     segment_data = line.strip()[len("SEGMENT:"):].strip()
                     parts = segment_data.split("|", maxsplit=2)
                     if len(parts) < 3:
@@ -741,6 +808,7 @@ Continue for all {len(batch_segments)} segments. Output ONLY scripts with separa
 
     def _generate_individual_script(self, segment: NarrationSegment, segment_number: int) -> str:
         """Generate a single script for one segment with retry logic."""
+        logger.info(f"🎬 ENTERING _generate_individual_script for segment {segment_number}")
         
         # Get aspect ratio configuration
         aspect_ratio_config = self._get_aspect_ratio_config()
@@ -798,17 +866,28 @@ Content: {segment.text}
 Visual: {segment.visual_description}
 Aspect Ratio: {self.config.aspect_ratio}
 
+� CRITICAL AUDIO-VIDEO SYNCHRONIZATION RULE:
+═══════════════════════════════════════════════════════════════
+⚠️ The visuals MUST match what's being said in the narration!
+  • If narration says "three types", show exactly THREE items on screen
+  • If narration mentions "comparison", show side-by-side comparison
+  • If narration says "process", show step-by-step flow with arrows
+  • Timing: Spread animations evenly across the {segment.duration} seconds
+  • Key words in narration = visual elements on screen
+
 🎬 ANIMATION QUALITY REQUIREMENTS (CRITICAL!):
 ═══════════════════════════════════════════════════════════════
 ✨ Your animations must be:
   • VISUALLY STUNNING - Use professional effects, not basic FadeIn/FadeOut
   • DYNAMIC & ENGAGING - Multiple animation types, smooth transitions
+  • PERFECTLY SYNCED - Visuals appear as narration mentions them
   • PROFESSIONALLY STYLED - Gradients, colors, glows, proper spacing
   • ATTENTION-GRABBING - Use emphasis animations (Circumscribe, Flash, Indicate)
   • SMOOTH & POLISHED - Always use rate_func=smooth, proper run_times
+  • INTERACTIVE FEEL - Use transforms, morphs, reveals that respond to narration
 
 🚨 BANNED: Plain FadeIn/FadeOut only scripts will be REJECTED!
-✅ REQUIRED: Use 3-5 different animation techniques per segment
+✅ REQUIRED: Use 5-8 different animation techniques per segment for maximum engagement
 
 📚 ANIMATION REFERENCE:
 {self.animation_reference}
@@ -818,54 +897,74 @@ Aspect Ratio: {self.config.aspect_ratio}
 
 🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES (MUST FOLLOW):
 
-1. **MANDATORY TEXT WIDTH CONSTRAINT:**
-   - EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
-   - NO EXCEPTIONS - even single words need scaling
-   - Example: text.scale_to_fit_width({max_text_width})
+**⛔ WARNING: Elements going off-screen is the #1 video generation failure cause!**
 
-2. **STRICT FONT SIZE LIMITS:**
-   - Titles: MAX {max_font_title}px (NEVER exceed this)
-   - Body text: MAX {max_font_body}px (NEVER exceed this)
-   - Small text: MAX {max_font_body - 6}px
-
-3. **MANDATORY VERTICAL SPACING (CRITICAL!):**
-   - Minimum 1.5 units between ANY two text objects
-   - Use .next_to(other_object, DOWN, buff=1.5) or similar
-   - NEVER place text closer than 1.5 units vertically
+1. **MANDATORY TEXT WIDTH CONSTRAINT (PREVENTS OFF-SCREEN):**
+   - ⚠️ EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
+   - ⛔ NO EXCEPTIONS - even single words need scaling
+   - ⛔ FORBIDDEN: Creating Text without .scale_to_fit_width() call
    - Example: 
-     title.move_to(UP * 3)
-     content.move_to(ORIGIN)  # 3 units apart - GOOD
+     ```python
+     title = Text("Title", font_size=48)
+     title.scale_to_fit_width({max_text_width})  # MANDATORY - DO NOT SKIP!
+     ```
+
+2. **STRICT FONT SIZE LIMITS (PREVENTS OVERFLOW):**
+   - ⛔ Titles: ABSOLUTE MAX {max_font_title}px (exceeding this = off-screen)
+   - ⛔ Body text: ABSOLUTE MAX {max_font_body}px (exceeding this = off-screen)
+   - ⛔ Small text: ABSOLUTE MAX {max_font_body - 6}px
+   - Using larger sizes will push elements beyond screen boundaries!
+
+3. **MANDATORY VERTICAL SPACING (PREVENTS OVERLAP/OFF-SCREEN):**
+   - ⛔ MINIMUM 1.5 units between ANY two text objects
+   - ✅ Use .next_to(other_object, DOWN, buff=1.5) or similar
+   - ❌ NEVER place text closer than 1.5 units vertically
+   - Example: 
+     ```python
+     title.move_to(UP * 2.5)    # Safe position
+     content.move_to(ORIGIN)    # 2.5 units apart - GOOD
+     # ❌ BAD: content.move_to(UP * 1.5)  # Only 1 unit apart - TOO CLOSE!
+     ```
      
-4. **HORIZONTAL SPACING:**
-   - Leave 1 unit margin from left/right edges
-   - Objects side-by-side: minimum 2 units apart horizontally
-   - Use .shift(LEFT * 3) or .shift(RIGHT * 3) for separation
+4. **HORIZONTAL SPACING (PREVENTS OFF-SCREEN):**
+   - ⛔ MANDATORY: Leave 1 unit margin from left/right edges
+   - ✅ Objects side-by-side: minimum 2 units apart horizontally
+   - ✅ Use .shift(LEFT * 3) or .shift(RIGHT * 3) for separation
+   - ❌ NEVER: .shift(LEFT * 8) or .shift(RIGHT * 8) - goes off-screen!
 
-5. **POSITION GRID (MUST USE ONLY THESE POSITIONS):**
+5. **⛔ FORBIDDEN POSITIONS (WILL GO OFF-SCREEN - NEVER USE):**
+   - ❌ UP * 3.5 or higher (goes off top of screen)
+   - ❌ DOWN * 3.5 or lower (goes off bottom of screen)
+   - ❌ LEFT * 7 or beyond (goes off left edge)
+   - ❌ RIGHT * 7 or beyond (goes off right edge)
+
+6. **✅ SAFE POSITION GRID (USE ONLY THESE):**
    For {self.config.aspect_ratio}:
-   - TOP zone: UP * {6 if self.config.aspect_ratio == "9:16" else 3} to UP * {4 if self.config.aspect_ratio == "9:16" else 2}
-   - MIDDLE zone: UP * 1 to DOWN * 1
-   - BOTTOM zone: DOWN * {2 if self.config.aspect_ratio == "9:16" else 2} to DOWN * {6 if self.config.aspect_ratio == "9:16" else 3}
-   - NEVER overlap zones!
+   - ✅ TOP zone: UP * 2.5, UP * 2, UP * 1.5 (SAFE)
+   - ✅ MIDDLE zone: UP * 0.5, ORIGIN, DOWN * 0.5 (SAFE)
+   - ✅ BOTTOM zone: DOWN * 1.5, DOWN * 2, DOWN * 2.5 (SAFE)
+   - ⛔ NEVER use UP * 4, DOWN * 4 or beyond!
 
-6. **TEXT LENGTH HANDLING:**
+7. **TEXT LENGTH HANDLING (PREVENTS OVERFLOW):**
    - Text > 50 chars: MUST split into 2-3 Text objects, stack vertically
    - Text > 100 chars: MUST split into 3-4 Text objects
    - Use smaller font_size for long text (reduce by 20%)
+   - Each piece MUST have .scale_to_fit_width()
 
-7. **SAFE POSITIONING CHECKLIST:**
+8. **SAFE POSITIONING CHECKLIST (VERIFY BEFORE SUBMITTING):**
    ✓ Every text has .scale_to_fit_width({max_text_width})
-   ✓ Font sizes within limits
+   ✓ Font sizes within absolute limits
    ✓ Vertical spacing >= 1.5 units
    ✓ Horizontal margin >= 1 unit from edges
-   ✓ No two objects in same zone
+   ✓ Using ONLY safe positions (UP*2.5 max, DOWN*2.5 max)
+   ✓ No forbidden positions (UP*4, DOWN*4, LEFT*8, RIGHT*8)
    ✓ Long text split into multiple lines
 
 📐 PROFESSIONAL EXAMPLE (COPY THIS PATTERN FOR STUNNING RESULTS):
 ```python
-# ✨ PROFESSIONAL: Engaging animations, proper spacing, beautiful styling
+# ✨ PROFESSIONAL: Engaging animations, perfect audio-video sync, beautiful styling
 
-# 1. DRAMATIC TITLE REVEAL
+# 1. DRAMATIC TITLE REVEAL (matches narration opening)
 title = Text("Educational Topic", font_size={max_font_title}, weight=BOLD)
 title.set_color_by_gradient(BLUE, PURPLE)  # Gradient = professional!
 title.scale_to_fit_width({max_text_width})  # MANDATORY
@@ -874,14 +973,14 @@ self.play(DrawBorderThenFill(title, run_time=1.5), rate_func=smooth)  # Smooth e
 self.play(Circumscribe(title, color=YELLOW, buff=0.2))  # Emphasize title
 self.wait(0.3)  # Let it breathe
 
-# 2. SUBTITLE WITH STYLE
+# 2. SUBTITLE WITH STYLE (appears as narration mentions key concept)
 subtitle = Text("Key Concept", font_size={max_font_body}, color=YELLOW)
 subtitle.scale_to_fit_width({max_text_width})  # MANDATORY  
 subtitle.move_to(UP * {"2" if self.config.aspect_ratio == "9:16" else "1"})  # MIDDLE zone, 1.5+ units below
 self.play(Write(subtitle, run_time=1.2))  # Classic write effect
 self.wait(0.3)
 
-# 3. CONTENT WITH EMPHASIS
+# 3. CONTENT WITH EMPHASIS (synced with narration explaining main point)
 content = Text("Main point here", font_size={max_font_body})
 content.scale_to_fit_width({max_text_width})  # MANDATORY
 content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "DOWN * 0.5"})  # MIDDLE zone
@@ -889,50 +988,100 @@ self.play(FadeIn(content, shift=DOWN*0.5, run_time=1.0))  # Slide in smoothly
 self.play(Flash(content, color=YELLOW), Indicate(content, scale_factor=1.2))  # Attention!
 self.wait(0.4)
 
-# 4. SHAPE WITH PROFESSIONAL STYLING
+# 4. INTERACTIVE TRANSFORMATION (creates visual interest)
 circle = Circle(radius=0.8, color=BLUE)
 circle.set_fill(BLUE, opacity=0.7)  # Semi-transparent fill
 circle.set_stroke(WHITE, width=3)  # White outline
 circle.move_to(DOWN * {"4" if self.config.aspect_ratio == "9:16" else "2.5"})  # BOTTOM zone
 self.play(GrowFromCenter(circle, run_time=1.2))  # Grow animation
+self.wait(0.2)
+
+# 5. MORPH FOR ENGAGEMENT (circle transforms to square)
+square = Square(side_length=1.5, color=GREEN).move_to(circle.get_center())
+square.set_fill(GREEN, opacity=0.7)
+self.play(Transform(circle, square, run_time=1.3))  # Smooth morph
 self.wait(0.3)
 
-# 5. CLEAN EXIT
+# 6. CLEAN EXIT
 everything = VGroup(title, subtitle, content, circle)
 self.play(FadeOut(everything, shift=DOWN*0.5, run_time=1.0))  # Smooth exit
 ```
 
 💡 NOTICE THE DIFFERENCE:
-  ✅ Multiple animation types (DrawBorderThenFill, Write, FadeIn, GrowFromCenter)
+  ✅ Multiple animation types (DrawBorderThenFill, Write, FadeIn, GrowFromCenter, Transform)
   ✅ Color gradients and styling (set_color_by_gradient, set_fill, set_stroke)
   ✅ Emphasis effects (Circumscribe, Flash, Indicate)
   ✅ Smooth timing (rate_func=smooth, strategic wait() calls)
   ✅ Professional pacing (run_time 1.0-1.5s, not rushed)
-  ✅ Visual variety keeps viewer engaged!
+  ✅ Interactive transformations (Transform, ReplacementTransform for dynamic feel)
+  ✅ Perfect audio-video sync (visuals match narration timing)
+  ✅ Visual variety keeps viewer engaged and entertained!
 
-❌ WRONG EXAMPLES (NEVER DO THIS):
+❌ WRONG EXAMPLES (NEVER DO THIS - CAUSES OFF-SCREEN ELEMENTS):
 ```python
-# BAD: No scale_to_fit_width
+# ❌ BAD #1: No scale_to_fit_width - TEXT GOES OFF-SCREEN!
 title = Text("Long title here", font_size=48)
-title.move_to(UP * 2)  # WRONG! Missing .scale_to_fit_width()
+title.move_to(UP * 2)  # FATAL ERROR! Missing .scale_to_fit_width() - text will be invisible!
 
-# BAD: Objects too close
+# ✅ CORRECT VERSION:
+title = Text("Long title here", font_size=48)
+title.scale_to_fit_width(config.frame_width * 0.85)  # NOW it fits on screen!
 title.move_to(UP * 2)
-subtitle.move_to(UP * 1.5)  # WRONG! Only 0.5 units apart (minimum is 1.5)
 
-# BAD: Exceeded font size
-huge_text = Text("Text", font_size=72)  # WRONG! Exceeds {max_font_title}px limit
+# ❌ BAD #2: Extreme position - GOES OFF-SCREEN!
+title.move_to(UP * 4)  # FATAL! Goes above screen boundary - invisible!
+subtitle.move_to(DOWN * 4)  # FATAL! Goes below screen boundary - invisible!
 
-# BAD: Long text not split
-long_text = Text("This is a very long sentence that will definitely overflow", font_size=36)  # WRONG! Must split
+# ✅ CORRECT VERSION:
+title.move_to(UP * 2)  # Safe position - stays visible
+subtitle.move_to(DOWN * 2)  # Safe position - stays visible
+
+# ❌ BAD #3: Objects too close - OVERLAP OR GO OFF-SCREEN!
+title.move_to(UP * 2)
+subtitle.move_to(UP * 1.5)  # WRONG! Only 0.5 units apart (minimum is 1.5) - causes overlap!
+
+# ✅ CORRECT VERSION:
+title.move_to(UP * 2)
+subtitle.move_to(ORIGIN)  # 2 units apart - safe spacing!
+
+# ❌ BAD #4: Exceeded font size - OVERFLOWS OFF-SCREEN!
+huge_text = Text("Text", font_size=72)  # FATAL! Exceeds {max_font_title}px limit - will overflow!
+
+# ✅ CORRECT VERSION:
+text = Text("Text", font_size={max_font_title})
+text.scale_to_fit_width(config.frame_width * 0.85)  # Safe and visible!
+
+# ❌ BAD #5: Long text not split - GOES OFF-SCREEN!
+long_text = Text("This is a very long sentence that will definitely overflow", font_size=36)
+# FATAL! Long text without splitting or scaling - invisible!
+
+# ✅ CORRECT VERSION:
+line1 = Text("This is a very long sentence", font_size=36)
+line1.scale_to_fit_width(config.frame_width * 0.85)
+line1.move_to(UP * 1.5)
+line2 = Text("that will definitely overflow", font_size=36)
+line2.scale_to_fit_width(config.frame_width * 0.85)
+line2.move_to(ORIGIN)  # Split into multiple lines, both scaled!
+
+# ❌ BAD #6: Horizontal overflow - GOES OFF LEFT/RIGHT EDGE!
+text.move_to(LEFT * 8)  # FATAL! Too far left - invisible!
+text.move_to(RIGHT * 8)  # FATAL! Too far right - invisible!
+
+# ✅ CORRECT VERSION:
+text.move_to(LEFT * 3)  # Safe horizontal position
+text.move_to(RIGHT * 3)  # Safe horizontal position
 ```
+
+**🚨 REMEMBER: Every mistake above makes elements INVISIBLE to viewers!**
+**✅ ALWAYS use .scale_to_fit_width() and SAFE positions!**
 
 🎬 PROFESSIONAL ANIMATION REQUIREMENTS:
 ═══════════════════════════════════════════════════════════════
-✨ MANDATORY TECHNIQUES (Use 3-5 per segment):
+✨ MANDATORY TECHNIQUES (Use 5-8 per segment for maximum engagement):
   1. ENTRY ANIMATIONS:
      - Write(), DrawBorderThenFill(), GrowFromCenter() for text
-     - Create(), FadeIn(shift=DOWN*0.5) for shapes
+     - Create(), FadeIn(shift=DOWN*0.5), Succession() for shapes
+     - SpinInFromNothing(), GrowFromEdge() for dynamic reveals
      - NO plain text.move_to() without animation!
   
   2. EMPHASIS EFFECTS (Use on key points!):
@@ -940,22 +1089,34 @@ long_text = Text("This is a very long sentence that will definitely overflow", f
      - Flash(color=YELLOW, flash_radius=0.5)
      - Indicate(scale_factor=1.2-1.3)
      - Wiggle() for playful emphasis
+     - ApplyWave() for attention-grabbing effects
   
-  3. PROFESSIONAL STYLING:
+  3. INTERACTIVE TRANSFORMATIONS (CRITICAL for engagement!):
+     - Transform(obj1, obj2) for morphing between shapes
+     - ReplacementTransform() for smooth replacements
+     - TransformMatchingShapes() for complex transitions
+     - Rotate(), Scale(), Shift() with .animate for fluid motion
+     - These create the "interactive feel" users want!
+  
+  4. PROFESSIONAL STYLING:
      - Use .set_color_by_gradient(COLOR1, COLOR2) for titles
      - Add .set_stroke(WHITE, width=2-3) for text outlines
      - Use .set_fill(COLOR, opacity=0.7-0.9) for shapes
      - SurroundingRectangle for boxing key content
+     - BackgroundRectangle for text readability
   
-  4. SMOOTH TRANSITIONS:
+  5. SMOOTH TRANSITIONS:
      - Always use rate_func=smooth
      - run_time between 1.2-1.8 seconds (not too fast!)
      - Use .animate.shift().scale() for movements
      - AnimationGroup with lag_ratio=0.2-0.3 for sequences
+     - Succession() for cascading reveals
   
-  5. TIMING & PACING:
+  6. TIMING & PACING (CRITICAL for audio-video sync!):
      - Add self.wait(0.3-0.5) between major sections
      - Use different speeds: quick emphasis (0.8s), standard (1.2s), dramatic (1.8s)
+     - Total animation time should match segment duration
+     - Spread animations evenly - don't cluster at start/end
      - Never rush - let animations breathe!
 
 🎨 VISUAL EXCELLENCE CHECKLIST:
@@ -965,7 +1126,11 @@ long_text = Text("This is a very long sentence that will definitely overflow", f
   ✅ Professional colors (not plain white/black)
   ✅ Sequenced reveals (lag_ratio for lists)
   ✅ Strategic wait times (0.3-0.5s pauses)
+  ✅ Interactive transformations (Transform, ReplacementTransform)
+  ✅ Dynamic movements (Rotate, Scale with .animate)
   ✅ Clean exits (FadeOut with shift)
+  ✅ Perfect audio-video sync (visuals match narration)
+  ✅ 5-8 different animation types per segment
 
 ❌ AVOID (These make videos look amateur):
   ❌ Only FadeIn/FadeOut (boring!)
@@ -973,6 +1138,9 @@ long_text = Text("This is a very long sentence that will definitely overflow", f
   ❌ Rushed animations (run_time < 0.8s)
   ❌ Plain white text only
   ❌ No color variety
+  ❌ No transformations or morphing
+  ❌ Static objects (everything should animate!)
+  ❌ Visuals don't match narration content
   ❌ Jerky movements (missing rate_func=smooth)
 
 Technical Requirements:
@@ -1106,60 +1274,61 @@ class GeneratedAnimation{segment_number}(Scene):
         script = re.sub(r'```(python\s*)?|\s*```', '', script)
         return script.strip()
 
-    def _correct_script_with_groq(self, broken_script: str, error_context: str) -> str:
-        """Use Groq to fix broken scripts."""
+    def _correct_script_with_groq(self, broken_script: str, error_context: str, segment: NarrationSegment = None) -> str:
+        """
+        STAGE 4: Script Correction (Structural Repair Only)
+        
+        Use Groq to fix broken scripts while enforcing strict constraints:
+        - Can fix: Syntax errors, Manim API errors, layout overlaps
+        - Cannot change: Narration content, scene intent, timing semantics
+        """
         if not self.groq_client:
             return broken_script
         
-        prompt = f"""You are a world-class, meticulous debugging AI. Your sole purpose is to fix a broken Manim script and provide a complete, production-ready file. You are a machine that outputs code, not a conversational assistant.
+        prompt = f"""You are a STRICT code repair engine.
 
-Your mission is to analyze the provided error log and the broken source code, identify the root cause of the error, and then rewrite the **entire script** from top to bottom to fix it.
+The script below FAILED at runtime.
+Your job is to FIX ERRORS ONLY.
 
----
+ABSOLUTE RULES:
+- DO NOT change visuals
+- DO NOT change layout
+- DO NOT change positions
+- DO NOT change animation order
+- DO NOT change timing or duration
+- DO NOT add or remove objects
+- DO NOT add new animations
+- DO NOT remove scale_to_fit_width calls
+- DO NOT introduce creativity
 
-### **Error Log Analysis**
+ALLOWED FIXES ONLY:
+- Syntax errors
+- Missing imports
+- Incorrect Manim API usage
+- Attribute or method name errors
+- Runtime exceptions
 
-This is the `stderr` output from the failed Manim execution. Analyze it carefully to understand the failure.
+You MUST preserve:
+- Aspect ratio behavior
+- Object count
+- Object positions
+- Total duration EXACTLY
 
-```
+Return the FULL corrected Python script.
+Return ONLY raw code.
+No explanations.
+
+ERROR:
 {error_context}
-```
 
----
-
-### **Broken Source Code**
-
-This is the complete script that produced the error above.
-
-```python
+SCRIPT:
 {broken_script}
-```
-
----uu
-
-### **CRITICAL DIRECTIVES**
-
-You must follow these two rules absolutely. There are no exceptions.
-
-1.  **COMPLETE REWRITE REQUIRED:** You **MUST** rewrite the entire script from the first line to the last. Do **NOT** use comments like `... (rest of the code remains the same)` or `...`. The output must be a complete, standalone, and executable Python file. Assume the user cannot see the original script and needs the full corrected version.
-
-2.  **RAW CODE OUTPUT ONLY:** The output format is non-negotiable. Your **ENTIRE** response must be raw Python code, starting directly with the first line of the script (e.g., `from manim import *`). Do **NOT** include:
-    *   Any introductory text like "Here is the corrected code:".
-    *   Any explanations, apologies, or closing remarks.
-    -   Any Markdown formatting like ```python or ```.
-
-Your response will be directly saved to a `.py` file and executed. Any non-code text will cause the program to crash.
-No text like 'here is your corrected script' or 'Here is the rewritten script' or anything else should be given in the responce, only the program should be there.
----
-
-Begin your response now.
-
 """
         
         try:
             chat_completion = self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}], 
-                model="llama3-8b-8192", 
+                model="llama-3.1-8b-instant", 
                 temperature=0.1, 
                 max_tokens=4096
             )
@@ -1786,26 +1955,13 @@ Begin your response now.
 # If you need to test the base class, use OptimizedVideoGenerationPipeline instead
 # ============================================================================
 
-
 import asyncio
 import concurrent.futures
 import multiprocessing as mp
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-import time
-from pathlib import Path
-import logging
-from typing import List, Optional, Tuple
-import subprocess
-import tempfile
-import os
-import re
-import json
-from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import threading
 from queue import Queue
 import psutil
-
-# Import your existing classes
 
 logger = logging.getLogger(__name__)
 _singleton_pipeline = None
@@ -1821,12 +1977,19 @@ def render_single_video_worker(args):
 
     try:
         
+        # Extract openrouter_key_manager before creating config (it's not part of VideoGenerationConfig)
+        openrouter_key_manager = config_dict.pop('openrouter_key_manager', None)
+        
         # Initialize the singleton pipeline only once per process
         if _singleton_pipeline is None:
             config = VideoGenerationConfig(**config_dict)
             _singleton_pipeline = VideoGenerationPipeline(config)
 
         pipeline = _singleton_pipeline
+        
+        # Re-add key manager to config_dict for use by correction functions
+        if openrouter_key_manager:
+            config_dict['openrouter_key_manager'] = openrouter_key_manager
 
         script_path = segment_data['script_path']
         video_output_dir = segment_data['video_output_dir']
@@ -1845,9 +2008,11 @@ def render_single_video_worker(args):
         total_attempts = 0
         correction_cycle = 0
         regeneration_count = 0
+        last_correction_applied = False
         
-        # Phase 1: Try corrections with Gemini/Groq (limited to 3 attempts for quick regeneration)
-        while correction_cycle < max_correction_attempts:
+        # Phase 1: Try corrections with Groq/OpenRouter
+        # Loop allows: render attempt → correction → render attempt (to test correction)
+        while correction_cycle <= max_correction_attempts:
             total_attempts += 1
             video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
 
@@ -1859,19 +2024,32 @@ def render_single_video_worker(args):
                 logger.info(f"✅ Video {i+1} saved to: {expected_path} (after {total_attempts} attempts)")
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
 
-            logger.warning(f"⚠️ Video {i+1} correction attempt {correction_cycle + 1}/{max_correction_attempts} failed: {error[:200]}")
+            # If we just tested the last correction and it failed, break
+            if correction_cycle >= max_correction_attempts:
+                logger.warning(f"⚠️ Video {i+1} final correction test failed: {error[:200]}")
+                break
             
-            # Try fixing with Gemini or Groq
+            logger.warning(f"⚠️ Video {i+1} attempt {total_attempts} failed: {error[:200]}")
+            
+            # STAGE 3: Correction ladder (strict order)
             correction_cycle += 1
-            if correction_cycle % 2 == 1:  # Odd attempts: use Gemini
-                logger.info(f"🔧 Fixing script {i+1} with Gemini (correction {correction_cycle})")
-                script_content = _fix_script_errors_with_gemini(
-                    script_content, error, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
-                )
-            else:  # Even attempts: use Groq
-                logger.info(f"🔧 Fixing script {i+1} with Groq (correction {correction_cycle})")
+            if correction_cycle == 1:
+                logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 1)")
                 script_content = _fix_script_errors_with_groq(
-                    script_content, error, i, config_dict['groq_api_key'], config_dict.get('aspect_ratio', '16:9')
+                    script_content, error, i, config_dict['groq_api_key'], 
+                    config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                )
+            elif correction_cycle == 2:
+                logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 2)")
+                script_content = _fix_script_errors_with_groq(
+                    script_content, error, i, config_dict['groq_api_key'],
+                    config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                )
+            elif correction_cycle == 3:
+                logger.info(f"🔧 STAGE 3: Fixing with OpenRouter (final attempt)")
+                script_content = _fix_script_errors_with_openrouter(
+                    script_content, error, i, config_dict['openrouter_key_manager'], 
+                    config_dict.get('aspect_ratio', '16:9'), segment_data
                 )
             Path(script_path).write_text(script_content, encoding="utf-8")
         
@@ -1888,7 +2066,7 @@ def render_single_video_worker(args):
             try:
                 # Regenerate script from scratch using enhanced function
                 script_content = _regenerate_script_from_scratch_enhanced(
-                    segment_data, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
+                    segment_data, i, config_dict['openrouter_key_manager'], config_dict.get('aspect_ratio', '16:9')
                 )
                 Path(script_path).write_text(script_content, encoding="utf-8")
                 
@@ -1906,19 +2084,25 @@ def render_single_video_worker(args):
                     # Regenerated script failed - try fixing it before regenerating again
                     logger.warning(f"⚠️ Regeneration {regeneration_count} failed, attempting to fix it: {error[:200]}")
                     
-                    # Try 3 quick corrections on the regenerated script
+                    # Try 3 quick corrections on the regenerated script (correction ladder)
                     for fix_attempt in range(3):
                         total_attempts += 1
-                        logger.info(f"🔧 Fixing regenerated script {i+1} (fix attempt {fix_attempt + 1}/3)")
+                        logger.info(f"🔧 STAGE 3: Fixing regenerated script {i+1} (attempt {fix_attempt + 1}/3)")
                         
-                        # Alternate between Gemini and Groq for fixes
-                        if fix_attempt % 2 == 0:
-                            script_content = _fix_script_errors_with_gemini(
-                                script_content, error, i, config_dict['gemini_api_key'], config_dict.get('aspect_ratio', '16:9')
+                        if fix_attempt == 0:
+                            script_content = _fix_script_errors_with_groq(
+                                script_content, error, i, config_dict['groq_api_key'],
+                                config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                            )
+                        elif fix_attempt == 1:
+                            script_content = _fix_script_errors_with_groq(
+                                script_content, error, i, config_dict['groq_api_key'],
+                                config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
                             )
                         else:
-                            script_content = _fix_script_errors_with_groq(
-                                script_content, error, i, config_dict['groq_api_key'], config_dict.get('aspect_ratio', '16:9')
+                            script_content = _fix_script_errors_with_openrouter(
+                                script_content, error, i, config_dict['openrouter_key_manager'],
+                                config_dict.get('aspect_ratio', '16:9'), segment_data
                             )
                         
                         Path(script_path).write_text(script_content, encoding="utf-8")
@@ -2027,17 +2211,15 @@ class Segment{i:03d}(Scene):
         logger.error(f"❌ Critical error in video rendering for segment {i+1}: {e}")
         return {'success': False, 'error': str(e), 'index': i}
 
-def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gemini_api_key: str, aspect_ratio: str = "16:9") -> str:
+def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, openrouter_key_manager, aspect_ratio: str = "16:9") -> str:
     """
-    Fully regenerate the script using Gemini with original narration + visuals and actual audio duration.
+    Fully regenerate the script using OpenRouter with automatic key rotation.
     This is an enhanced version that uses the actual audio file duration.
     """
     try:
-        import google.generativeai as genai
         from pydub import AudioSegment
         
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-3-flash-preview')
+        model_name = "qwen/qwen3-coder:free"
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
@@ -2333,8 +2515,6 @@ self.play(FadeOut(text), run_time=4.0)
 🎨 ALLOWED COLORS:
 {allowed_colors} 
 
-📚 REFERENCE SAMPLES:
-{samples}
 
 ⚠️ IMPORTANT:
 - Start with: from manim import *
@@ -2356,8 +2536,20 @@ class Segment{index:03d}(Scene):
 Generate the complete script now:
 """
 
-        response = model.generate_content(prompt)
-        regenerated_script = response.text.strip()
+        # Use execute_with_rotation for automatic key rotation on rate limits
+        def call_openrouter(client):
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=8192
+            )
+            return response.choices[0].message.content.strip()
+        
+        regenerated_script = openrouter_key_manager.execute_with_rotation(
+            call_openrouter,
+            model=model_name
+        )
         
         # Clean the response
         if "```python" in regenerated_script:
@@ -2545,14 +2737,14 @@ def _clean_script_for_execution(script_content: str, index: int) -> str:
         logger.warning(f"⚠️ Script cleaning failed: {e}")
         return script_content
 
-def _fix_script_errors_with_gemini(script_content: str, error: str, index: int, gemini_api_key: str, aspect_ratio: str = "16:9") -> str:
-    """Fix script errors using Gemini AI."""
+def _fix_script_errors_with_openrouter(script_content: str, error: str, index: int, openrouter_key_manager, aspect_ratio: str = "16:9", segment_data: dict = None) -> str:
+    """
+    STAGE 4: Script Correction with OpenRouter (Structural Repair Only)
+    
+    Fix script errors using OpenRouter AI with automatic key rotation.
+    """
     try:
-        import google.generativeai as genai
-        
-        # Configure Gemini
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-3-flash-preview')
+        model_name = "qwen/qwen3-coder:free"
         
         # Generate aspect ratio config for reference
         aspect_ratio_configs = {
@@ -2569,48 +2761,76 @@ config.pixel_width = {config['pixel_width']}
 config.pixel_height = {config['pixel_height']}
 """
         
-        correction_prompt = f"""
-You are a Manim script debugging expert. The following Python script has an error:
-
-**Error:**
-{error}
-
-**Current Script:**
-```python
-{script_content}
-```
-
-**Task:**
-1. Fix the error in the script
-2. Ensure the class is named `Segment{index:03d}`
-3. Ensure proper Manim imports and syntax
-4. **CRITICAL**: Ensure aspect ratio configuration for {aspect_ratio} is present immediately after imports:
-```python
-{aspect_ratio_config}```
-5. For {aspect_ratio} aspect ratio:
-   - {"Stack elements vertically, use full height" if aspect_ratio == "9:16" else "Arrange side-by-side, use width" if aspect_ratio == "16:9" else "Center elements, balanced composition"}
-   - Text must use .scale_to_fit_width(config.frame_width * {"0.65" if aspect_ratio == "9:16" else "0.85"})
-6. Return ONLY the corrected Python code, no explanations or markdown
-6. Remove any MarkupText in the program and convert it into Text
-
-**Required Format:**
-from manim import *
-
-# Aspect Ratio Configuration (REQUIRED!)
-config.frame_width = ...
-config.frame_height = ...
-config.pixel_width = ...
-config.pixel_height = ...
-
-class Segment{index:03d}(Scene):
-    def construct(self):
-        # Fixed code here
-
-**Corrected Script:**
+        # Extract locked constraints
+        locked_constraints = ""
+        if segment_data:
+            narration = segment_data.get('narration', '')
+            duration = segment_data.get('duration', 10.0)
+            locked_constraints = f"""
+⚠️ STAGE 4 CONSTRAINTS (ABSOLUTE - CANNOT VIOLATE):
+1. Audio duration is LOCKED at {duration:.2f}s - total animation time MUST equal this
+2. Narration text is READ-ONLY: "{narration}"
+3. You can ONLY fix technical errors (syntax, Manim API, layout, overlap)
+4. You CANNOT change visual concepts, timing semantics, or animation intent
+5. Fix the error while preserving the original animation structure
 """
         
-        response = model.generate_content(correction_prompt)
-        corrected_script = response.text.strip()
+        correction_prompt = f"""You are fixing a broken Manim script.
+
+🚨 CRITICAL: PREVENT OFF-SCREEN ELEMENTS!
+
+Your task:
+- Fix runtime, syntax, or Manim API errors ONLY
+- Do NOT change layout, pacing, or animation meaning
+- Do NOT add or remove scene elements
+- Do NOT change aspect ratio logic
+- **MANDATORY: Preserve ALL scale_to_fit_width() calls**
+- **MANDATORY: Keep positions within safe bounds**
+
+⛔ STRICTLY FORBIDDEN CHANGES:
+- Removing .scale_to_fit_width() calls (causes off-screen text)
+- Using positions like UP*4, DOWN*4, LEFT*8, RIGHT*8 (goes off-screen)
+- Increasing font sizes beyond limits (causes overflow)
+- Reducing vertical spacing below 1.5 units (causes overlap)
+
+✅ REQUIRED VALIDATIONS:
+1. Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
+2. Positions MUST stay within safe bounds: UP*2.5 max, DOWN*2.5 max
+3. Font sizes MUST NOT exceed limits (title: 56px, body: 42px)
+4. Vertical spacing MUST be >= 1.5 units between text objects
+
+Constraints:
+- Total animation time must remain unchanged
+- Scene structure must remain identical
+- Fix errors minimally and deterministically
+- **DO NOT break visibility - all elements must stay on-screen**
+
+Output ONLY the full corrected Python code.
+No explanations.
+
+ERROR LOG:
+{error}
+
+BROKEN SCRIPT:
+{script_content}
+
+**REMINDER: Verify every Text has .scale_to_fit_width() before submitting!**
+"""
+        
+        # Use execute_with_rotation for automatic key rotation on rate limits
+        def call_openrouter(client):
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": correction_prompt}],
+                temperature=0.2,
+                max_tokens=4096
+            )
+            return response.choices[0].message.content.strip()
+        
+        corrected_script = openrouter_key_manager.execute_with_rotation(
+            call_openrouter,
+            model=model_name
+        )
         
         # Clean the response
         if "```python" in corrected_script:
@@ -2620,19 +2840,21 @@ class Segment{index:03d}(Scene):
             end_idx = corrected_script.rfind(end_marker)
             if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                 corrected_script = corrected_script[start_idx:end_idx].strip()
-        logger.info(f"✅ Script {index+1} corrected using Gemini")
+        logger.info(f"✅ Script {index+1} corrected using OpenRouter")
         return corrected_script
         
     except Exception as e:
-        logger.warning(f"⚠️ Gemini script correction failed: {e}")
+        logger.warning(f"⚠️ OpenRouter script correction failed: {e}")
 
-def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "16:9") -> str:
-    """Fix script errors using Groq LLM."""
+def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "16:9", segment_data: dict = None, model_name: str = "llama-3.1-8b-instant") -> str:
+    """
+    STAGE 3: Script Correction with Groq (Structural Repair Only).
+    Uses llama-3.1-8b-instant model.
+    """
     try:
         from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
         
-        # Generate aspect ratio config for reference
         aspect_ratio_configs = {
             "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
             "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
@@ -2641,50 +2863,51 @@ def _fix_script_errors_with_groq(script_content: str, error: str, index: int, gr
         }
         config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
         
-        prompt = f"""
-You are a Manim script debugging expert. The following Python script has an error:
+        locked_constraints = ""
+        if segment_data:
+            narration = segment_data.get('narration', '')
+            duration = segment_data.get('duration', 10.0)
+            locked_constraints = f"""
+STAGE 3 CONSTRAINTS (ABSOLUTE):
+1. Audio duration LOCKED: {duration:.2f}s
+2. Narration READ-ONLY: \"{narration}\"
+3. Fix ONLY technical errors (syntax, Manim API, layout)
+4. CANNOT change visual concepts, timing, animation intent
+"""
+        
+        prompt = f"""Fix this Manim script's technical errors.
 
-**Error:**
-{error}
+🚨 CRITICAL: PREVENT OFF-SCREEN ELEMENTS!
 
-**Current Script:**
+⛔ STRICTLY FORBIDDEN:
+- Removing .scale_to_fit_width() calls (causes text to go off-screen)
+- Using extreme positions: UP*4, DOWN*4, LEFT*8, RIGHT*8 (goes off-screen)
+- Font sizes exceeding limits (causes overflow)
+- Spacing < 1.5 units between text (causes overlap/off-screen)
+
+✅ REQUIRED:
+- Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
+- Positions within safe bounds: UP*2.5 max, DOWN*2.5 max, LEFT*5 max, RIGHT*5 max
+- Font sizes within limits
+- Vertical spacing >= 1.5 units
+
+{locked_constraints}
+
+Error: {error}
+
+Script:
 ```python
 {script_content}
 ```
 
-**Task:**
-1. Fix the error in the script
-2. Ensure the class is named `Segment{index:03d}`
-3. Ensure proper Manim imports and syntax
-4. **CRITICAL**: Ensure aspect ratio configuration for {aspect_ratio} is present immediately after imports:
-   - frame_width: {config['frame_width']}
-   - frame_height: {config['frame_height']}
-   - pixel_width: {config['pixel_width']}
-   - pixel_height: {config['pixel_height']}
-5. For {aspect_ratio}: {"stack vertically" if aspect_ratio == "9:16" else "arrange horizontally" if aspect_ratio == "16:9" else "center elements"}
-6. Return ONLY the corrected Python code, no explanations or markdown
-
-**Required Format:**
-from manim import *
-
-# Aspect Ratio Configuration: {aspect_ratio}
-config.frame_width = {config['frame_width']}
-config.frame_height = {config['frame_height']}
-config.pixel_width = {config['pixel_width']}
-config.pixel_height = {config['pixel_height']}
-
-class Segment{index:03d}(Scene):
-    def construct(self):
-        # Fixed code here
-
-**Corrected Script:**
-
-5. Remove any MarkpText in the program and convert it into text
-
-**Corrected Script:**
-        """
+Return corrected Python code only. No markdown. No explanations.
+Class name: Segment{index:03d}
+Aspect ratio: {aspect_ratio}
+Config: frame_width={config['frame_width']}, frame_height={config['frame_height']}
+"""
+        
         chat_completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=4096
@@ -2699,7 +2922,7 @@ class Segment{index:03d}(Scene):
                 corrected_script = corrected_script[start_idx:end_idx].strip()
         # Remove all existing triple backticks from the corrected script
         corrected_script = re.sub(r"```+", "", corrected_script)
-        logger.info(f"✅ Script {index+1} corrected using Gemini")
+        logger.info(f"✅ Script {index+1} corrected using Groq")
         return corrected_script
         
     except Exception as e:
@@ -2919,6 +3142,7 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             workers_by_cpu = max(1, cpu_count - 1)
             workers_by_ram = max(1, int(available_ram_gb / 1.5))
             self.max_workers = min(workers_by_cpu, workers_by_ram)
+            self.max_workers = 1
             
             logger.info(f"☁️ Cloud environment detected:")
             logger.info(f"   - CPU Cores: {cpu_count}")
@@ -2951,9 +3175,147 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         self._initialize_gemini_client()
 
     def _initialize_gemini_client(self):
-        """Gemini removed - using only OpenRouter for all AI operations."""
-        self.gemini_client = None
-        logger.info("ℹ️ Using OpenRouter for all AI operations (Gemini disabled)")
+        """
+        Initialize Gemini client with model rotation support.
+        """
+        try:
+            from google import genai
+            
+            gemini_api_key = os.getenv('GEMINI_API_KEY')
+            if not gemini_api_key:
+                logger.warning("⚠️ GEMINI_API_KEY not found in environment")
+                self.gemini_client = None
+                return
+            
+            self.gemini_client = genai.Client(api_key=gemini_api_key)
+            logger.info(f"✅ Gemini client initialized: {self.gemini_models[0]}")
+            
+        except ImportError:
+            logger.error("❌ google-genai not installed. Run: pip install google-genai")
+            self.gemini_client = None
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Gemini client: {e}")
+            self.gemini_client = None
+    
+    def _rotate_gemini_model(self) -> bool:
+        """
+        Rotate to next Gemini model.
+        Returns False if all models exhausted.
+        """
+        self.current_gemini_model_index += 1
+        if self.current_gemini_model_index >= len(self.gemini_models):
+            logger.error("❌ All Gemini models exhausted")
+            return False
+        
+        model_name = self.gemini_models[self.current_gemini_model_index]
+        logger.info(f"🔄 Rotated to Gemini model: {model_name}")
+        return True
+    def _validate_script(self, script: str) -> bool:
+        """
+        Smart validation that balances performance and visual quality.
+        Allows updaters for engaging visuals but rejects excessive usage.
+        Also checks for proper text scaling to prevent out-of-bounds issues.
+        """
+        # Basic structure check
+        if not ("from manim import *" in script and
+                "class " in script and
+                "Scene" in script and
+                "def construct" in script):
+            return False
+        
+        # TEXT SCALING VALIDATION: Warn if Text objects lack .scale_to_fit_width()
+        text_objects = len(re.findall(r'(Text|MarkupText|Tex)\s*\(', script))
+        scale_calls = len(re.findall(r'\.scale_to_fit_width\s*\(', script))
+        
+        if text_objects > 0:
+            if scale_calls == 0:
+                logger.warning(f"⚠️ NO SCALING DETECTED: {text_objects} text objects but 0 .scale_to_fit_width() calls - TEXT MAY GO OUT OF BOUNDS!")
+            elif scale_calls < text_objects:
+                logger.warning(f"⚠️ INCOMPLETE SCALING: {text_objects} text objects but only {scale_calls} .scale_to_fit_width() calls - some text may be too large!")
+            else:
+                logger.info(f"✅ Text scaling OK: {text_objects} text objects, {scale_calls} scaling calls")
+        
+        # SMART UPDATER DETECTION: Allow limited usage for engaging animations
+        updater_count = len(re.findall(r'(always_redraw|add_updater)', script))
+        
+        if updater_count > 0:
+            # Count total animation calls to calculate ratio
+            total_animations = len(re.findall(r'self\.play\(|self\.add\(', script))
+            
+            if total_animations > 0:
+                updater_ratio = updater_count / total_animations
+                
+                # Reject only if updaters are >30% of animations (excessive)
+                if updater_ratio > 0.3:
+                    logger.warning(f"🚫 Excessive updater usage detected ({updater_count}/{total_animations} = {updater_ratio*100:.1f}%). Script REJECTED.")
+                    return False
+                elif updater_count > 0:
+                    logger.info(f"✨ Strategic updater usage detected ({updater_count}/{total_animations} = {updater_ratio*100:.1f}%) - ACCEPTABLE for visual appeal.")
+            elif updater_count > 2:
+                # If we can't count animations, reject if more than 2 updaters
+                logger.warning(f"🚫 Too many updaters ({updater_count}) without animations. Script REJECTED.")
+                return False
+        
+        return True
+    def _call_gemini_with_rotation(self, prompt: str, generation_config: dict, task_name: str):
+        """
+        Call Gemini with automatic model rotation on quota/hard errors.
+        """
+        from google.genai import types
+        
+        while True:
+            try:
+                model_name = self.gemini_models[self.current_gemini_model_index]
+                config = types.GenerateContentConfig(
+                    temperature=generation_config.get('temperature', 0.7),
+                    max_output_tokens=generation_config.get('max_output_tokens', 8192)
+                )
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                
+                # Validate that we got a valid response
+                if response is None:
+                    logger.warning(f"⚠️ Gemini returned None response for {task_name}")
+                    raise ValueError(f"Gemini returned None response")
+                
+                if not hasattr(response, 'text') or response.text is None:
+                    logger.warning(f"⚠️ Gemini response missing text attribute for {task_name}")
+                    logger.warning(f"   Response type: {type(response)}")
+                    if hasattr(response, '__dict__'):
+                        logger.warning(f"   Response attributes: {list(response.__dict__.keys())}")
+                    raise ValueError(f"Gemini response missing or None text")
+                
+                return response
+            except Exception as e:
+                error_str = str(e).lower()
+                error_type = type(e).__name__
+                
+                # Check if this is a quota/overload/rate limit error that should trigger rotation
+                is_rotation_error = (
+                    "quota" in error_str or 
+                    "429" in error_str or 
+                    "503" in error_str or
+                    "resource" in error_str or
+                    "overloaded" in error_str or
+                    "unavailable" in error_str or
+                    "rate limit" in error_str or
+                    error_type == "ServerError" or
+                    "none response" in error_str or
+                    "missing or none text" in error_str
+                )
+                
+                if is_rotation_error:
+                    logger.warning(f"⚠️ Gemini error for {task_name}: {str(e)[:200]}")
+                    logger.info(f"🔄 Attempting model rotation...")
+                    if not self._rotate_gemini_model():
+                        raise RuntimeError(f"All Gemini models failed for {task_name}: {e}")
+                    logger.info(f"🔄 Retrying {task_name} with next model...")
+                    continue
+                else:
+                    raise
         
     async def generate_video_full_parallel(self, topic: str, duration: int, output_filename: Optional[str] = None) -> str:
         """Generate video for all segments in one go: audio → script → video → sync → final concat."""
@@ -2973,18 +3335,29 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
 
             logger.info("🔊 Audio generation complete.")
 
-            # Step 3: Generate scripts using HYBRID approach (bulk + parallel fallback)
-            # Try bulk generation first (fastest - 1 API call)
-            # If it fails, fall back to parallel individual (reliable - N API calls)
-            try:
-                logger.info("🧠 Attempting BULK script generation (fastest - 1 API call)...")
-                segments = await self._generate_scripts_in_bulk(segments)
-                logger.info("✅ Bulk script generation successful!")
-            except Exception as bulk_error:
-                logger.warning(f"⚠️ Bulk generation failed: {bulk_error}")
-                logger.info("🔄 Falling back to PARALLEL individual generation (reliable - N API calls)...")
-                segments = await self._generate_scripts_in_parallel(segments)
-                logger.info("✅ Parallel script generation successful!")
+            # Step 3: Generate scripts (PRIMARY: Bulk ONLY - Fast single API call)
+            # ====================================================================
+            # Stage 3: Manim Script Generation (Implementation Only)
+            # - PRIMARY PATH: Bulk generation (1 API call for all segments) - FAST!
+            # - FAIL-SAFE PATH: Individual regeneration ONLY for failed segments
+            # - ABSOLUTE RULE: Cannot modify narration or audio duration
+            # ====================================================================
+            logger.info("🧠 Stage 3: Manim Script Generation (BULK MODE)")
+            
+            # ALWAYS use bulk generation (single API call - much faster)
+            logger.info("📦 Bulk script generation (1 API call for all segments)...")
+            segments = await self._generate_scripts_in_bulk(segments)
+            
+            # Validate bulk generation results
+            failed_indices = self._validate_bulk_scripts(segments)
+            
+            if failed_indices:
+                logger.warning(f"⚠️ Bulk validation found {len(failed_indices)} failed segment(s): {failed_indices}")
+                logger.info("🔄 Regenerating ONLY failed segments individually...")
+                segments = await self._regenerate_failed_segments(segments, failed_indices)
+                logger.info("✅ Individual regeneration complete!")
+            else:
+                logger.info("✅ Bulk generation successful! All scripts validated.")
             
             logger.info("📜 Script generation complete.")
 
@@ -3004,31 +3377,36 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
 
     
     async def _generate_narration_segments_with_gemini(self, topic: str, duration: int) -> List[NarrationSegment]:
-        """Generate narration segments using Gemini, including visual descriptions."""
-        try:
-            # Check if this is a short for friendly tone
-            is_short = getattr(self.config, 'video_type', 'regular') == 'short'
-            
-            # Enhanced friendly tone guide
-            if is_short:
-                tone_guide = """ULTRA FRIENDLY & CONVERSATIONAL - Like a friend explaining over coffee:
-- Talk like you're chatting with a buddy, not lecturing
+  
+        """
+        STAGE 1: Narration Generation (SEMANTIC AUTHORITY)
+        
+        Uses Gemini to generate complete narration covering the FULL video duration.
+        Output becomes READ-ONLY for all downstream stages.
+        """
+        if not self.gemini_client:
+            logger.error("❌ Gemini client not initialized - cannot generate narration")
+            raise RuntimeError("Gemini client required for STAGE 1: Narration Generation")
+        
+        # Determine tone based on video type
+        is_short = getattr(self.config, 'video_type', 'regular') == 'short'
+        
+        if is_short:
+            tone_guide = """ULTRA FRIENDLY & CONVERSATIONAL - Like a friend explaining:
 - Use casual language: "Hey!", "So basically...", "Here's the cool part..."
-- Add personality: "I love this one!", "Trust me on this", "You're gonna love this"
-- Be enthusiastic but genuine - not over-the-top
+- Add personality: "Trust me on this", "You're gonna love this"
 - Use "you" and "we" to create connection
-- Add relatable moments: "We've all been there", "You know how..."
-- Include gentle humor when appropriate
-- Use contractions: "it's", "you're", "that's", "isn't it?"
+- Use contractions: "it's", "you're", "that's"
 - Ask engaging questions: "Ever wonder why...?", "Cool, right?"
-- Celebrate small wins: "And boom!", "There you go!", "Nice!"
-- End segments with hooks: "But wait...", "Here's where it gets interesting..."
 """
-            else:
-                tone_guide = "Clear, professional, and educational with a warm, approachable tone"
-            
-            # Simplified and focused prompt
-            prompt = f"""
+        else:
+            tone_guide = "Clear, professional, and educational with a warm tone"
+        
+        # Calculate expected number of segments
+        expected_segments = max(3, round(duration / 13))
+        
+        # STAGE 1: Conversational prompt focusing on COMPLETE narration coverage
+        prompt = f"""
 Create a narration script for a {duration}-second educational video about "{topic}".
 
 **PERSONALITY & VOICE:**
@@ -3085,103 +3463,186 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
 
 **NOW GENERATE THE SCRIPT FOR "{topic}" - Make it feel like a fun chat, not a lecture!:**
 """
-            
-            # Use OpenRouter for narration generation
-            client = self.openrouter_key_manager.get_client()
-            response = client.chat.completions.create(
-                model=self.narration_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=4096
-            )
-            content = response.choices[0].message.content.replace("**", "").strip()
-            logger.info(f"📄 OpenRouter response received ({len(content)} chars)")
-            logger.debug(f"📄 Full response:\n{content[:500]}...")  # First 500 chars for debugging
+        
+        # Try generation with retry logic
+        for attempt in range(2):
+            try:
+                # STAGE 1: Call Gemini with explicit token limit
+                logger.info(f"🧠 STAGE 1: Generating narration (attempt {attempt + 1}/2)...")
+                
+                response = self._call_gemini_with_rotation(
+                    prompt,
+                    generation_config={
+                        'temperature': 0.6,
+                        'max_output_tokens': 8192,
+                    },
+                    task_name="narration generation"
+                )
+                
+                # Handle different response formats from new Gemini SDK
+                if response is None:
+                    logger.error("❌ Gemini returned None response")
+                    if attempt == 0:
+                        logger.warning("⚠️ Retrying with shorter prompt...")
+                        prompt = f"""Create EXACTLY {expected_segments} segments for a {duration}-second narration about "{topic}".
 
-            segments = []
-            current_time = 0.0
-            
-            # Regex pattern to match: SEGMENT X: Y\nVISUALS: ...\nNARRATION: ...
-            # This separates visuals from narration clearly
-            pattern = re.compile(
-                r'SEGMENT\s+(\d+):\s*(\d+(?:\.\d+)?)\s*(?:seconds?)?\s*\n\s*VISUALS?:\s*(.*?)\n\s*NARRATION:\s*(.*?)(?=\n\s*SEGMENT\s+\d+:|$)', 
-                re.DOTALL | re.IGNORECASE
-            )
-            
-            matches = list(pattern.finditer(content))
-            logger.info(f"🔍 Found {len(matches)} segments with NARRATION format")
-            
-            # Fallback: Try old format without NARRATION keyword
-            if len(matches) == 0:
-                logger.warning("⚠️ NARRATION keyword not found, trying old format...")
-                pattern_old = re.compile(
-                    r'SEGMENT\s+(\d+):\s*(\d+(?:\.\d+)?)\s*(?:seconds?)?\s*\n\s*VISUALS?:\s*([^\n]+)\n(.*?)(?=\n\s*SEGMENT\s+\d+:|$)', 
+⛔ FORBIDDEN: More than {expected_segments} segments
+⛔ FORBIDDEN: Total duration exceeding {duration} seconds
+✅ REQUIRED: Each segment 12-14 seconds
+
+Output format:
+SEGMENT X: Y
+VISUALS: brief concept
+NARRATION: spoken text
+
+MATH CHECK: Generate {expected_segments} segments totaling EXACTLY {duration}s. Start:"""
+                        continue
+                    raise RuntimeError("Gemini returned None after retry")
+                
+                # Extract text from response
+                if hasattr(response, 'text') and response.text:
+                    content = response.text.replace("**", "").strip()
+                elif isinstance(response, str):
+                    content = response.replace("**", "").strip()
+                else:
+                    logger.error(f"❌ Unexpected response type: {type(response)}")
+                    if attempt == 0:
+                        logger.warning("⚠️ Retrying...")
+                        continue
+                    raise RuntimeError(f"Unexpected response format: {type(response)}")
+                
+                logger.info(f"📄 Gemini response received ({len(content)} chars)")
+                
+                # Parse segments with simple VISUALS format
+                segments = []
+                current_time = 0.0
+                
+                # Match: SEGMENT X: Y\nVISUALS: ...\nNARRATION: ...
+                pattern = re.compile(
+                    r'SEGMENT\s+(\d+):\s*(\d+(?:\.\d+)?)\s*(?:seconds?)?\s*\n'
+                    r'\s*VISUALS?:\s*(.*?)\n'
+                    r'\s*NARRATION:\s*(.*?)(?=\n\s*SEGMENT\s+\d+:|$)',
                     re.DOTALL | re.IGNORECASE
                 )
-                matches = list(pattern_old.finditer(content))
-                logger.info(f"🔍 Old format found {len(matches)} segments")
-            
-            if len(matches) == 0:
-                # Diagnostic logging
-                logger.warning("⚠️ No segments matched any regex pattern!")
-                logger.warning(f"📋 First 1000 chars of response:\n{content[:1000]}")
-                logger.warning("🔍 Expected: SEGMENT X: Y\\nVISUALS: ...\\nNARRATION: ...")
                 
-                if "SEGMENT" in content.upper():
-                    segment_count = content.upper().count("SEGMENT")
-                    logger.warning(f"✓ Found {segment_count} SEGMENT occurrences")
+                matches = list(pattern.finditer(content))
+                logger.info(f"🔍 Found {len(matches)} segments")
+                
+                if len(matches) == 0:
+                    logger.warning(f"⚠️ No segments parsed from response:\n{content[:500]}")
+                    if attempt == 0:
+                        logger.warning("⚠️ Retrying with clearer prompt...")
+                        continue
+                    else:
+                        # Use fallback
+                        logger.error("❌ Parsing failed after retry, using fallback")
+                        return self._generate_fallback_segments(topic, duration)
+                
+                # Process matches and build segments
+                total_duration = 0.0
+                segment_count = 0
+                
+                for match in matches:
+                    segment_num = int(match.group(1))
+                    seg_duration = float(match.group(2))
+                    visuals = match.group(3).strip()
+                    narration = match.group(4).strip()
+                    
+                    # Clean emotion tags from narration
+                    narration = re.sub(r'\[.*?\]', '', narration).strip()
+                    
+                    # Validate segment duration
+                    if seg_duration < 10 or seg_duration > 16:
+                        logger.warning(f"⚠️ Segment {segment_num} duration {seg_duration}s outside 10-16s range")
+                    
+                    segment = NarrationSegment(
+                        text=narration,
+                        start_time=current_time,
+                        end_time=current_time + seg_duration,
+                        duration=seg_duration,
+                        visual_description=visuals
+                    )
+                    segments.append(segment)
+                    current_time += seg_duration
+                    total_duration += seg_duration
+                    segment_count += 1
+                    
+                    logger.info(f"📋 Segment {segment_num}: {seg_duration}s | {narration[:50]}...")
+                
+                # Validate total duration - REJECT if significantly over
+                if total_duration > duration + 5:
+                    logger.error(f"❌ Gemini generated {total_duration}s but target is {duration}s (EXCEEDS by {total_duration - duration}s)")
+                    if attempt == 0:
+                        logger.warning("⚠️ Retrying with stricter constraints...")
+                        # Override prompt to be even more strict
+                        prompt = f"""STRICT CONSTRAINT: Create EXACTLY {expected_segments} segments for {duration}-second video about "{topic}".
+
+⛔ FORBIDDEN: Total > {duration} seconds
+⛔ FORBIDDEN: More than {expected_segments} segments
+
+REQUIRED FORMAT (each segment 12-14s):
+SEGMENT X: Y
+VISUALS: concept
+NARRATION: text
+
+YOU HAVE {expected_segments} SEGMENTS. TOTAL MUST = {duration}s. Generate NOW:"""
+                        continue
+                    else:
+                        logger.error("❌ Duration exceeded even after retry, truncating...")
+                        # Truncate segments to fit duration
+                        truncated_segments = []
+                        current_time = 0.0
+                        for seg in segments:
+                            if current_time + seg.duration <= duration:
+                                truncated_segments.append(seg)
+                                current_time += seg.duration
+                            elif current_time < duration:
+                                # Adjust last segment to fit
+                                remaining = duration - current_time
+                                seg.duration = remaining
+                                seg.end_time = duration
+                                truncated_segments.append(seg)
+                                break
+                        segments = truncated_segments
+                        total_duration = sum(s.duration for s in segments)
+                        logger.warning(f"⚠️ Truncated to {len(segments)} segments totaling {total_duration}s")
+                
+                # Clamp final segment to match exact duration if needed
+                if segments and total_duration != duration:
+                    diff = duration - total_duration
+                    logger.warning(f"⚠️ Duration mismatch: {total_duration}s vs {duration}s (diff: {diff}s)")
+                    
+                    if abs(diff) < 5.0:  # Accept small differences and adjust
+                        segments[-1].duration += diff
+                        segments[-1].end_time = duration
+                        logger.info(f"✅ Adjusted final segment duration by {diff}s to match exact duration")
+                    elif diff > 0:
+                        # Add missing time to last segment
+                        segments[-1].duration += diff
+                        segments[-1].end_time = duration
+                        logger.info(f"✅ Extended final segment by {diff}s to cover full duration")
+                
+                if not segments:
+                    if attempt == 0:
+                        logger.warning("⚠️ No valid segments, retrying...")
+                        continue
+                    return self._generate_fallback_segments(topic, duration)
+                
+                logger.info(f"✅ STAGE 1: Generated {len(segments)} segments covering {duration}s")
+                return segments
+                
+            except Exception as e:
+                logger.error(f"❌ Attempt {attempt + 1} failed: {e}")
+                if attempt == 0:
+                    logger.warning("⚠️ Retrying...")
+                    continue
                 else:
-                    logger.error("✗ 'SEGMENT' keyword not found!")
-                
-                if "VISUALS:" in content.upper():
-                    logger.warning("✓ Found 'VISUALS:' keyword")
-                else:
-                    logger.error("✗ 'VISUALS:' keyword not found!")
-                
-                if "NARRATION:" in content.upper():
-                    logger.warning("✓ Found 'NARRATION:' keyword")
-                else:
-                    logger.warning("⚠️ 'NARRATION:' keyword not found - trying old format")
-            
-            for match in matches:
-                segment_num = int(match.group(1))
-                duration = float(match.group(2))
-                visuals = match.group(3).strip()
-                text = match.group(4).strip()
-                
-                # Clean up text - remove any expressions in brackets like [Excited]
-                text = re.sub(r'\[.*?\]', '', text).strip()
-                
-                # Log what was parsed
-                logger.info(f"📋 Segment {segment_num}: {duration}s")
-                logger.debug(f"   VISUALS: {visuals[:80]}...")
-                logger.debug(f"   NARRATION: {text[:80]}...")
-                
-                segment = NarrationSegment(
-                    text=text,
-                    start_time=current_time,
-                    end_time=current_time + duration,
-                    duration=duration,
-                    visual_description=visuals
-                )
-                segments.append(segment)
-                current_time += duration
-            
-            if not segments:
-                logger.warning("⚠️ AI segment parsing failed, using fallback...")
-                logger.warning("💡 TIP: Check if AI followed the SEGMENT X: Y\\nVISUALS: format")
-                return self._generate_fallback_segments(topic, duration)
-            
-            logger.info(f"✅ Generated {len(segments)} segments using OpenRouter")
-            return segments
-        except Exception as e:
-            logger.error(f"❌ AI narration generation failed: {e}")
-            # The line below was causing the crash, now the fallback is also fixed.
-            return self._generate_fallback_segments(topic, duration)
+                    logger.error("❌ Both attempts failed, using fallback")
+                    return self._generate_fallback_segments(topic, duration)
 
     def _generate_fallback_segments(self, topic: str, duration: int) -> List[NarrationSegment]:
-        """Generate fallback segments if AI fails, now including a visual description."""
-        segment_count = max(3, duration // 10)
+        """Generate fallback segments if AI fails."""
+        segment_count = max(3, duration // 15)
         segment_duration = duration / segment_count
         
         segments = []
@@ -3189,7 +3650,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
         
         for i in range(segment_count):
             text = f"This is segment {i+1} discussing {topic}. We'll explore key concepts and practical applications."
-            visuals = f"An informative title card for '{topic}', segment {i+1}."
+            visuals = f"information about {topic}"
             
             segment = NarrationSegment(
                 text=text,
@@ -3201,7 +3662,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
             segments.append(segment)
             current_time += segment_duration
         
-        logger.info(f"✅ Generated {len(segments)} fallback segments.")
+        logger.info(f"✅ Generated {len(segments)} fallback segments")
         return segments
 
     async def _parallel_audio_generation(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
@@ -3234,7 +3695,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                     final_mp3_path = temp_dir / f"audio_segment_{i:03d}.mp3"
                     audio.export(final_mp3_path, format="mp3")
                     
-                    # Update segment with ACTUAL duration
+                    # Update segment with ACTUAL duration (Stage 2: Temporal Authority)
                     segment.audio_path = str(final_mp3_path)
                     segment.duration = actual_duration
                     
@@ -3249,6 +3710,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                     silence.export(silent_path, format="mp3")
                     
                     segment.audio_path = str(silent_path)
+                    logger.info(f"🔇 Silent audio created for segment {i+1}: {segment.duration}s")
                     # Keep original duration for silent audio
                     return segment
                     
@@ -3261,6 +3723,7 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                 silent_path = Path(self.config.temp_dir) / f"audio_segment_{i:03d}.mp3"
                 silence.export(silent_path, format="mp3")
                 segment.audio_path = str(silent_path)
+                logger.info(f"🔇 Fallback silent audio: {segment.duration}s")
                 return segment
 
         # Use thread pool for I/O bound TTS operations
@@ -3338,16 +3801,23 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                     animation_reference, allowed_colors
                 )
                 
-                # Call OpenRouter for script generation
+                # Call OpenRouter for script generation WITH ROTATION (handles rate limits)
                 logger.info(f"🔄 Generating script for segment {index+1}...")
-                client = self.openrouter_key_manager.get_client()
-                response = client.chat.completions.create(
-                    model=self.script_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=8192
+                
+                # Use execute_with_rotation for automatic key rotation on rate limits
+                def call_openrouter(client):
+                    response = client.chat.completions.create(
+                        model=self.script_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=8192
+                    )
+                    return response.choices[0].message.content.strip()
+                
+                raw_script = self.openrouter_key_manager.execute_with_rotation(
+                    call_openrouter,
+                    model=self.script_model
                 )
-                raw_script = response.choices[0].message.content.strip()
                 
                 # Clean and validate
                 cleaned_script = self._clean_script_response(raw_script, index, segment.duration)
@@ -3477,164 +3947,402 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
         
         aspect_ratio_config = self._get_aspect_ratio_config()
         
-        prompt = f"""**🎯 PRIMARY OBJECTIVE**
+        prompt = f"""🎯 PRIMARY OBJECTIVE
 
-You are an expert Manim animation developer. Generate a **fully functional Manim script** that is clean, visually engaging, and completely error-free.
+You are an ELITE Manim animation engineer and cinematic motion designer.
 
-The script **must precisely match** the specified audio duration ({segment.duration:.2f} seconds).
+Your task is to generate a FULLY FUNCTIONAL, ERROR-FREE Manim script
+that produces a visually FASCINATING, DYNAMIC, and CONTINUOUSLY ENGAGING video.
 
----
+The video MUST feel alive for the ENTIRE duration.
+Blank screens, dead time, or static visuals are STRICTLY FORBIDDEN.
 
-### ✅ MANDATORY REQUIREMENTS
+The animation MUST match the audio duration EXACTLY:
+{segment.duration:.2f} seconds.
 
-1. **Start with:**
-   ```python
-   from manim import *
-   import random
-   ```
+============================================================
+MANDATORY SCRIPT STRUCTURE (NON-NEGOTIABLE)
+============================================================
 
-2. **Include aspect ratio configuration:**
-   ```python
-{aspect_ratio_config}
-   ```
-
-3. **Class name must be:** `class Segment{index:03d}(Scene):`
-
-4. **Implement:** `def construct(self):`
-
-5. **Exact duration:** {segment.duration:.2f} seconds
-   - Calculate total run_time of all animations
-   - Add self.wait() at end to match exactly
-
-6. **Content:**
-   - Narration: "{segment.text}"
-   - Visuals: {segment.visual_description}
-
----
-
-### 🎨 ANIMATION REQUIREMENTS:
-
-**Create STUNNING, DIVERSE animations!**
-
-**Use 8-12 different techniques:**
-- Entrances: Write(), GrowFromCenter(), DrawBorderThenFill(), SpinInFromNothing()
-- Emphasis: Circumscribe(), Flash(), Indicate(), Wiggle()
-- Movement: .animate.shift(), .animate.scale(), .animate.rotate()
-- Transforms: ReplacementTransform(), Transform()
-- Timing: AnimationGroup(lag_ratio=0.2), rate_func=smooth
-
-**🚨 CRITICAL SCALING RULES (PREVENT OUT-OF-BOUNDS):**
-- ❗ EVERY Text/MarkupText/Tex object MUST call .scale_to_fit_width() IMMEDIATELY after creation
-- ❗ Use: text.scale_to_fit_width(config.frame_width * 0.85) for 16:9
-- ❗ Use: text.scale_to_fit_width(config.frame_width * 0.65) for 9:16
-- ❗ NO EXCEPTIONS - even single-word text needs scaling
-- ❗ Always scale BEFORE positioning (scale → then move_to/shift)
-- ❗ Example: 
-  ```python
-  title = Text("Title", font_size=48)
-  title.scale_to_fit_width(config.frame_width * 0.85)  # MANDATORY!
-  title.to_edge(UP)
-  ```
-
-**OTHER CRITICAL RULES:**
-- ❌ NEVER use only FadeIn/FadeOut - BORING!
-- ✅ Prefer precomputed animations (90%)
-- ⚠️ Updaters OK for special moments (<30%)
-- ✅ Minimum 1.5 units spacing between text objects
-- ✅ Use safe zones: TOP (UP*2.5 to UP*3.0), MIDDLE (±0.5), BOTTOM (DOWN*2.5)
-
----
-
-### 📚 STYLE REFERENCE EXAMPLES:
-
-{samples}
-
----
-
-### 🎨 ANIMATION REFERENCE & TECHNIQUES:
-
-{animation_reference}
-
----
-
-### 🔧 ALLOWED OBJECTS AND ATTRIBUTES:
-
-{allowed_attributes}
-
-### 🎨 ALLOWED COLORS:
-{allowed_colors}
-
----
-
-### ✅ OUTPUT FORMAT:
-
-Return **ONLY** raw Python code. NO markdown, NO explanations, NO comments outside the code.
-
-Start directly with:
-```
+1. The script MUST start with:
 from manim import *
 import random
-```
 
-Generate the complete, professional, stunning Manim script NOW:
+2. The script MUST include the aspect ratio configuration EXACTLY as provided:
+{aspect_ratio_config}
+
+3. The Scene class name MUST be:
+class Segment{index:03d}(Scene):
+
+4. You MUST implement:
+def construct(self):
+
+============================================================
+CONTENT INPUT (AUTHORITATIVE — DO NOT MODIFY)
+============================================================
+
+Narration (spoken audio, DO NOT alter wording):
+"{segment.text}"
+
+Visual intent (conceptual meaning, NOT implementation):
+{segment.visual_description}
+
+============================================================
+⏱️ TEMPORAL DOMINANCE RULES (CRITICAL)
+============================================================
+
+THIS IS THE MOST IMPORTANT SECTION. VIOLATION = REJECTION.
+
+- Animations MUST be distributed across the FULL duration.
+- It is STRICTLY FORBIDDEN to finish visuals early and pad with a long wait.
+- A single final self.wait() MUST NOT exceed 15% of total duration.
+- At least 75% of the total duration MUST contain active or visually present elements.
+- Visuals MUST remain on screen until the final moments.
+- The screen must NEVER be empty while audio is playing.
+
+❌ BAD (FORBIDDEN):
+- All animations done early
+- FadeOut everything → long wait
+- Static screen for narration
+
+✅ GOOD (REQUIRED):
+- Persistent visuals
+- Gradual transformations
+- Subtle motion during narration
+- Emphasis waves spread across time
+
+============================================================
+🎬 PACING BLUEPRINT (FOLLOW THIS EXACTLY)
+============================================================
+
+Structure the animation timeline like this:
+
+- 0–15%  : Strong visual introduction (title / hook)
+- 15–65% : Core explanation with transformations and motion
+- 65–90% : Reinforcement, emphasis, visual evolution
+- 90–100%: Gentle settle or final emphasis (NOT blank)
+
+============================================================
+🎨 ANIMATION QUALITY REQUIREMENTS (HIGH BAR)
+============================================================
+
+You MUST use 8–12 DISTINCT animation techniques, including:
+
+ENTRANCES:
+- Write()
+- DrawBorderThenFill()
+- GrowFromCenter()
+- SpinInFromNothing()
+
+EMPHASIS:
+- Circumscribe()
+- Flash()
+- Indicate()
+- Wiggle()
+
+MOTION:
+- .animate.shift()
+- .animate.scale()
+- .animate.rotate()
+
+TRANSFORMS:
+- Transform()
+- ReplacementTransform()
+
+GROUPING & FLOW:
+- AnimationGroup(lag_ratio=0.2–0.4)
+- rate_func=smooth
+
+============================================================
+🚨 CRITICAL TEXT SCALING RULES (NO EXCEPTIONS)
+============================================================
+
+EVERY Text / MarkupText / Tex object MUST:
+
+- Call .scale_to_fit_width() IMMEDIATELY after creation
+- Be scaled BEFORE positioning
+- NEVER exceed frame width
+
+Scaling rules:
+- For 16:9 → config.frame_width * 0.85
+- For 9:16 → config.frame_width * 0.65
+
+Example (MANDATORY PATTERN):
+
+title = Text("Title", font_size=48)
+title.scale_to_fit_width(config.frame_width * 0.85)
+title.to_edge(UP)
+
+============================================================
+📐 LAYOUT & VISUAL SAFETY RULES
+============================================================
+
+- Minimum vertical spacing between text objects: 1.5 units
+- Use SAFE ZONES only:
+  - TOP    : UP * 2.5 to UP * 3.0
+  - MIDDLE : ORIGIN ± 0.5
+  - BOTTOM : DOWN * 2.5
+
+- NEVER overlap zones
+- NEVER crowd text
+- Prefer transforming existing objects over removing them
+
+============================================================
+🎥 VISUAL PERSISTENCE RULE (ANTI-DULLNESS)
+============================================================
+
+- DO NOT FadeOut all objects before the end
+- At least ONE major visual element MUST remain visible until the last seconds
+- Use subtle motion for persistence:
+  - slow scale pulses
+  - small shifts
+  - gentle rotations
+  - emphasis flashes
+
+============================================================
+⚙️ PERFORMANCE & STYLE RULES
+============================================================
+
+- Prefer precomputed animations (≈90%)
+- Updaters allowed ONLY for special moments (<30%)
+- No excessive updaters
+- NO plain FadeIn/FadeOut-only scripts
+- Everything must feel intentional and cinematic
+
+============================================================
+📚 STYLE REFERENCES
+============================================================
+
+
+Animation techniques reference:
+{animation_reference}
+
+Allowed objects and attributes:
+{allowed_attributes}
+
+Allowed colors ONLY:
+{allowed_colors}
+
+============================================================
+⏱️ DURATION ENFORCEMENT (EXACTNESS REQUIRED)
+============================================================
+
+- Carefully calculate animation run_time
+- Distribute timing across the full duration
+- Use small waits (0.2–0.6s) BETWEEN animation groups
+- Final self.wait() must be minimal and justified
+- TOTAL runtime MUST equal exactly:
+{segment.duration:.2f} seconds
+
+============================================================
+✅ OUTPUT FORMAT (STRICT)
+============================================================
+
+Return ONLY raw Python code.
+NO markdown.
+NO explanations.
+NO text outside the code.
+
+The output MUST start exactly with:
+
+from manim import *
+import random
+
+Now generate the COMPLETE, PROFESSIONAL, CINEMATIC Manim script.
 """
         return prompt
 
     async def _generate_scripts_in_bulk(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
         """
-        Generate all Manim scripts in a single Gemini batch call,
-        using the ACTUAL generated audio file duration for each segment.
+        STAGE 2: Generate all Manim scripts using Gemini (bulk generation).
+        Falls back to per-segment generation if bulk fails.
         """
-        logger.info("🧠 Generating all scripts in bulk using Gemini...")
-
-        # Load prompt parts if needed
-        try:
-            with open('./generator/video_generator/prompt/sample.txt', 'r', encoding='utf-8') as f:
-                samples = f.read()
-        except FileNotFoundError:
-            logger.warning("⚠️ sample.txt not found. Using instance variable.")
-            samples = self.samples
+        logger.info("🧠 STAGE 2: Bulk script generation with Gemini...")
 
         try:
-            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r', encoding='utf-8') as f:
-                allowed_attributes = f.read()
-        except FileNotFoundError:
-            logger.warning("⚠️ obj-attrbute_list.txt not found. Using instance variable.")
-            allowed_attributes = self.allowed_attributes
-        
-        # Use animation reference from instance variable
-        animation_reference = self.animation_reference
-
-        allowed_colors = "WHITE, BLUE, GREEN, RED, YELLOW, PINK, ORANGE, PURPLE, GOLD, GRAY"
-
+            return await self._generate_scripts_bulk_gemini(segments)
+        except Exception as e:
+            logger.warning(f"⚠️ Bulk generation failed: {e}")
+            logger.info("🔄 Falling back to per-segment generation...")
+            return await self._generate_scripts_per_segment_gemini(segments)
+    
+    async def _generate_scripts_bulk_gemini(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
+        """Bulk script generation using Gemini with model rotation."""
         from pydub import AudioSegment
-        all_segments_prompt = ""
-
+        
         for i, segment in enumerate(segments):
-            # ✅ Always read the actual audio file
             if segment.audio_path and Path(segment.audio_path).exists():
                 audio = AudioSegment.from_file(segment.audio_path)
-                actual_audio_duration = round(len(audio) / 1000.0, 2)  # ms -> seconds
-                segment.duration = actual_audio_duration
-                logger.info(f"🎯 Segment {i+1}: Using actual audio file duration: {actual_audio_duration:.2f}s")
+                segment.duration = round(len(audio) / 1000.0, 2)
+        
+        prompt = self._build_bulk_script_prompt(segments)
+        
+        response = self._call_gemini_with_rotation(
+            prompt,
+            generation_config={'temperature': 0.7, 'max_output_tokens': 32768},
+            task_name="bulk script generation"
+        )
+        
+        # Handle response - new SDK returns text directly, but can be None
+        if response is None:
+            logger.error("❌ Gemini returned None response for bulk script generation")
+            raise RuntimeError("Gemini returned None response - all models may have failed")
+        
+        if hasattr(response, 'text') and response.text:
+            content = response.text.strip()
+        elif isinstance(response, str):
+            content = response.strip()
+        else:
+            logger.error(f"❌ Unexpected response type: {type(response)}")
+            logger.error(f"Response attributes: {dir(response) if response else 'None'}")
+            raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+        
+        logger.debug(f"📥 Bulk response preview (first 500 chars): {content[:500]}")
+        
+        # Split by ===SCRIPT START=== separator
+        scripts = re.split(r'===SCRIPT START===', content)
+        scripts = [s.strip() for s in scripts if s.strip()]
+        
+        logger.info(f"📊 Split result: {len(scripts)} scripts from {len(content)} chars")
+        
+        if len(scripts) < len(segments):
+            raise ValueError(f"Only {len(scripts)}/{len(segments)} scripts generated")
+        
+        for i, segment in enumerate(segments):
+            cleaned_script = self._clean_script_response(scripts[i], i, segment.duration)
+            script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+            script_path.write_text(cleaned_script, encoding="utf-8")
+            segment.script_path = str(script_path)
+        
+        return segments
+    
+    async def _generate_scripts_per_segment_gemini(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
+        """Per-segment script generation using Gemini with model rotation."""
+        from pydub import AudioSegment
+        
+        for i, segment in enumerate(segments):
+            if segment.audio_path and Path(segment.audio_path).exists():
+                audio = AudioSegment.from_file(segment.audio_path)
+                segment.duration = round(len(audio) / 1000.0, 2)
+            
+            logger.info(f"📝 Generating script for segment {i+1}/{len(segments)}...")
+            prompt = self._build_single_script_prompt(i, segment)
+            
+            response = self._call_gemini_with_rotation(
+                prompt,
+                generation_config={'temperature': 0.7, 'max_output_tokens': 8192},
+                task_name=f"script generation (segment {i+1})"
+            )
+            
+            # Handle response - new SDK returns text directly, but can be None
+            if response is None:
+                logger.error(f"❌ Gemini returned None response for segment {i+1}")
+                raise RuntimeError(f"Gemini returned None response for segment {i+1} - all models may have failed")
+            
+            if hasattr(response, 'text') and response.text:
+                raw_text = response.text.strip()
+            elif isinstance(response, str):
+                raw_text = response.strip()
             else:
-                logger.warning(f"⚠️ Segment {i+1} has no audio file — fallback to default duration.")
-                if not segment.duration:
-                    segment.duration = 5.0  # fallback duration if truly missing
-
-            all_segments_prompt += f"""
-    SEGMENT {i+1}:
-    - Exact Audio Duration: {segment.duration:.2f} seconds
-    - Class Name: Segment{i:03d}
-    - Narration: \"{segment.text}\"
-    - Visuals: {segment.visual_description}
-    """
-
-        # Build robust prompt
-        prompt = f"""
-                    **🎯 PRIMARY OBJECTIVE**
+                logger.error(f"❌ Unexpected response type for segment {i+1}: {type(response)}")
+                logger.error(f"Response attributes: {dir(response) if response else 'None'}")
+                raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+            
+            cleaned_script = self._clean_script_response(raw_text, i, segment.duration)
+            script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+            script_path.write_text(cleaned_script, encoding="utf-8")
+            segment.script_path = str(script_path)
+        
+        return segments
+    
+    def _build_bulk_script_prompt(self, segments: List[NarrationSegment]) -> str:
+        """Build prompt for bulk script generation."""
+        try:
+            with open('./generator/video_generator/prompt/sample.txt', 'r') as f:
+                samples = f.read()
+        except:
+            samples = self.samples
+        
+        try:
+            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r') as f:
+                allowed_attributes = f.read()
+        except:
+            allowed_attributes = self.allowed_attributes
+        
+        animation_reference = self.animation_reference
+        allowed_colors = self.allowed_colors
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        
+        # Build segment list in required format
+        all_segments_prompt = "\n".join([
+            f"""**Segment {i+1}:**
+- Class Name: Segment{i:03d}
+- Audio Duration: {seg.duration:.2f} seconds
+- Visual Narration: {seg.visual_description}
+- Spoken Text: "{seg.text}"""
+            for i, seg in enumerate(segments)
+        ])
+        
+        return f"""**🎯 PRIMARY OBJECTIVE**
 
 You are an expert Manim animation developer. For each provided **segment**, you must generate a **fully functional Manim script** that is clean, logically structured, visually engaging, and completely error-free.
+
+---
+
+### 🚫 **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
+
+**⛔ ABSOLUTE RULE: NO ELEMENTS CAN GO OFF-SCREEN - THEY BECOME INVISIBLE!**
+
+**🚨 THIS IS THE #1 CAUSE OF VIDEO FAILURES - READ CAREFULLY:**
+
+Every text, shape, and object MUST be visible within the frame at ALL times.
+
+**MANDATORY REQUIREMENTS (WILL BE REJECTED IF VIOLATED):**
+
+1. **⚠️ EVERY Text object MUST have .scale_to_fit_width() - NO EXCEPTIONS!**
+   ```python
+   # ✅ CORRECT - ALWAYS DO THIS:
+   title = Text("Some text", font_size=48)
+   title.scale_to_fit_width(config.frame_width * 0.85)  # MANDATORY!
+   
+   # ❌ WRONG - WILL GO OFF-SCREEN:
+   title = Text("Some text", font_size=48)  # Missing scale_to_fit_width!
+   ```
+
+2. **⛔ FORBIDDEN POSITIONS - NEVER USE THESE (ELEMENTS WILL GO OFF-SCREEN):**
+   - ❌ UP * 4 or higher (too high, goes off-screen)
+   - ❌ DOWN * 4 or lower (too low, goes off-screen)
+   - ❌ LEFT * 7 or beyond (too far left, goes off-screen)
+   - ❌ RIGHT * 7 or beyond (too far right, goes off-screen)
+
+3. **✅ SAFE POSITIONS ONLY - USE THESE:**
+   - ✅ UP * 2.5, UP * 1.5, UP * 0.5 (safe top area)
+   - ✅ ORIGIN, UP * 0.5, DOWN * 0.5 (safe center)
+   - ✅ DOWN * 1.5, DOWN * 2.5 (safe bottom area)
+   - ✅ LEFT * 3, RIGHT * 3 (safe horizontal)
+
+4. **📏 SIZE LIMITS (PREVENT OVERFLOW):**
+   - Maximum font_size for titles: {48 if self.config.aspect_ratio == "9:16" else 56}px
+   - Maximum font_size for body: {36 if self.config.aspect_ratio == "9:16" else 42}px
+   - ALL text MUST call .scale_to_fit_width(config.frame_width * 0.85)
+
+5. **📐 SPACING RULES (PREVENT OVERLAP/OFF-SCREEN):**
+   - Minimum 1.5 units vertical spacing between text objects
+   - Keep 1 unit margin from all screen edges
+   - Test: If you stack 3 text objects, use UP*2, ORIGIN, DOWN*2
+
+**⛔ REJECTION CRITERIA - YOUR SCRIPT WILL BE REJECTED IF:**
+- ANY text object missing .scale_to_fit_width()
+- Using positions like UP*4, DOWN*4, LEFT*8, RIGHT*8
+- Font sizes exceeding limits
+- Text objects overlapping or too close (<1.5 units apart)
+
+**✅ VERIFICATION CHECKLIST BEFORE SUBMITTING:**
+□ Every Text() has .scale_to_fit_width(config.frame_width * 0.85)
+□ All positions use SAFE values only (UP*2.5 max, DOWN*2.5 max)
+□ Font sizes within limits
+□ Vertical spacing >= 1.5 units between objects
+□ 1 unit margin from all edges
 
 ---
 
@@ -3690,36 +4398,17 @@ self.wait(1.0)  # Only 1s wait - acceptable
    - If you need > 1s wait, your animations are too fast
    - Increase run_times or add more animations
 
-5. **Final wait calculation:**
+5. **Final timing (use self.wait() if needed):**
    ```python
-   # Track total time
-   remaining = audio_duration - total_time
-   if remaining > 0 and remaining < 1.0:
+   # Option 1: Use self.wait() to fill remaining time
+   total_animation_time = sum_of_all_run_times
+   remaining = audio_duration - total_animation_time
+   if remaining > 0:
        self.wait(remaining)
-   # If remaining > 1.0, you did something wrong!
+   
+   # Option 2: Distribute animations to fill entire duration
+   # Increase run_times so animations naturally fill the time
    ```
-
-**Example for different durations:**
-
-```python
-# 10 second segment
-self.play(Write(title), run_time=2.0)
-self.play(title.animate.shift(UP), run_time=1.5)
-self.play(FadeIn(text), run_time=2.0)
-self.play(Indicate(text), run_time=2.0)
-self.play(FadeOut(title, text), run_time=2.0)
-self.wait(0.5)  # Total = 10s
-
-# 20 second segment
-self.play(Write(title), run_time=3.5)
-self.play(title.animate.shift(UP*2), run_time=2.5)
-self.play(GrowFromCenter(content), run_time=3.0)
-self.play(Circumscribe(content), run_time=2.5)
-self.play(content.animate.scale(1.3), run_time=2.5)
-self.play(Flash(content), run_time=2.0)
-self.play(FadeOut(title, content), run_time=3.5)
-self.wait(0.5)  # Total = 20s
-```
 
 ---
 
@@ -3739,9 +4428,10 @@ Each Manim animation script must:
    from manim import *
    import random
    ```
+
 3. **Include aspect ratio configuration immediately after imports:**
    ```python
-{self._get_aspect_ratio_config()}
+{aspect_ratio_config}
    ```   
 
 4. **Define a class in the format:**
@@ -3752,28 +4442,26 @@ Each Manim animation script must:
 
 5. **Implement a `construct(self)` method containing all animation logic.**
 
-
-6. **
-edefined objects and their strictly allowed attributes.**
+6. **Use only predefined objects and their strictly allowed attributes.**
    ❌ Do NOT use unsupported attributes or extra options.
 
 7. **Use only approved Manim color constants.**
    ❌ Do NOT define custom colors or use hex codes.
 
 8. **Do not use any unsupported markup or formatting classes.**
-   ❌ No `MarkupText`, `<span>`, `<code>`, or HTML-style tags. Donot use MARKUPTEXT at any cost
+   ❌ No `MarkupText`, `<span>`, `<code>`, or HTML-style tags. Do not use MARKUPTEXT at any cost
    ✅ Use only basic `Text`, `MathTex`, `Rectangle`, `Circle`, etc., as listed in the allowed objects section.
 
-9. **Ensure the total animation time (sum of run\_times + waits) matches the given segment’s exact audio duration (±0.1s).**
+9. **Ensure the total animation time (sum of run_times + waits) matches the given segment's exact audio duration (±0.1s).**
    ➕ Use `self.wait()` to fill in any remaining time.
 
 10. Remember that Mobject.align_to() takes from 2 to 3 positional arguments.
 
-11. **Ensure you dont use Camera,Code object at any cost.
+11. **Ensure you don't use Camera, Code object at any cost.**
 
-12. ** Do not use any images like .png, .jpeg, .svg or any sort of image formats , if needed created the images with vectors.
+12. **Do not use any images like .png, .jpeg, .svg or any sort of image formats, if needed create the images with vectors.**
 
-13. ** Only use from manim import *, nothing else , and use only if needed.
+13. **Only use from manim import *, nothing else, and use only if needed.**
 
 14. **ASPECT RATIO: This video is in {self.config.aspect_ratio} format.**
    - Design layouts appropriate for this aspect ratio
@@ -3781,102 +4469,6 @@ edefined objects and their strictly allowed attributes.**
    - For 9:16 (vertical): Stack elements vertically, use full height
    - For 16:9 (horizontal): Use width, arrange side-by-side when possible
    - For 1:1 (square): Center elements, balanced composition
-
----
-
-### 🎯 TIMING REMINDER (REPEAT FROM TOP - THIS IS CRITICAL!)
-
-**Your animation MUST match the exact audio duration specified for each segment:**
-
-* Track time cumulatively throughout construct()
-* Add self.wait() at the end to fill remaining time
-* NEVER exceed the specified duration
-* Verify: total run_times + total waits = exact audio duration
-
-**Example:**
-```python
-total = 0
-self.play(FadeIn(title), run_time=1.0)
-total += 1.0
-self.play(Write(text), run_time=2.5)
-total += 2.5
-self.wait(audio_duration - total)  # Fill the rest
-```
-
----
-
-### ⚡ FAST ANIMATION TIMING (CRITICAL FOR SPEED):
-
-* Use FAST run_times: 0.6-1.0 seconds (NOT 1.5+ seconds!)
-* Prefer FadeIn() over Write() when appropriate (3x faster rendering)
-* Use Create() instead of DrawBorderThenFill() when possible (2x faster)
-* Keep animations snappy and efficient
-* Example: `self.play(FadeIn(text), run_time=0.8)` instead of `self.play(Write(text), run_time=1.5)`
-
-**Example Perfect Timing:**
-```python
-def construct(self):
-    # Audio duration: 8.5 seconds
-    total_time = 0
-    
-    # Animation 1: 1.5s
-    title = Text("Hello")
-    self.play(Write(title, run_time=1.5))
-    total_time += 1.5
-    
-    # Animation 2: 0.8s
-    self.play(title.animate.shift(UP*2), run_time=0.8)
-    total_time += 0.8
-    
-    # Animation 3: 1.2s
-    text = Text("World")
-    self.play(GrowFromCenter(text, run_time=1.2))
-    total_time += 1.2
-    
-    # Animation 4: 1.0s
-    self.play(Indicate(text, run_time=1.0))
-    total_time += 1.0
-    
-    # Animation 5: 1.5s exit
-    self.play(FadeOut(title), Uncreate(text), run_time=1.5)
-    total_time += 1.5
-    
-    # Final wait to match exact duration
-    # total_time = 6.0, need 2.5 more seconds
-    self.wait(8.5 - total_time)  # = 2.5
-```
-
-**ALIGNMENT PRECISION:**
-* Use `.next_to()`, `.align_to()`, `.arrange()` for perfect positioning
-* Center important content: `.move_to(ORIGIN)` or `.to_edge(UP)`
-* Consistent spacing: Use `buff=0.5` between related items
-* Grid layouts: Use `arrange(DOWN, buff=0.3)` for lists
-* Avoid overlapping text - check positions carefully
-
-**Positioning Best Practices:**
-```python
-# Center title at top
-title = Text("Title")
-title.to_edge(UP, buff=0.5)
-
-# Position text below title
-subtitle = Text("Subtitle")
-subtitle.next_to(title, DOWN, buff=0.3)
-
-# Create aligned list
-items = VGroup(
-    Text("Item 1"),
-    Text("Item 2"),
-    Text("Item 3")
-).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
-items.move_to(ORIGIN)
-
-# Side-by-side comparison
-left_item = Text("Left")
-right_item = Text("Right")
-left_item.to_edge(LEFT, buff=1)
-right_item.to_edge(RIGHT, buff=1)
-```
 
 ---
 
@@ -3898,212 +4490,6 @@ You MUST use diverse, dynamic animations. Each segment MUST include:
 
 ---
 
-### 🎨 REQUIRED ANIMATION TECHNIQUES (USE THESE!)
-
-**1. DYNAMIC ENTRY (Pick 1-2 per segment):**
-
-```python
-# Text appearing with writing effect (HIGHLY RECOMMENDED)
-title = Text("Your Title")
-self.play(Write(title, run_time=1.5))
-
-# Objects growing from center with energy
-circle = Circle(radius=2)
-self.play(GrowFromCenter(circle, run_time=1))
-
-# Drawing outlines then filling (professional look)
-rect = Rectangle(width=4, height=2)
-self.play(DrawBorderThenFill(rect, run_time=1.2))
-
-# Spinning in with rotation
-shape = Square()
-self.play(SpinInFromNothing(shape, angle=PI))
-```
-
-**2. MOVEMENT & TRANSFORMATION (REQUIRED - Add movement!):**
-
-```python
-# Move objects around the screen (ESSENTIAL for dynamic feel)
-self.play(title.animate.shift(UP*2), run_time=0.8)
-self.play(text.animate.shift(DOWN*1.5), run_time=0.8)
-
-# Scale for emphasis
-self.play(obj.animate.scale(1.3), run_time=0.6)
-
-# Rotate for visual interest
-self.play(shape.animate.rotate(PI/4), run_time=0.7)
-
-# Transform between objects (morphing effect)
-circle = Circle()
-square = Square()
-self.play(Transform(circle, square, run_time=1.2))
-
-# Combine multiple movements
-self.play(
-    obj.animate.shift(RIGHT*2).scale(1.5).rotate(PI/6),
-    run_time=1.5
-)
-```
-
-**3. EMPHASIS & ATTENTION (Pick 1-2 to highlight key content):**
-
-```python
-# Draw attention circle around important text
-self.play(Circumscribe(important_text, color=YELLOW, run_time=1))
-
-# Pulse effect to emphasize
-self.play(Indicate(key_point, color=YELLOW, scale_factor=1.3))
-
-# Flash effect for impact
-self.play(Flash(highlight, color=RED, line_length=0.4))
-
-# Wiggle for playful emphasis
-self.play(Wiggle(obj, scale_value=1.2, run_time=0.8))
-```
-
-**4. SEQUENTIAL ANIMATIONS (For lists/multiple items):**
-
-```python
-# Items appearing one by one with stagger
-items = VGroup(item1, item2, item3)
-self.play(
-    AnimationGroup(
-        *[GrowFromCenter(item) for item in items],
-        lag_ratio=0.3,
-        run_time=2
-    )
-)
-
-# Write text items sequentially
-self.play(
-    AnimationGroup(
-        Write(line1),
-        Write(line2),
-        Write(line3),
-        lag_ratio=0.5
-    )
-)
-```
-
-**5. CREATIVE EXITS (NOT just FadeOut!):**
-
-```python
-# Uncreate - reverse of drawing (satisfying)
-self.play(Uncreate(shape, run_time=1))
-
-# Shrink away
-self.play(ShrinkToCenter(obj, run_time=0.8))
-
-# Fade with movement
-self.play(FadeOut(text, shift=DOWN*2))
-
-# Multiple objects exiting with coordination
-self.play(
-    Uncreate(title),
-    ShrinkToCenter(circle),
-    FadeOut(text, shift=LEFT*3),
-    run_time=1.5
-)
-```
-
----
-
-### 📋 COMPLETE SCENE EXAMPLES (FOLLOW THESE PATTERNS!)
-
-**Example 1: Professional Introduction**
-```python
-def construct(self):
-    # 1. Dynamic Entry
-    title = Text("Introduction to AI", font_size=48)
-    self.play(Write(title, run_time=1.5))
-    
-    # 2. Movement
-    self.play(title.animate.shift(UP*2.5), run_time=0.8)
-    
-    # 3. Add content with growth
-    subtitle = Text("The Future is Here", font_size=32, color=BLUE)
-    subtitle.next_to(title, DOWN, buff=0.5)
-    self.play(GrowFromCenter(subtitle, run_time=1))
-    
-    # 4. Emphasis
-    self.play(Circumscribe(subtitle, color=YELLOW, run_time=1))
-    
-    # 5. Creative exit
-    self.play(
-        Uncreate(title),
-        FadeOut(subtitle, shift=DOWN),
-        run_time=1.2
-    )
-```
-
-**Example 2: List with Energy**
-```python
-def construct(self):
-    # Title with writing effect
-    title = Text("3 Key Benefits")
-    self.play(Write(title, run_time=1))
-    self.play(title.animate.shift(UP*2.5).scale(0.8), run_time=0.7)
-    
-    # List items appearing sequentially
-    items = VGroup(
-        Text("1. Speed", color=GREEN),
-        Text("2. Accuracy", color=BLUE),
-        Text("3. Efficiency", color=YELLOW)
-    ).arrange(DOWN, buff=0.5)
-    
-    self.play(
-        AnimationGroup(
-            *[GrowFromCenter(item) for item in items],
-            lag_ratio=0.4,
-            run_time=2.5
-        )
-    )
-    
-    # Highlight each item
-    for item in items:
-        self.play(Indicate(item, scale_factor=1.2), run_time=0.6)
-    
-    # Exit with coordination
-    self.play(
-        ShrinkToCenter(title),
-        *[FadeOut(item, shift=DOWN) for item in items],
-        run_time=1.5
-    )
-```
-
-**Example 3: Transformation Scene**
-```python
-def construct(self):
-    # Start with shape
-    circle = Circle(radius=1.5, color=BLUE)
-    self.play(DrawBorderThenFill(circle, run_time=1))
-    
-    # Transform to another shape
-    square = Square(side_length=2.5, color=GREEN)
-    self.play(Transform(circle, square, run_time=1.5))
-    
-    # Add rotation and scale
-    self.play(
-        circle.animate.rotate(PI/4).scale(1.2),
-        run_time=1
-    )
-    
-    # Add text with flash
-    label = Text("Evolution", font_size=36)
-    label.next_to(circle, DOWN)
-    self.play(Write(label))
-    self.play(Flash(circle, color=YELLOW))
-    
-    # Exit
-    self.play(
-        Uncreate(circle),
-        FadeOut(label, shift=DOWN),
-        run_time=1.2
-    )
-```
-
----
-
 ### ⚡ MANDATORY CHECKLIST FOR EACH SEGMENT:
 
 Before submitting your script, verify:
@@ -4114,16 +4500,10 @@ Before submitting your script, verify:
 - [ ] Objects MOVE and TRANSFORM, not just appear/disappear
 - [ ] Animation variety - not repetitive
 - [ ] Total timing matches audio duration
+- [ ] NEVER use MarkupText
+- [ ] All text scaled with scale_to_fit_width()
 
 **IF YOUR SCRIPT ONLY USES FadeIn/FadeOut, IT WILL BE REJECTED!**
-
----
-
-### � TIMING INSTRUCTIONS
-
-* ❌ Do **not** wrap any code in triple backticks (no markdown).
-* ❌ Do **not** include explanations, comments, or headings.
-* ✅ Return only **raw Python code**, starting with `===SCRIPT START===`.
 
 ---
 
@@ -4137,9 +4517,7 @@ Use the following sample programs as reference for:
 * Clean code formatting
 * Accurate wait calculations
 
-```
-{samples}
-```
+
 
 ---
 
@@ -4161,7 +4539,6 @@ This is your complete animation toolkit. Study these techniques and apply them c
 - ✅ Apply rate_func for smooth, rush_into, rush_from motion
 - ✅ Position with .next_to(), .to_edge(), .arrange() for perfect alignment
 - ✅ Transform objects with Transform(), ReplacementTransform()
-- ✅ Create professional templates from Section 11 of reference
 
 ---
 
@@ -4241,6 +4618,8 @@ Repeat this for every segment. Do **not** add explanations, commentary, or markd
 * ❌ No undefined attributes or typos in method names
 * ❌ No timing mismatches between animation and audio
 * ❌ No markdown formatting in the output
+* ❌ No long wait() times at the end
+* ❌ No static FadeIn/FadeOut only animations
 
 ---
 
@@ -4250,302 +4629,206 @@ Generate **one complete, accurate Manim script per segment**, strictly following
 The output must be professional, polished, and directly executable in Manim with no errors.
 
 You are acting as a **senior Manim Community developer**. Your script quality must reflect that expertise.
-      
-                    """
-
-        # 🎯 CRITICAL FIX: Calculate max_tokens based on number of segments
-        # Each script needs ~2500-3000 tokens (500-700 lines of code with verbose comments)
-        # Gemini often adds extra explanations, so we need more headroom
-        # Formula: (num_segments × 3000) + 3000 buffer
-        estimated_tokens_per_script = 3000  # Increased from 2000
-        buffer_tokens = 3000  # Increased from 2000
-        calculated_max_tokens = (len(segments) * estimated_tokens_per_script) + buffer_tokens
-        
-        # Ensure minimum 12000, maximum 32768 (Gemini's limit)
-        max_tokens = max(12000, min(calculated_max_tokens, 32768))
-        
-        logger.info(f"🎯 Bulk generation settings:")
-        logger.info(f"   - Segments: {len(segments)}")
-        logger.info(f"   - Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
-        logger.info(f"   - Max output tokens: {max_tokens} (calculated: {calculated_max_tokens})")
-
-
-        # Call OpenRouter with dynamic token limit
-        client = self.openrouter_key_manager.get_client()
-        response_obj = client.chat.completions.create(
-            model=self.script_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=max_tokens
-        )
-        # Create a response object with .text and .candidates attributes for compatibility
-        class MockResponse:
-            def __init__(self, text):
-                self.text = text
-                self.candidates = None
-        response = MockResponse(response_obj.choices[0].message.content)
-        
-        # Handle response with finish_reason checking
-        if response.candidates:
-            finish_reason = response.candidates[0].finish_reason
-            if finish_reason == 2:  # MAX_TOKENS
-                logger.warning(f"⚠️ Response truncated at {max_tokens} tokens (finish_reason=MAX_TOKENS)")
-                logger.warning(f"   Prompt length: {len(prompt)} chars (~{len(prompt)//4} tokens)")
-                # Try to get partial text if available
-                try:
-                    partial_text = ""
-                    for part in response.candidates[0].content.parts:
-                        partial_text += part.text
-                    logger.info(f"   Partial response retrieved: {len(partial_text)} chars")
-                    full_script = partial_text.strip()
-                except Exception as e:
-                    logger.error(f"   Could not extract partial response: {e}")
-                    raise ValueError(f"Response truncated and no partial text available")
-            elif finish_reason == 1:  # STOP (normal completion)
-                full_script = response.text.strip()
-            else:
-                logger.warning(f"   Unexpected finish_reason: {finish_reason}")
-                full_script = response.text.strip()
-        else:
-            logger.error("❌ No candidates in response")
-            raise ValueError("Empty response from Gemini")
-
-        logger.debug(f"🔎 FULL BULK SCRIPT:\n{full_script[:1000]}...")  # Preview only
-
-        # Robust split on unique marker
-        scripts = re.split(r'===SCRIPT START===', full_script)
-        scripts = [s.strip() for s in scripts if s.strip()]
-
-        # Enhanced diagnostic logging
-        logger.info(f"📊 Gemini bulk response stats:")
-        logger.info(f"   - Total response length: {len(full_script)} chars (~{len(full_script)//4} tokens)")
-        logger.info(f"   - Scripts extracted: {len(scripts)}/{len(segments)}")
-        logger.info(f"   - Max tokens allowed: {max_tokens}")
-        
-        if len(scripts) < len(segments):
-            logger.warning(f"⚠️ Gemini returned {len(scripts)} scripts for {len(segments)} segments.")
-            logger.warning(f"   - Possible cause: Response truncated at {max_tokens} token limit")
-            logger.warning(f"   - Response ended with: ...{full_script[-200:]}")
-            logger.info(f"🎯 Smart Recovery: Saving {len(scripts)} valid scripts, generating remaining {len(segments) - len(scripts)} scripts...")
-            return await self._smart_continue_generation(segments, scripts)
-
-        # Save each script
-        for i, segment in enumerate(segments):
-            try:
-                raw_script = scripts[i]
-                cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
-                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
-                script_path.write_text(cleaned_script, encoding="utf-8")
-                segment.script_path = str(script_path)
-                logger.info(f"✅ Bulk script saved: segment_{i:03d}.py")
-            except Exception as e:
-                logger.error(f"❌ Failed for segment {i+1}: {e}")
-                logger.error(f"❌ NO FALLBACK - Script must be regenerated via retry")
-                raise RuntimeError(f"Failed to process script for segment {i+1}: {e}")
-
-        return segments
+"""
     
-    async def _smart_continue_generation(self, segments: List[NarrationSegment], partial_scripts: List[str]) -> List[NarrationSegment]:
-        """
-        Smart continuation: Save already-generated scripts, then generate only the missing ones.
-        This avoids wasting time re-generating scripts Gemini already created.
-        """
-        num_valid = len(partial_scripts)
-        num_total = len(segments)
+    def _build_single_script_prompt(self, index: int, segment: NarrationSegment) -> str:
+        """Build prompt for single segment script generation."""
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        aspect_ratio = self.config.aspect_ratio
         
-        logger.info(f"💾 Saving {num_valid} scripts that Gemini already generated...")
-        
-        # Save the valid scripts we already have
-        from pydub import AudioSegment
-        for i in range(num_valid):
-            try:
-                segment = segments[i]
-                
-                # Update duration from actual audio file
-                if segment.audio_path and Path(segment.audio_path).exists():
-                    audio = AudioSegment.from_file(segment.audio_path)
-                    actual_duration = round(len(audio) / 1000.0, 2)
-                    segment.duration = actual_duration
-                
-                raw_script = partial_scripts[i]
-                cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
-                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
-                script_path.write_text(cleaned_script, encoding="utf-8")
-                segment.script_path = str(script_path)
-                logger.info(f"✅ Saved partial script: segment_{i:03d}.py")
-            except Exception as e:
-                logger.error(f"❌ Failed to save partial script {i}: {e}")
-                logger.error(f"❌ NO FALLBACK - Must retry generation")
-                raise RuntimeError(f"Failed to save partial script {i}: {e}")
-        
-        # Generate ONLY the missing scripts (segments num_valid to num_total-1)
-        logger.info(f"🔁 Generating remaining {num_total - num_valid} scripts (segments {num_valid+1} to {num_total})...")
-        
-        for i in range(num_valid, num_total):
-            segment = segments[i]
-            
-            # Update duration from actual audio file
-            if segment.audio_path and Path(segment.audio_path).exists():
-                audio = AudioSegment.from_file(segment.audio_path)
-                actual_duration = round(len(audio) / 1000.0, 2)
-                segment.duration = actual_duration
-                logger.info(f"🎯 Segment {i+1}: Using actual audio duration {actual_duration:.2f}s")
-            
-            # Build prompt for this single segment
-            aspect_ratio_config = self._get_aspect_ratio_config()
-            
-            prompt = f"""
-You are a senior Manim Community Python developer.
+        return f"""🎯 PRIMARY OBJECTIVE
+You are a world-class Manim animation generation engine. Your task is to generate ONE complete, production-ready Manim script for a SINGLE video segment. The output will be executed automatically in a pipeline. Any deviation from rules will cause hard failure.
 
-⏱️ **CRITICAL: FILL ENTIRE {segment.duration:.2f} SECONDS WITH ANIMATION - NO BLANK SCREENS!**
+---
 
-**🚨 FORBIDDEN: Using long self.wait() at the end!**
+� **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
 
-Generate a script where animations are ACTIVE for the full {segment.duration:.2f} seconds.
+**⛔ ABSOLUTE RULE: NO ELEMENTS CAN GO OFF-SCREEN - THEY BECOME INVISIBLE!**
 
-**✅ CORRECT APPROACH:**
-1. **Distribute animations across full duration:**
-   - Entry: 20-30% ({segment.duration * 0.25:.1f}s)
-   - Content: 40-50% ({segment.duration * 0.45:.1f}s)
-   - Exit: 20-30% ({segment.duration * 0.30:.1f}s)
+**🚨 THIS IS THE #1 CAUSE OF VIDEO FAILURES - FOLLOW THESE EXACTLY:**
 
-2. **Use LONGER run_times** (2-4 seconds)
-3. **Add MORE animations** instead of waiting
-4. **Maximum wait: 1 second**
+**MANDATORY REQUIREMENTS (WILL BE REJECTED IF VIOLATED):**
 
-**Example:**
-```python
-title = Text("Title")
-self.play(Write(title), run_time={segment.duration * 0.2:.1f})
-self.play(title.animate.shift(UP*2), run_time={segment.duration * 0.15:.1f})
-text = Text("Content")
-self.play(GrowFromCenter(text), run_time={segment.duration * 0.2:.1f})
-self.play(Indicate(text), run_time={segment.duration * 0.15:.1f})
-self.play(FadeOut(text, title), run_time={segment.duration * 0.25:.1f})
-self.wait(0.5)
-```
+1. **⚠️ EVERY Text object MUST have .scale_to_fit_width() - NO EXCEPTIONS!**
+   ```python
+   # ✅ CORRECT - ALWAYS DO THIS:
+   title = Text("Some text", font_size=48)
+   title.scale_to_fit_width(config.frame_width * 0.85)  # MANDATORY!
+   
+   # ❌ WRONG - WILL GO OFF-SCREEN:
+   title = Text("Some text", font_size=48)  # Missing scale_to_fit_width!
+   ```
 
-**Content:**
-- Narration: "{segment.text}"
-- Visuals: {segment.visual_description}
+2. **⛔ FORBIDDEN POSITIONS - NEVER USE (GOES OFF-SCREEN):**
+   - ❌ UP * 3.5 or higher (too high, invisible)
+   - ❌ DOWN * 3.5 or lower (too low, invisible)
+   - ❌ LEFT * 7 or beyond (too far left, invisible)
+   - ❌ RIGHT * 7 or beyond (too far right, invisible)
 
-**Required Format:**
+3. **✅ SAFE POSITIONS ONLY:**
+   - ✅ UP * 2.5, UP * 2, UP * 1.5, UP * 1 (SAFE)
+   - ✅ ORIGIN, UP * 0.5, DOWN * 0.5 (SAFE)
+   - ✅ DOWN * 1, DOWN * 1.5, DOWN * 2, DOWN * 2.5 (SAFE)
+   - ✅ LEFT * 3, RIGHT * 3 (SAFE horizontal)
+
+4. **📏 SIZE LIMITS:**
+   - Maximum font_size: {48 if aspect_ratio == "9:16" else 56}px
+   - ALL text MUST call .scale_to_fit_width(config.frame_width * 0.85)
+
+5. **📐 SPACING RULES:**
+   - Minimum 1.5 units vertical spacing between text objects
+   - Keep 1 unit margin from all edges
+
+**✅ CHECKLIST BEFORE SUBMITTING:**
+□ Every Text() has .scale_to_fit_width(config.frame_width * 0.85)
+□ All positions use SAFE values (UP*2.5 max, DOWN*2.5 max)
+□ Font sizes within limits
+□ Vertical spacing >= 1.5 units
+
+---
+
+�🔒 IMMUTABLE INPUTS (READ-ONLY)
+• Narration text: {segment.text}
+• Exact audio duration (seconds): {segment.duration:.2f}
+• Aspect ratio: {aspect_ratio}
+
+You are NOT allowed to:
+❌ Change narration text
+❌ Change visual description meaning
+❌ Change total duration
+❌ Add unrelated visuals
+
+---
+
+📐 ABSOLUTE ASPECT RATIO CONTRACT (NON-NEGOTIABLE)
+
+Aspect ratio is {aspect_ratio}. All layout MUST obey this.
+
+GLOBAL SAFE RULES (ALL RATIOS):
+• Never place objects outside frame
+• Never overlap text objects
+• Never rely on default scaling
+• Always prefer vertical stacking over crowding
+
+TEXT WIDTH CONSTRAINT (MANDATORY):
+• EVERY Text / MarkupText / Tex MUST immediately call:
+text.scale_to_fit_width(config.frame_width * WIDTH_FACTOR)
+
+WIDTH_FACTOR:
+• 16:9  → 0.85
+• 9:16  → 0.65   (CRITICAL – narrow screen)
+• 1:1   → 0.75
+• 4:3   → 0.80
+• 21:9  → 0.90
+
+---
+
+📍 POSITION ZONES (STRICT – DO NOT INVENT NEW POSITIONS)
+
+For 9:16:
+• TOP:    UP * 6 → UP * 4
+• MIDDLE: UP * 1 → DOWN * 1
+• BOTTOM: DOWN * 4 → DOWN * 6
+
+For 16:9:
+• TOP:    UP * 3 → UP * 2
+• MIDDLE: UP * 0.5 → DOWN * 0.5
+• BOTTOM: DOWN * 2 → DOWN * 3
+
+Rules:
+• Max 1 text object per zone
+• Minimum vertical spacing = 1.5 units
+• Long text MUST be split into multiple stacked Text objects
+
+---
+
+🎬 TIMING & AUDIO SYNCHRONIZATION (ABSOLUTE)
+• Total animation time MUST equal {segment.duration:.2f} seconds
+• Distribute animations across entire duration
+• NO front-loaded animations
+• NO long blank screen at end
+
+💡 TIMING OPTIONS:
+1. Use self.wait() to fill remaining time:
+   ```python
+   # animations total 10.5s, segment is {segment.duration:.2f}s
+   remaining = {segment.duration:.2f} - 10.5
+   self.wait(remaining)  # Fill the gap
+   ```
+
+2. OR distribute animations to naturally fill duration:
+   ```python
+   # Increase run_times so total equals {segment.duration:.2f}s
+   self.play(Write(title), run_time=4.0)  # Longer animations
+   ```
+
+---
+
+🎨 ANIMATION QUALITY REQUIREMENTS
+
+MANDATORY:
+• Use 5–8 different animation techniques
+• Use rate_func=smooth
+• run_time typically 1.0–1.6s (never <0.8s)
+
+ALLOWED TECHNIQUES:
+• Write, DrawBorderThenFill, GrowFromCenter, SpinInFromNothing
+• Indicate, Circumscribe, Flash, Wiggle
+• Transform, ReplacementTransform, TransformMatchingShapes
+• .animate.shift / scale / rotate
+• AnimationGroup(lag_ratio=0.2–0.3)
+
+FORBIDDEN:
+❌ FadeIn/FadeOut-only scripts
+❌ Static text dumps
+❌ Excessive add_updater (>30% of animations)
+
+---
+
+🧠 VISUAL–NARRATION BINDING (CRITICAL)
+• Every narrated concept MUST appear visually
+• If narration says "three", show exactly three elements
+• If narration explains a process, show flow or transformation
+• Visuals must appear when narration mentions them
+
+---
+
+📄 REQUIRED OUTPUT FORMAT (STRICT)
+
+Return ONLY raw Python code. No markdown. No explanations.
+
+The script MUST start exactly with:
+
 from manim import *
+import random
 
 {aspect_ratio_config}
 
-class Segment{i:03d}(Scene):
+class Segment{index:03d}(Scene):
     def construct(self):
-        # Track timing throughout
-        total_time = 0.0
-        
-        # Your animations here with run_time tracking
-        
-        # Fill remaining time at the end
-        self.wait({segment.duration:.2f} - total_time)
+        # animations here
+        self.wait(X)  # X chosen so total time == {segment.duration:.2f}
+
+---
+
+🚨 FINAL CHECKLIST (YOU MUST SELF-VERIFY BEFORE OUTPUT)
+✓ All text scaled with scale_to_fit_width
+✓ No overlaps
+✓ Aspect ratio respected
+✓ Duration exact
+✓ Animations spread across time
+✓ No blank screen padding
+✓ Clean exit
+
+Generate the script now.
 """
-            
-            try:
-                # Use OpenRouter for script generation
-                client = self.openrouter_key_manager.get_client()
-                response = client.chat.completions.create(
-                    model=self.script_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=8192
-                )
-                raw_script = response.choices[0].message.content.strip()
-                cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
-                
-                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
-                script_path.write_text(cleaned_script, encoding="utf-8")
-                segment.script_path = str(script_path)
-                logger.info(f"✅ Continuation script saved: segment_{i:03d}.py")
-            except Exception as e:
-                logger.error(f"❌ Failed to generate segment {i+1}: {e}")
-                logger.error(f"❌ NO FALLBACK - Continuation must succeed")
-                raise RuntimeError(f"Failed to generate continuation script for segment {i+1}: {e}")
-        
-        logger.info(f"✅ Smart continuation complete: All {num_total} scripts ready!")
-        return segments
-    
-    async def _generate_script_for_each_segment(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
-        """
-        If bulk generation fails, generate each Manim script separately
-        using the real audio file length.
-        """
-        logger.info("🔁 Fallback: Generating each script individually with Gemini.")
-
-        from pydub import AudioSegment
-
-        for i, segment in enumerate(segments):
-            # Always trust the actual audio file duration
-            if segment.audio_path and Path(segment.audio_path).exists():
-                audio = AudioSegment.from_file(segment.audio_path)
-                actual_duration = round(len(audio) / 1000.0, 2)
-                segment.duration = actual_duration
-                logger.info(f"🎯 Segment {i+1}: Using actual audio duration {actual_duration:.2f}s")
-
-            # Build prompt for this single segment
-            aspect_ratio_config = self._get_aspect_ratio_config()
-            
-            prompt = f"""
-You are a senior Manim Community Python developer.
-
-⏱️ **CRITICAL: FILL ENTIRE {segment.duration:.2f} SECONDS - NO BLANK SCREENS!**
-
-Animations must be ACTIVE throughout the full {segment.duration:.2f} seconds.
-
-**RULES:**
-1. Distribute animations: Entry ({segment.duration * 0.3:.1f}s) → Content ({segment.duration * 0.4:.1f}s) → Exit ({segment.duration * 0.3:.1f}s)
-2. Use LONGER run_times (2-4 seconds each)
-3. Add MORE animations instead of long waits
-4. Maximum wait: 1 second
-
-**Content:**
-- Narration: "{segment.text}"
-- Visuals: {segment.visual_description}
-
-**Format:**
-from manim import *
-
-{aspect_ratio_config}
-
-class Segment{i:03d}(Scene):
-    def construct(self):
-        # Track timing throughout
-        total_time = 0.0
-        
-        # Your animations here with run_time tracking
-        
-        # Fill remaining time at the end
-        self.wait({segment.duration:.2f} - total_time)
-"""
-
-            # Use OpenRouter for script generation
-            client = self.openrouter_key_manager.get_client()
-            response = client.chat.completions.create(
-                model=self.script_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=8192
-            )
-            raw_script = response.choices[0].message.content.strip()
-            cleaned_script = self._clean_script_response(raw_script, i, segment.duration)
-
-            script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
-            script_path.write_text(cleaned_script, encoding="utf-8")
-            segment.script_path = str(script_path)
-            logger.info(f"✅ Individual script saved: segment_{i:03d}.py")
-
-        return segments
-
-
 
     def _clean_script_response(self, raw_content: str, index: int, duration: float) -> str:
         """Clean and validate script response from Gemini."""
         try:
-            # Remove markdown blocks if present
+            logger.debug(f"🧹 Cleaning segment {index} (length: {len(raw_content)} chars)")
+            
+            # Remove markdown blocks if present (multiple formats)
             if "```python" in raw_content:
                 start_marker = "```python"
                 end_marker = "```"
@@ -4553,6 +4836,13 @@ class Segment{i:03d}(Scene):
                 end_idx = raw_content.rfind(end_marker)
                 if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                     raw_content = raw_content[start_idx:end_idx].strip()
+                    logger.debug(f"📝 Removed markdown wrapper")
+            elif "```" in raw_content:
+                # Handle plain ``` without python keyword
+                parts = raw_content.split('```')
+                if len(parts) >= 3:
+                    raw_content = parts[1].strip()
+                    logger.debug(f"📝 Removed plain markdown wrapper")
             
             # Remove any leading/trailing content that's not code
             lines = raw_content.split('\n')
@@ -4563,14 +4853,15 @@ class Segment{i:03d}(Scene):
                     break
             
             if code_start > 0:
+                logger.debug(f"✂️ Trimmed {code_start} leading lines")
                 raw_content = '\n'.join(lines[code_start:])
             
             # Validate script structure
-            if self._validate_script_structure(raw_content, index):
-                return raw_content
-            else:
-                logger.error(f"❌ Script validation failed for segment {index} - NO FALLBACK")
+            if not self._validate_script_structure(raw_content, index):
+                logger.error(f"❌ Script validation failed for segment {index} - missing core elements")
                 raise ValueError(f"Script validation failed for segment {index}: missing required elements")
+            
+            return raw_content
                 
         except Exception as e:
             logger.error(f"❌ Script cleaning failed for segment {index}: {e}")
@@ -4578,14 +4869,14 @@ class Segment{i:03d}(Scene):
 
     def _validate_script_structure(self, script: str, index: int) -> bool:
         """Validate that the script has all required components."""
-        required_elements = [
+        # Core required elements (self.wait is optional - animations can fill duration)
+        core_elements = [
             "from manim import",
             f"class Segment{index:03d}",
-            "def construct(self)",
-            "self.wait("
+            "def construct(self)"
         ]
         
-        for element in required_elements:
+        for element in core_elements:
             if element not in script:
                 logger.warning(f"⚠️ Missing required element: {element}")
                 return False
@@ -4604,6 +4895,76 @@ class Segment{i:03d}(Scene):
             logger.info(f"📊 Updater detected in segment {index+1} - potential 30-40% speedup if converted")
         
         return True
+    
+    def _validate_bulk_scripts(self, segments: List[NarrationSegment]) -> List[int]:
+        """Validate all bulk-generated scripts and return indices of failed segments."""
+        failed_indices = []
+        
+        for i, segment in enumerate(segments):
+            try:
+                if not segment.script_path or not Path(segment.script_path).exists():
+                    logger.warning(f"⚠️ Segment {i}: Missing script file")
+                    failed_indices.append(i)
+                    continue
+                
+                script_content = Path(segment.script_path).read_text(encoding="utf-8")
+                if not self._validate_script_structure(script_content, i):
+                    logger.warning(f"⚠️ Segment {i}: Script validation failed")
+                    failed_indices.append(i)
+            except Exception as e:
+                logger.warning(f"⚠️ Segment {i}: Validation error: {e}")
+                failed_indices.append(i)
+        
+        return failed_indices
+    
+    async def _regenerate_failed_segments(self, segments: List[NarrationSegment], failed_indices: List[int]) -> List[NarrationSegment]:
+        """Regenerate scripts for failed segments individually using per-segment generation."""
+        from pydub import AudioSegment
+        
+        for i in failed_indices:
+            segment = segments[i]
+            try:
+                logger.info(f"🔄 Regenerating script for segment {i+1}/{len(segments)}...")
+                
+                # Ensure audio duration is set
+                if segment.audio_path and Path(segment.audio_path).exists():
+                    audio = AudioSegment.from_file(segment.audio_path)
+                    segment.duration = round(len(audio) / 1000.0, 2)
+                
+                # Generate script with Gemini rotation
+                prompt = self._build_single_script_prompt(i, segment)
+                response = self._call_gemini_with_rotation(
+                    prompt,
+                    generation_config={'temperature': 0.7, 'max_output_tokens': 8192},
+                    task_name=f"script regeneration (segment {i+1})"
+                )
+                
+                # Handle response
+                if response is None:
+                    logger.error(f"❌ Gemini returned None response for segment {i+1}")
+                    raise RuntimeError(f"Gemini returned None response for segment {i+1}")
+                
+                if hasattr(response, 'text') and response.text:
+                    raw_text = response.text.strip()
+                elif isinstance(response, str):
+                    raw_text = response.strip()
+                else:
+                    logger.error(f"❌ Unexpected response type for segment {i+1}: {type(response)}")
+                    raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+                
+                # Clean and save script
+                cleaned_script = self._clean_script_response(raw_text, i, segment.duration)
+                script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                script_path.write_text(cleaned_script, encoding="utf-8")
+                segment.script_path = str(script_path)
+                
+                logger.info(f"✅ Successfully regenerated segment {i+1}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to regenerate segment {i+1}: {e}")
+                raise RuntimeError(f"Failed to regenerate segment {i+1}: {e}")
+        
+        return segments
 
     def _generate_fallback_script(self, segment: Optional[NarrationSegment], index: int, duration: float, is_dummy: bool = False) -> str:
         """Generate a reliable fallback script."""
@@ -4724,7 +5085,8 @@ class Segment{index:03d}(Scene):
         worker_args = []
         config_dict = {
             'groq_api_key': self.config.groq_api_key,
-            'openrouter_api_key': self.config.openrouter_api_key,
+            'openrouter_api_key': self.config.openrouter_api_key,  # Required for VideoGenerationConfig
+            'openrouter_key_manager': self.openrouter_key_manager,  # Pass key manager for rotation
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'manim_quality': self.config.manim_quality,
@@ -4896,7 +5258,8 @@ class Segment{index:03d}(Scene):
         worker_args = []
         config_dict = {
             'groq_api_key': self.config.groq_api_key,
-            'openrouter_api_key': self.config.openrouter_api_key,
+            'openrouter_api_key': self.config.openrouter_api_key,  # Required for VideoGenerationConfig
+            'openrouter_key_manager': self.openrouter_key_manager,  # Pass key manager for rotation
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'ffmpeg_timeout': self.config.ffmpeg_timeout,
@@ -5028,7 +5391,7 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="16:9"
+        aspect_ratio="9:16"
     )
     
     try:
@@ -5039,8 +5402,8 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="Differentiate between Streaming of Stored Media vs Live Media in detail", 
-            duration=180,
+            topic="What is the difference between JS and JSX?", 
+            duration=60,
         )
 
         

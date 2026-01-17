@@ -7,9 +7,10 @@ import logging
 import os
 from typing import List, Optional, Callable, Any, Dict
 from datetime import datetime
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIError
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Ensure DEBUG level logging
 
 
 class OpenRouterKeyManager:
@@ -72,6 +73,7 @@ class OpenRouterKeyManager:
         return OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.get_current_key(),
+            max_retries=0,  # Disable automatic retries - we handle rotation manually
         )
     
     def rotate_key(self) -> None:
@@ -113,11 +115,14 @@ class OpenRouterKeyManager:
         if max_total_retries is None:
             max_total_retries = len(self.api_keys) * 3
         
+        logger.info(f"🔄 execute_with_rotation called with model={model}, max_retries={max_total_retries}")
+        
         last_exception = None
         attempts = 0
         keys_tried = set()
         
         while attempts < max_total_retries:
+            logger.info(f"🔄 Attempt {attempts+1}/{max_total_retries} with key index {self.current_index}")
             try:
                 # Get client with current key
                 client = self.get_client(model)
@@ -135,22 +140,46 @@ class OpenRouterKeyManager:
                 attempts += 1
                 last_exception = e
                 
+                # DEBUG: Log exception details
+                logger.debug(f"🔍 Exception type: {type(e).__name__}")
+                logger.debug(f"🔍 Exception message: {str(e)[:300]}")
+                logger.debug(f"🔍 Is RateLimitError: {isinstance(e, RateLimitError)}")
+                logger.debug(f"🔍 Is APIError: {isinstance(e, APIError)}")
+                if hasattr(e, 'status_code'):
+                    logger.debug(f"🔍 Status code: {e.status_code}")
+                
                 # Check if this is a quota/rate limit error
-                is_quota_error = any(term in error_str for term in [
-                    "429", "quota", "rate limit", "resource_exhausted", 
-                    "too many requests", "limit exceeded"
-                ])
+                # OpenAI library throws RateLimitError for 429 status codes
+                is_quota_error = (
+                    isinstance(e, RateLimitError) or 
+                    isinstance(e, APIError) and hasattr(e, 'status_code') and e.status_code == 429 or
+                    any(term in error_str for term in [
+                        "429", "quota", "rate limit", "resource_exhausted", 
+                        "too many requests", "limit exceeded", "rate-limit"
+                    ])
+                )
+                
+                logger.debug(f"🔍 is_quota_error: {is_quota_error}")
                 
                 if is_quota_error:
                     current_key_index = self.current_index
                     keys_tried.add(current_key_index)
                     
-                    logger.warning(f"⚠️ Quota/rate limit error on key {current_key_index}: {e}")
+                    # Extract rate limit info if available
+                    rate_limit_info = ""
+                    if hasattr(e, 'response') and hasattr(e.response, 'headers'):
+                        headers = e.response.headers
+                        remaining = headers.get('X-RateLimit-Remaining', 'unknown')
+                        reset = headers.get('X-RateLimit-Reset', 'unknown')
+                        rate_limit_info = f" (Remaining: {remaining}, Reset: {reset})"
+                    
+                    logger.warning(f"⚠️ Rate limit (429) on key {current_key_index}{rate_limit_info}")
+                    logger.warning(f"   Error: {str(e)[:200]}")
                     
                     # Try rotating to next key
                     if len(keys_tried) < len(self.api_keys):
                         self.rotate_key()
-                        logger.info(f"🔁 Retrying with key {self.current_index}...")
+                        logger.info(f"🔁 Retrying with key {self.current_index} (tried {len(keys_tried)}/{len(self.api_keys)} keys)...")
                         continue
                     else:
                         # All keys tried, reset and wait

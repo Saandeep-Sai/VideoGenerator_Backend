@@ -60,7 +60,7 @@ def test_ai_topic():
     try:
         import os
         from dotenv import load_dotenv
-        import google.generativeai as genai
+        from google import genai
         
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -69,8 +69,7 @@ def test_ai_topic():
             print("❌ GEMINI_API_KEY not found in .env")
             return
         
-        genai.configure(api_key=api_key)
-        client = genai.GenerativeModel('gemini-2.5-flash')
+        client = genai.Client(api_key=api_key)
         
         prompt = """Generate 1 unique programming/tech topic for a 60-second YouTube Short.
 
@@ -84,7 +83,16 @@ Example: "Microservices vs Serverless Architecture"
 
 Generate topic:"""
         
-        response = client.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        
+        # Handle response - new SDK can return None for response.text
+        if response is None or not hasattr(response, 'text') or response.text is None:
+            print(f"❌ AI topic generation failed: Empty or None response from Gemini")
+            return
+        
         ai_topic = response.text.strip().replace('"', '').replace("'", "")
         
         print(f"🤖 AI Generated Topic: {ai_topic}")
