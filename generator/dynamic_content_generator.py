@@ -1,45 +1,50 @@
 """
 Dynamic Content Generator for YouTube Shorts
-Generates trending topics, titles, and tags using OpenRouter AI
+Generates trending topics, titles, and tags using Gemini AI
 """
 
 import logging
 import random
 import json
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Set
-from openai import OpenAI
-from .openrouter_key_manager import OpenRouterKeyManager
 
 logger = logging.getLogger(__name__)
 
 class DynamicContentGenerator:
-    """Generate trending topics and metadata for YouTube Shorts using OpenRouter AI"""
+    """Generate trending topics and metadata for YouTube Shorts using Gemini AI"""
     
-    def __init__(self, openrouter_api_key: str = None, openrouter_api_keys: List[str] = None, history_file: str = "youtube_shorts_history.json"):
+    def __init__(self, gemini_api_key: str = None, history_file: str = "youtube_shorts_history.json"):
         """
-        Initialize content generator with key rotation support.
+        Initialize content generator with Gemini.
         
         Args:
-            openrouter_api_key: Single API key (for backward compatibility)
-            openrouter_api_keys: List of API keys for rotation (preferred)
+            gemini_api_key: Gemini API key (optional, loads from env if not provided)
             history_file: Path to topic history JSON file
         """
         self.history_file = Path(history_file)
-        self.model_name = "meta-llama/llama-3.3-70b-instruct:free"
+        self.gemini_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"]
+        self.current_model_index = 0
         
-        # Initialize key manager with rotation support
-        if openrouter_api_keys:
-            self.key_manager = OpenRouterKeyManager(api_keys=openrouter_api_keys)
-        elif openrouter_api_key:
-            self.key_manager = OpenRouterKeyManager(api_keys=[openrouter_api_key])
-        else:
-            # Load from environment
-            self.key_manager = OpenRouterKeyManager()
-        
-        logger.info(f"✅ Dynamic Content Generator initialized with {self.key_manager.get_stats()['total_keys']} API key(s)")
-        logger.info(f"📝 Topic Generation Model: {self.model_name}")
+        # Initialize Gemini client
+        try:
+            from google import genai
+            
+            api_key = gemini_api_key or os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not found in environment")
+            
+            self.gemini_client = genai.Client(api_key=api_key)
+            logger.info(f"✅ Dynamic Content Generator initialized with Gemini")
+            logger.info(f"📝 Topic Generation Models: {', '.join(self.gemini_models)}")
+        except ImportError:
+            logger.error("❌ google-genai not installed. Run: pip install google-genai")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Gemini client: {e}")
+            raise
     
     def load_topic_history(self) -> Dict[str, str]:
         """Load topic history from file"""
@@ -73,6 +78,51 @@ class DynamicContentGenerator:
     def _normalize_topic(self, topic: str) -> str:
         """Normalize topic string for comparison"""
         return topic.lower().strip().replace('"', '').replace("'", "")
+    
+    def _call_gemini_with_rotation(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> str:
+        """Call Gemini with automatic model rotation on errors"""
+        from google.genai import types
+        
+        while True:
+            try:
+                model_name = self.gemini_models[self.current_model_index]
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_tokens
+                )
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                
+                if response is None or not hasattr(response, 'text') or response.text is None:
+                    raise ValueError("Gemini returned None response")
+                
+                return response.text.strip()
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                is_rotation_error = (
+                    "quota" in error_str or 
+                    "429" in error_str or 
+                    "503" in error_str or
+                    "resource" in error_str or
+                    "overloaded" in error_str
+                )
+                
+                if is_rotation_error:
+                    logger.warning(f"⚠️ Gemini error with {model_name}: {str(e)[:100]}")
+                    self.current_model_index += 1
+                    if self.current_model_index >= len(self.gemini_models):
+                        logger.error("❌ All Gemini models exhausted")
+                        raise RuntimeError("All Gemini models failed")
+                    
+                    next_model = self.gemini_models[self.current_model_index]
+                    logger.info(f"🔄 Rotating to model: {next_model}")
+                    continue
+                else:
+                    raise
     
     def _is_topic_similar(self, new_topic: str, used_topics: Set[str], threshold: float = 0.7) -> bool:
         """Check if new topic is too similar to any used topic"""
@@ -159,20 +209,9 @@ Generate ONE unique topic now:"""
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                def call_openrouter(client):
-                    response = client.chat.completions.create(
-                        model=self.model_name,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.7,
-                        max_tokens=1000,
-                    )
-                    return response.choices[0].message.content
-                
-                response_text = self.key_manager.execute_with_rotation(
-                    call_openrouter,
-                    model=self.model_name
-                )
-                topic = response_text.strip().replace('"', '').replace("'", "")
+                # Call Gemini with model rotation
+                response = self._call_gemini_with_rotation(prompt, temperature=0.7)
+                topic = response.strip().replace('"', '').replace("'", "")
                 
                 # Check if topic is too similar to used topics
                 if not self._is_topic_similar(topic, used_topics):
@@ -287,17 +326,8 @@ TAGS: tag1,tag2,tag3,tag4,tag5,tag6,tag7,tag8,tag9,tag10
 Generate the metadata now:"""
 
         try:
-            def call_openrouter(client):
-                response = client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7,
-                    max_tokens=1000,
-                )
-                return response.choices[0].message.content
-            
-            response_text = self.key_manager.execute_with_rotation(
-                call_openrouter,
+            # Call Gemini with model rotation
+            response_text = self._call_gemini_with_rotation(prompt, temperature=0.7)
                 model=self.model_name
             )
             content = response_text.strip()
