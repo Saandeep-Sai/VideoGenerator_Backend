@@ -159,13 +159,18 @@ class StandaloneYouTubeShortsGenerator:
         history_file = str(script_dir / "youtube_shorts_history.json")
         
         if AI_TOPIC_GENERATION:
-            # Pass all OpenRouter API keys for rotation
-            self.dynamic_content = DynamicContentGenerator(
-                openrouter_api_keys=OPENROUTER_API_KEYS, 
-                history_file=history_file
-            )
-            logger.info(f"🤖 AI dynamic content generation enabled with {len(OPENROUTER_API_KEYS)} API key(s)")
-            logger.info(f"📂 Using history file: {history_file}")
+            # Use Gemini API for topic generation
+            gemini_api_key = os.getenv('GEMINI_API_KEY')
+            if not gemini_api_key:
+                logger.warning("⚠️ GEMINI_API_KEY not found, disabling AI topic generation")
+                self.dynamic_content = None
+            else:
+                self.dynamic_content = DynamicContentGenerator(
+                    gemini_api_key=gemini_api_key, 
+                    history_file=history_file
+                )
+                logger.info(f"🤖 AI dynamic content generation enabled with Gemini")
+                logger.info(f"📂 Using history file: {history_file}")
         else:
             self.dynamic_content = None
             logger.info("📝 Using predefined topics only")
