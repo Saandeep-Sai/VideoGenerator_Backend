@@ -48,6 +48,7 @@ generator/video_generator/__pycache__/optimized_video_generator.cpython-311.pyc
 media/
 partial_movie_files/
 
+token.json
 # Virtual environments
 .venv/
 venv/

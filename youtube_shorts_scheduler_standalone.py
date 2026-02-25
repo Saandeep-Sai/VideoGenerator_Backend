@@ -47,6 +47,16 @@ from dotenv import load_dotenv
 # Load environment
 load_dotenv()
 
+# Import smart topic selector (analytics-driven topic selection)
+try:
+    from analytics.smart_topic_selector import SmartTopicSelector, get_smart_topic
+    SMART_TOPICS_ENABLED = True
+    logger.info("✅ Analytics-driven smart topic selection enabled")
+except ImportError:
+    SMART_TOPICS_ENABLED = False
+    get_smart_topic = None
+    logger.info("ℹ️ Smart topic selection not available (analytics module not ready)")
+
 # Get configuration - Load ALL OpenRouter API keys for rotation
 OPENROUTER_API_KEYS = []
 for key_name in ["OPENROUTER_API_KEY"] + [f"OPENROUTER_API_KEY_{i}" for i in range(2, 10)]:
@@ -149,7 +159,8 @@ class StandaloneYouTubeShortsGenerator:
             openrouter_api_key=OPENROUTER_API_KEY,
             groq_api_key=OPENROUTER_API_KEY,  # Also use OpenRouter for corrections
             aspect_ratio="9:16",  # YouTube Shorts format
-            video_type="short"  # Enable friendly voice and tone
+            video_type="short",  # Enable friendly voice and tone
+            use_quality_pipeline=True  # Enable spec-based generation for engaging HEAD/TAIL structure
         )
         self.pipeline = OptimizedVideoGenerationPipeline(self.config)
         self.oracle_storage = OracleStorageClient()
@@ -250,8 +261,19 @@ class StandaloneYouTubeShortsGenerator:
             return None
     
     def get_next_topic(self) -> str:
-        """Get next topic (AI generation + rotation fallback)."""
-        # Try AI generation first (if enabled)
+        """Get next topic with priority: Smart Analytics → AI → Predefined."""
+        
+        # Priority 1: Smart topic selection based on viewership analytics
+        if SMART_TOPICS_ENABLED and get_smart_topic:
+            try:
+                smart_topic = get_smart_topic()
+                if smart_topic:
+                    logger.info(f"📊 Analytics-driven topic: {smart_topic}")
+                    return smart_topic
+            except Exception as e:
+                logger.warning(f"⚠️ Smart topic selection failed: {e}")
+        
+        # Priority 2: AI generation (if enabled)
         if AI_TOPIC_GENERATION and self.dynamic_content:
             ai_topic = self.generate_ai_topic()
             if ai_topic:
@@ -479,6 +501,19 @@ Thanks to Code Tapasya for making coding fun!
             youtube_video_id = self.upload_to_youtube(video_path, topic, duration)
             if not youtube_video_id:
                 logger.warning("⚠️ YouTube upload failed, but continuing with Oracle")
+            else:
+                # Track video for analytics (enables viewership-based topic selection)
+                try:
+                    from analytics.integrated_analytics import track_uploaded_video
+                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
+                    track_uploaded_video(
+                        youtube_video_id=youtube_video_id,
+                        topic=topic,
+                        metadata=metadata
+                    )
+                    logger.info(f"📊 Video tracked for analytics: {youtube_video_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Analytics tracking failed (non-critical): {e}")
             
             # Step 3: Upload to Instagram Reels
             logger.info("📱 Step 3: Uploading to Instagram Reels...")

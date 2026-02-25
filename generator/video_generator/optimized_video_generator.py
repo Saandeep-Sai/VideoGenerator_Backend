@@ -204,6 +204,8 @@ class VideoGenerationConfig:
     max_concurrent_tts: int = 1  # Only 1 TTS at a time
     aspect_ratio: str = "9:16"  # Options: "16:9" (YouTube), "9:16" (Shorts/TikTok), "1:1" (Instagram), "4:3" (Traditional)
     video_type: str = "regular"  # Options: "regular", "short"
+    # NEW: Quality pipeline option for high-quality educational animations
+    use_quality_pipeline: bool = False  # When True, uses spec-based generation with visual primitives
     
     def __post_init__(self):
         if not self.openrouter_api_key:
@@ -470,77 +472,67 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
         }
         visual_guide = aspect_ratio_visual_guide.get(self.config.aspect_ratio, aspect_ratio_visual_guide["16:9"])
         
-        prompt = f"""You are an expert educational content creator specializing in creating engaging video scripts for Manim animations.
+        prompt = f"""You are a viral YouTube Shorts creator who NEVER makes boring content. Your videos hook people instantly and they can't stop watching.
 
-📋 TASK: Create a {duration}-second educational video script about "{topic}" optimized for {self.config.aspect_ratio} aspect ratio.
+🎯 TASK: Create a {duration}-second educational video script about "{topic}" for {self.config.aspect_ratio} format.
 
-🎯 OUTPUT FORMAT (STRICT):
+📄 OUTPUT FORMAT (STRICT):
 SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
 
-⚠️ VISUAL_DESCRIPTION FORMAT (CRITICAL):
-- Describe WHAT should be shown visually (brief conceptual phrase)
-- Keep it simple - one short phrase only
-- NO Manim code references
-- Example: "blue circle diagram" or "text with arrows" NOT complex descriptions
+🚨 ANTI-BORING RULES (CRITICAL!):
+❌ NEVER start with "Today we'll learn about..." or "In this video..."
+❌ NEVER say "The concept of X is defined as..."
+❌ NEVER have static visuals (everything must MOVE!)
+❌ NEVER sound like a textbook or Wikipedia article
 
-⚠️ CRITICAL REQUIREMENTS:
+✅ ALWAYS start with a hook (question, surprising fact, relatable pain)
+✅ ALWAYS use dynamic visual verbs: BOUNCES, SLIDES, ZOOMS, PULSES, SPINS
+✅ ALWAYS sound like you're explaining to a friend, not lecturing
+✅ ALWAYS end with energy: "Boom!", "Pretty cool, right?", "Mind-blowing!"
 
-1. **DURATION CONSTRAINTS:**
-   - Each segment: 12-18 seconds (sweet spot: 15 seconds)
-   - Total duration MUST equal exactly {duration} seconds
-   - Distribute time logically (intro: shorter, main content: longer, conclusion: medium)
+🎙️ NARRATION STYLE (Sound Like a Friend!):
+- Use contractions: "don't", "can't", "it's", "here's"
+- Use casual phrases: "So basically...", "Here's the thing...", "Wait for it..."
+- Add personality: "Boom!", "Mind-blowing!", "Pretty cool, right?"
+- [Excited] = High energy, smiling voice
+- [Curious] = Intrigued, drawing viewer in
+- [Confident] = Authoritative but friendly
 
-2. **NARRATION GUIDELINES:**
-   - Use natural, conversational English (avoid robotic/technical language)
-   - Include emotion cues: [Excited], [Calm], [Enthusiastic], [Serious], [Curious], [Confident]
-   - Keep sentences clear and concise (max 20 words per sentence)
-   - Build narrative flow: hook → explain → reinforce → conclude
-   - Avoid filler words, be direct and engaging
+🎬 VISUAL REQUIREMENTS:
+- Every scene needs MOVEMENT: things BOUNCE in, PULSE, ZOOM, SLIDE
+- Aspect ratio: {visual_guide}
+- Use dynamic verbs: "Title BOUNCES in", "Icons SPIN into position", "Arrow SLIDES and PULSES"
+- Colors: BLUE, RED, GREEN, YELLOW, PURPLE, ORANGE, TEAL
+- Positions: center, top, bottom, left, right
 
-3. **VISUAL DESCRIPTION REQUIREMENTS (CRITICAL FOR AUDIO-VIDEO SYNC):**
-   - Visuals MUST directly illustrate what's being said in narration
-   - If narration mentions "functions", show function diagrams immediately
-   - If narration says "three steps", display exactly three visual elements
-   - Timing: Visual actions should match narration beats (e.g., "First" → show item 1, "Then" → show item 2)
-   - Be SPECIFIC about what should appear on screen
-   - Describe shapes, colors, text content, animations, transitions
-   - Aspect ratio consideration: {visual_guide}
-   - Mention object positions (top, center, bottom, left, right)
-   - Specify colors from: BLUE, RED, GREEN, YELLOW, WHITE, ORANGE, PINK, PURPLE, TEAL, GOLD
-   - Example: "Display blue circle at center labeled 'Function', title 'How Functions Work' at top, animate arrow pointing from 'Input' to 'Output' as narration explains flow"
-   
-4. **VISUAL COMPLEXITY LEVELS:**
-   - Simple: 1-2 objects (text + shape)
-   - Medium: 3-4 objects (text + multiple shapes/diagrams)
-   - Complex: 5+ objects (diagrams, animations, transitions)
-   - Mix complexity levels for engagement
+⏱️ TIMING:
+- Each segment: 12-18 seconds (aim for 15)
+- Total: EXACTLY {duration} seconds
+- Structure: Hook (short) → Explain (longer) → Payoff (medium)
 
-📚 EXAMPLES (showing good vs bad):
+📚 EXAMPLES:
 
-✅ GOOD:
-SEGMENT: 15 | [Enthusiastic] Let's explore how functions work in programming! | Display large blue circle labeled "Function" at center, smaller orange circles labeled "Input" and "Output" on left and right, animate arrows flowing from input through function to output
+✅ GOOD (Engaging):
+SEGMENT: 15 | [Excited] Okay wait - you know that thing your code does where it just... breaks for no reason? There's actually a name for it! | Title "THE BUG" BOUNCES in from top, explosion effect, code snippet SLIDES in from left with red highlight PULSING on the error line
 
-✅ GOOD:
-SEGMENT: 12 | [Calm] Functions take inputs and return outputs | Show vertical stack for {self.config.aspect_ratio}: "Input" box at top in green, "Function Process" box in center with blue color, "Output" box at bottom in purple, connect with animated arrows
+✅ GOOD (Hook + Visual Sync):
+SEGMENT: 12 | [Curious] Ever wondered why APIs are everywhere? Think of them as waiters in a restaurant! | Waiter icon SPINS into center, restaurant scene FADES in around it, menu and food icons SLIDE in on cue
 
-❌ BAD (too vague):
-SEGMENT: 15 | Functions are important | Show diagram about functions
+❌ BAD (Boring):
+SEGMENT: 15 | Today we will learn about functions in programming | Show function diagram
 
-❌ BAD (no visual details):
-SEGMENT: 12 | [Calm] Let's learn about functions | Display information
+❌ BAD (Static):
+SEGMENT: 12 | Functions are an important concept | Display text about functions
 
-🎬 ASPECT RATIO: {self.config.aspect_ratio}
-{visual_guide}
-
-💡 CONTENT STRUCTURE:
-- Segment 1 (Hook): Grab attention, introduce topic
-- Segments 2-N (Explain): Break down concepts, provide examples
-- Final Segment (Conclusion): Summarize key points, call-to-action
+📋 STRUCTURE:
+- Segment 1: HOOK - Make them STOP SCROLLING (question/surprising fact)
+- Segments 2-N: EXPLAIN - Break it down with visuals that MOVE
+- Final Segment: PAYOFF - Quick recap + memorable sign-off ("Boom! Now you know!")
 
 📝 TOPIC: "{topic}"
-⏱️ TOTAL DURATION: {duration} seconds
+⏱️ DURATION: {duration} seconds
 
-Generate the segments now (output ONLY the SEGMENT lines, no extra text):
+Generate ONLY SEGMENT lines now (no extra text):
 """
 
         """ safety_settings = {
@@ -3326,8 +3318,69 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         logger.info(f"🚀 Starting FULL PARALLEL video generation for topic: {topic} [{duration}s]")
 
         try:
-            # Step 1: Generate all narration segments
-            segments = await self._generate_narration_segments_with_gemini(topic, duration)
+            # Check if quality pipeline is enabled
+            use_quality = getattr(self.config, 'use_quality_pipeline', False)
+            
+            if use_quality:
+                # ===============================================================
+                # QUALITY PIPELINE: Spec-based generation for educational videos
+                # ===============================================================
+                logger.info("🎯 QUALITY PIPELINE ENABLED: Using spec-based generation")
+                
+                try:
+                    from .pipeline_integration import (
+                        generate_quality_segments,
+                        generate_quality_scripts_bulk,
+                        GeminiClientAdapter
+                    )
+                except ImportError:
+                    from generator.video_generator.pipeline_integration import (
+                        generate_quality_segments,
+                        generate_quality_scripts_bulk,
+                        GeminiClientAdapter
+                    )
+                
+                # Create LLM adapter for spec generation
+                llm_adapter = GeminiClientAdapter(
+                    self.gemini_client,
+                    self.gemini_models,
+                    self.current_gemini_model_index
+                )
+                
+                # Step 1: Generate scene specifications
+                logger.info("📋 Step 1: Generating scene specifications...")
+                quality_segments, spec_errors = generate_quality_segments(
+                    llm_adapter, topic, duration, self.config.aspect_ratio
+                )
+                
+                if spec_errors:
+                    logger.warning(f"⚠️ Spec generation had {len(spec_errors)} errors")
+                    for err in spec_errors[:3]:
+                        logger.warning(f"   - {err}")
+                
+                if not quality_segments:
+                    logger.warning("❌ Quality pipeline failed, falling back to legacy generation")
+                    segments = await self._generate_narration_segments_with_gemini(topic, duration)
+                else:
+                    # Convert quality segments to regular NarrationSegment format
+                    segments = []
+                    for qs in quality_segments:
+                        seg = NarrationSegment(
+                            start_time=qs.start_time,
+                            end_time=qs.end_time,
+                            duration=qs.duration,
+                            text=qs.text,
+                            visual_description=qs.visual_description
+                        )
+                        # Store spec in segment for later retrieval
+                        seg._quality_spec = qs.scene_spec
+                        segments.append(seg)
+                    
+                    logger.info(f"✅ Generated {len(segments)} quality segments with scene specs")
+            else:
+                # Step 1: Generate all narration segments (LEGACY)
+                segments = await self._generate_narration_segments_with_gemini(topic, duration)
+            
             logger.info(f"🧾 {len(segments)} segments generated.")
 
             # Step 2: Generate audio for all segments in parallel
@@ -3335,31 +3388,83 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
 
             logger.info("🔊 Audio generation complete.")
 
-            # Step 3: Generate scripts (PRIMARY: Bulk ONLY - Fast single API call)
-            # ====================================================================
-            # Stage 3: Manim Script Generation (Implementation Only)
-            # - PRIMARY PATH: Bulk generation (1 API call for all segments) - FAST!
-            # - FAIL-SAFE PATH: Individual regeneration ONLY for failed segments
-            # - ABSOLUTE RULE: Cannot modify narration or audio duration
-            # ====================================================================
-            logger.info("🧠 Stage 3: Manim Script Generation (BULK MODE)")
-            
-            # ALWAYS use bulk generation (single API call - much faster)
-            logger.info("📦 Bulk script generation (1 API call for all segments)...")
-            segments = await self._generate_scripts_in_bulk(segments)
-            
-            # Validate bulk generation results
-            failed_indices = self._validate_bulk_scripts(segments)
-            
-            if failed_indices:
-                logger.warning(f"⚠️ Bulk validation found {len(failed_indices)} failed segment(s): {failed_indices}")
-                logger.info("🔄 Regenerating ONLY failed segments individually...")
-                segments = await self._regenerate_failed_segments(segments, failed_indices)
-                logger.info("✅ Individual regeneration complete!")
+            # Step 3: Generate scripts
+            if use_quality and hasattr(segments[0], '_quality_spec') and segments[0]._quality_spec:
+                # ===============================================================
+                # QUALITY PIPELINE: Template-based script generation from specs
+                # ===============================================================
+                logger.info("🎨 Stage 3: Template-Based Script Generation (QUALITY MODE)")
+                
+                try:
+                    from .pipeline_integration import generate_quality_scripts_bulk
+                    from .pipeline_integration import QualityNarrationSegment
+                except ImportError:
+                    from generator.video_generator.pipeline_integration import generate_quality_scripts_bulk
+                    from generator.video_generator.pipeline_integration import QualityNarrationSegment
+                
+                # Convert back to quality segments with audio duration
+                quality_segs = []
+                for seg in segments:
+                    qs = QualityNarrationSegment(
+                        start_time=seg.start_time,
+                        end_time=seg.end_time,
+                        duration=seg.duration,
+                        text=seg.text,
+                        visual_description=seg.visual_description,
+                        audio_path=seg.audio_path,
+                        _audio_duration_final=getattr(seg, '_audio_duration_final', seg.duration),
+                        scene_spec=seg._quality_spec
+                    )
+                    quality_segs.append(qs)
+                
+                # Generate scripts from specs
+                scripts = generate_quality_scripts_bulk(quality_segs, self.config.aspect_ratio)
+                
+                # Assign scripts to segments
+                for i, (seg, script) in enumerate(zip(segments, scripts)):
+                    if script:
+                        # Save script to file
+                        script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
+                        with open(script_path, 'w', encoding='utf-8') as f:
+                            f.write(script)
+                        seg.script_path = str(script_path)
+                        logger.info(f"✅ Quality script {i+1} generated from spec")
+                    else:
+                        logger.warning(f"⚠️ Quality script {i+1} needs legacy generation")
+                
+                # Check for any segments without scripts
+                failed_indices = [i for i, seg in enumerate(segments) if not seg.script_path]
+                if failed_indices:
+                    logger.warning(f"⚠️ {len(failed_indices)} segments need legacy regeneration")
+                    segments = await self._regenerate_failed_segments(segments, failed_indices)
+                
+                logger.info("📜 Quality script generation complete.")
             else:
-                logger.info("✅ Bulk generation successful! All scripts validated.")
-            
-            logger.info("📜 Script generation complete.")
+                # ====================================================================
+                # LEGACY: Bulk script generation
+                # Stage 3: Manim Script Generation (Implementation Only)
+                # - PRIMARY PATH: Bulk generation (1 API call for all segments) - FAST!
+                # - FAIL-SAFE PATH: Individual regeneration ONLY for failed segments
+                # - ABSOLUTE RULE: Cannot modify narration or audio duration
+                # ====================================================================
+                logger.info("🧠 Stage 3: Manim Script Generation (BULK MODE)")
+                
+                # ALWAYS use bulk generation (single API call - much faster)
+                logger.info("📦 Bulk script generation (1 API call for all segments)...")
+                segments = await self._generate_scripts_in_bulk(segments)
+                
+                # Validate bulk generation results
+                failed_indices = self._validate_bulk_scripts(segments)
+                
+                if failed_indices:
+                    logger.warning(f"⚠️ Bulk validation found {len(failed_indices)} failed segment(s): {failed_indices}")
+                    logger.info("🔄 Regenerating ONLY failed segments individually...")
+                    segments = await self._regenerate_failed_segments(segments, failed_indices)
+                    logger.info("✅ Individual regeneration complete!")
+                else:
+                    logger.info("✅ Bulk generation successful! All scripts validated.")
+                
+                logger.info("📜 Script generation complete.")
 
             # Step 4: Render videos in parallel
             segments = await self._parallel_video_generation_fixed(segments)
@@ -3402,8 +3507,8 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         else:
             tone_guide = "Clear, professional, and educational with a warm tone"
         
-        # Calculate expected number of segments
-        expected_segments = max(3, round(duration / 13))
+        # Calculate expected number of segments (fewer, longer segments = better pacing)
+        expected_segments = max(3, round(duration / 15))  # Aim for ~15s per segment
         
         # STAGE 1: Conversational prompt focusing on COMPLETE narration coverage
         prompt = f"""
@@ -3412,24 +3517,48 @@ Create a narration script for a {duration}-second educational video about "{topi
 **PERSONALITY & VOICE:**
 {tone_guide}
 
+**DURATION MATH (CRITICAL - FOLLOW EXACTLY!):**
+- Target total: {duration} seconds
+- Number of segments needed: {expected_segments}
+- Each segment duration: ~{duration // expected_segments} seconds
+- The SUM of all segment durations MUST equal EXACTLY {duration} seconds!
+
 **REQUIREMENTS:**
-1. Break into 10-15 second segments
-2. Total duration ≤ {duration} seconds
-3. Format for {self.config.aspect_ratio} aspect ratio
-4. Thank "Code Tapasya" at the end
-5. Make it feel like a friend explaining, NOT a boring lecture!
+1. Create EXACTLY {expected_segments} segments
+2. Each segment: {duration // expected_segments - 2} to {duration // expected_segments + 2} seconds
+3. SUM of all durations MUST = {duration} seconds (NOT LESS!)
+4. Format for {self.config.aspect_ratio} aspect ratio
+5. Thank "Code Tapasya" at the end
+6. Make it feel like a friend explaining, NOT a boring lecture!
 
 **OUTPUT FORMAT (STRICT - FOLLOW EXACTLY):**
 
-SEGMENT [number]: [duration]
+SEGMENT [number]: [duration in seconds]
 VISUALS: [Brief animation description - 1-2 sentences max]
 NARRATION: [What will be spoken - friendly and engaging]
 
-**VISUAL DESCRIPTION RULES:**
+**VISUAL DESCRIPTION RULES (CRITICAL!):**
 - Keep visuals SHORT (1-2 sentences)
-- Mention: positions (top/center/bottom), colors, animations
+- Make visuals FUN and PLAYFUL - like explaining to a friend!
+- Include: colors, animations, movement, emphasis
 - For {self.config.aspect_ratio}: {"stack vertically" if self.config.aspect_ratio == "9:16" else "arrange horizontally" if self.config.aspect_ratio == "16:9" else "center elements"}
-- Suggest entry (Write, GrowFromCenter), movement (shift, scale), emphasis (Flash, Indicate)
+- Use LIVELY animations: bounce, wiggle, pop, glow, flash, pulse, spin
+- Add PERSONALITY: emojis as icons, arrows that dance, text that bounces
+
+**VISUAL STYLE GUIDE:**
+
+✅ LIVELY VISUALS (DO THIS):
+- "Title BOUNCES in with a fun bounce effect. Sparkle emoji grows around it!"
+- "Diagram POPS IN piece by piece like building blocks. Arrow DANCES to connect them."
+- "Code types out with satisfying CLICKS. Green checkmarks POP IN after each line!"
+- "Before/After boxes SLIDE IN from sides. GLOW emphasizes the difference!"
+- "Icons WIGGLE happily when mentioned. FLASH highlights key concept!"
+
+❌ BORING VISUALS (NEVER DO THIS):
+- "Text appears on screen" (Too static!)
+- "Diagram is shown" (Zero energy!)
+- "Elements fade in" (Snooze fest!)
+- "Simple animation with text" (Vague and boring!)
 
 **NARRATION STYLE GUIDE (CRITICAL!):**
 
@@ -3447,21 +3576,21 @@ NARRATION: [What will be spoken - friendly and engaging]
 - "The following demonstrates..."  (Boring)
 - "Variables are a fundamental concept..."  (Textbook style)
 
-**EXAMPLE (FRIENDLY STYLE):**
+**EXAMPLE (for a 45-second video with 3 segments):**
 
-SEGMENT 1: 12
-VISUALS: Title "{topic}" bounces in with fun animation. Colorful icons appear around it.
-NARRATION: Hey! Ever wondered what {topic} is all about? I get it - sounds fancy, right? But here's a secret... it's actually pretty simple once you see it in action!
+SEGMENT 1: 15
+VISUALS: Title "{topic}" BOUNCES in with spring effect at top! Colorful code icons SPIN IN around it. Fun SPARKLE emphasis!
+NARRATION: Hey! Ever wondered what {topic} is all about? I get it - sounds fancy, right? But here's a secret... it's actually pretty simple once you see it in action! Let me show you how this works.
 
-SEGMENT 2: 11
-VISUALS: Simple diagram animates in with friendly colors. Key concept highlights with glow effect.
-NARRATION: So basically, think of it like this - you know how you organize stuff in your room? Same idea here! You're just organizing code in a smart way.
+SEGMENT 2: 15
+VISUALS: Concept diagram POPS IN piece by piece like Legos! Arrow DANCES between parts. GLOW effect on key word!
+NARRATION: So basically, think of it like this - you know how you organize stuff in your room? Same idea here! You're just organizing code in a smart way. Pretty cool when you see it click, right?
 
-SEGMENT 3: 10
-VISUALS: Code example appears with step-by-step highlighting. Check marks appear after each line.
-NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just like that, we've got it working. Pretty neat, huh?
+SEGMENT 3: 15
+VISUALS: Code example TYPES IN with satisfying effect. Each line gets GREEN CHECKMARK that POPS! Final result GLOWS and PULSES!
+NARRATION: Here's the cool part - watch what happens when we do this. Boom! That's literally it. Told you it was simpler than it sounds! Thanks for hanging with me - shoutout to Code Tapasya!
 
-**NOW GENERATE THE SCRIPT FOR "{topic}" - Make it feel like a fun chat, not a lecture!:**
+**NOW GENERATE {expected_segments} SEGMENTS for "{topic}" that ADD UP TO EXACTLY {duration} SECONDS:**
 """
         
         # Try generation with retry logic
@@ -3483,19 +3612,26 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! Just
                 if response is None:
                     logger.error("❌ Gemini returned None response")
                     if attempt == 0:
-                        logger.warning("⚠️ Retrying with shorter prompt...")
+                        logger.warning("⚠️ Retrying with simpler prompt...")
+                        seg_duration = duration // expected_segments
                         prompt = f"""Create EXACTLY {expected_segments} segments for a {duration}-second narration about "{topic}".
 
-⛔ FORBIDDEN: More than {expected_segments} segments
-⛔ FORBIDDEN: Total duration exceeding {duration} seconds
-✅ REQUIRED: Each segment 12-14 seconds
+⛔ FORBIDDEN: More or less than {expected_segments} segments
+✅ REQUIRED: Each segment around {seg_duration} seconds
+✅ REQUIRED: All segment durations MUST add up to EXACTLY {duration} seconds
 
 Output format:
-SEGMENT X: Y
+SEGMENT 1: {seg_duration}
 VISUALS: brief concept
 NARRATION: spoken text
 
-MATH CHECK: Generate {expected_segments} segments totaling EXACTLY {duration}s. Start:"""
+SEGMENT 2: {seg_duration}
+VISUALS: brief concept  
+NARRATION: spoken text
+
+(continue for all {expected_segments} segments, total = {duration}s)
+
+START GENERATING:"""
                         continue
                     raise RuntimeError("Gemini returned None after retry")
                 
@@ -3551,9 +3687,9 @@ MATH CHECK: Generate {expected_segments} segments totaling EXACTLY {duration}s. 
                     # Clean emotion tags from narration
                     narration = re.sub(r'\[.*?\]', '', narration).strip()
                     
-                    # Validate segment duration
-                    if seg_duration < 10 or seg_duration > 16:
-                        logger.warning(f"⚠️ Segment {segment_num} duration {seg_duration}s outside 10-16s range")
+                    # Validate segment duration (allow longer segments for better pacing)
+                    if seg_duration < 10 or seg_duration > 20:
+                        logger.warning(f"⚠️ Segment {segment_num} duration {seg_duration}s outside 10-20s range")
                     
                     segment = NarrationSegment(
                         text=narration,
@@ -3610,17 +3746,42 @@ YOU HAVE {expected_segments} SEGMENTS. TOTAL MUST = {duration}s. Generate NOW:""
                 # Clamp final segment to match exact duration if needed
                 if segments and total_duration != duration:
                     diff = duration - total_duration
-                    logger.warning(f"⚠️ Duration mismatch: {total_duration}s vs {duration}s (diff: {diff}s)")
+                    logger.warning(f"⚠️ Duration mismatch: {total_duration}s vs {duration}s (diff: {diff:.1f}s)")
                     
-                    if abs(diff) < 5.0:  # Accept small differences and adjust
-                        segments[-1].duration += diff
-                        segments[-1].end_time = duration
-                        logger.info(f"✅ Adjusted final segment duration by {diff}s to match exact duration")
-                    elif diff > 0:
-                        # Add missing time to last segment
-                        segments[-1].duration += diff
-                        segments[-1].end_time = duration
-                        logger.info(f"✅ Extended final segment by {diff}s to cover full duration")
+                    if diff > 0:
+                        # Total is LESS than target - need to ADD time
+                        if diff <= 5.0:
+                            # Small difference - add to last segment
+                            segments[-1].duration += diff
+                            segments[-1].end_time = duration
+                            logger.info(f"✅ Extended final segment by {diff:.1f}s to cover full duration")
+                        else:
+                            # Large difference - distribute across all segments
+                            per_segment_add = diff / len(segments)
+                            current_time = 0.0
+                            for seg in segments:
+                                seg.start_time = current_time
+                                seg.duration += per_segment_add
+                                seg.end_time = seg.start_time + seg.duration
+                                current_time = seg.end_time
+                            logger.info(f"✅ Extended each segment by {per_segment_add:.1f}s (total: {diff:.1f}s)")
+                    elif diff < 0:
+                        # Total is MORE than target - need to REDUCE
+                        if abs(diff) <= 5.0:
+                            # Small difference - reduce from last segment
+                            segments[-1].duration += diff
+                            segments[-1].end_time = duration
+                            logger.info(f"✅ Reduced final segment by {abs(diff):.1f}s to match duration")
+                        else:
+                            # Large difference - proportionally reduce all
+                            scale = duration / total_duration
+                            current_time = 0.0
+                            for seg in segments:
+                                seg.start_time = current_time
+                                seg.duration *= scale
+                                seg.end_time = seg.start_time + seg.duration
+                                current_time = seg.end_time
+                            logger.info(f"✅ Scaled all segments by {scale:.2f} to fit duration")
                 
                 if not segments:
                     if attempt == 0:
@@ -3947,6 +4108,36 @@ YOU HAVE {expected_segments} SEGMENTS. TOTAL MUST = {duration}s. Generate NOW:""
         
         aspect_ratio_config = self._get_aspect_ratio_config()
         
+        # Add personality hint for shorts
+        is_short = getattr(self.config, 'video_type', 'regular') == 'short'
+        
+        if is_short:
+            personality_section = """
+============================================================
+🎭 PERSONALITY & VIBE (CRITICAL FOR SHORTS!)
+============================================================
+
+This is a FUN, FRIENDLY YouTube Short - NOT a boring lecture!
+Your animations should feel:
+- PLAYFUL: Use bouncy rate_func (there_and_back), wiggles, spins
+- ENERGETIC: Quick entrances, punchy emphasis, satisfying reveals
+- INTERACTIVE: Like pointing at things while explaining to a friend
+- CELEBRATORY: Checkmarks pop, success flashes, completion pulses
+
+Animation personality techniques:
+- rate_func=there_and_back for bouncy text
+- rate_func=rush_into for punchy emphasis
+- Wiggle() and Circumscribe() to highlight key concepts
+- SpinInFromNothing() for fun reveals
+- Flash() and Indicate() for "look at this!" moments
+- ApplyMethod(obj.scale, 1.1) then back for attention pulses
+
+THINK: "Would a friend showing this on their phone do it this way?"
+If it feels like a PowerPoint presentation - YOU'RE DOING IT WRONG!
+"""
+        else:
+            personality_section = ""
+        
         prompt = f"""🎯 PRIMARY OBJECTIVE
 
 You are an ELITE Manim animation engineer and cinematic motion designer.
@@ -3956,7 +4147,7 @@ that produces a visually FASCINATING, DYNAMIC, and CONTINUOUSLY ENGAGING video.
 
 The video MUST feel alive for the ENTIRE duration.
 Blank screens, dead time, or static visuals are STRICTLY FORBIDDEN.
-
+{personality_section}
 The animation MUST match the audio duration EXACTLY:
 {segment.duration:.2f} seconds.
 
@@ -3988,39 +4179,67 @@ Visual intent (conceptual meaning, NOT implementation):
 {segment.visual_description}
 
 ============================================================
-⏱️ TEMPORAL DOMINANCE RULES (CRITICAL)
+⏱️ TEMPORAL DOMINANCE RULES (CRITICAL - READ CAREFULLY!)
 ============================================================
 
-THIS IS THE MOST IMPORTANT SECTION. VIOLATION = REJECTION.
+🚨 THE #1 PROBLEM: Animations that RACE ahead of narration!
 
-- Animations MUST be distributed across the FULL duration.
-- It is STRICTLY FORBIDDEN to finish visuals early and pad with a long wait.
-- A single final self.wait() MUST NOT exceed 15% of total duration.
-- At least 75% of the total duration MUST contain active or visually present elements.
-- Visuals MUST remain on screen until the final moments.
-- The screen must NEVER be empty while audio is playing.
+Your animations must BREATHE. They must feel HUMAN-PACED.
+Imagine someone is SPEAKING over this animation - match THEIR pace!
 
-❌ BAD (FORBIDDEN):
-- All animations done early
-- FadeOut everything → long wait
-- Static screen for narration
+GOLDEN RULE: Each animation should take 2-4 seconds minimum.
+If the viewer can't read/understand it, it's TOO FAST.
 
-✅ GOOD (REQUIRED):
-- Persistent visuals
-- Gradual transformations
-- Subtle motion during narration
-- Emphasis waves spread across time
+❌ FORBIDDEN PACING (INSTANT REJECTION):
+- run_time=0.5 for important content (TOO FAST!)
+- All animations blasting in the first 30%
+- FadeOut everything → long static wait
+- Multiple objects appearing in rapid succession
+- Animation "race" where everything competes for attention
+
+✅ REQUIRED PACING (MANDATORY):
+- Title/hook: 2-3 seconds to appear and settle
+- Each concept: 3-5 seconds of screen time minimum
+- Transitions: 1-2 seconds of breathing room
+- Emphasis: Hold for 2+ seconds so viewer can absorb
+- Final: Gentle 2-3 second settle, NOT blank screen
+
+TIMING MATH (USE THIS!):
+For a {segment.duration:.1f}s segment:
+- Entry animations: {segment.duration * 0.2:.1f}s (first 20%)
+- Core content: {segment.duration * 0.5:.1f}s (next 50%)  
+- Emphasis/reinforcement: {segment.duration * 0.2:.1f}s (next 20%)
+- Gentle outro: {segment.duration * 0.1:.1f}s (final 10%)
 
 ============================================================
-🎬 PACING BLUEPRINT (FOLLOW THIS EXACTLY)
+🎬 PACING BLUEPRINT (THINK: TEACHING, NOT RACING)
 ============================================================
 
-Structure the animation timeline like this:
+Imagine you're showing this to a FRIEND who's LEARNING.
+You wouldn't rush through explanations - you'd let each point LAND.
 
-- 0–15%  : Strong visual introduction (title / hook)
-- 15–65% : Core explanation with transformations and motion
-- 65–90% : Reinforcement, emphasis, visual evolution
-- 90–100%: Gentle settle or final emphasis (NOT blank)
+STRUCTURE YOUR ANIMATION LIKE THIS:
+
+PHASE 1 (0-20%): HOOK & SETUP
+- Title appears SLOWLY (run_time=2.0+)
+- Let it breathe for 1-2 seconds
+- Viewer thinks: "Oh, we're learning about X"
+
+PHASE 2 (20-70%): CORE EXPLANATION  
+- Reveal concepts ONE AT A TIME
+- Each element gets 3-5 seconds of attention
+- Use self.wait(1.0) between major elements
+- Viewer thinks: "Okay, I see how this works"
+
+PHASE 3 (70-90%): REINFORCEMENT
+- Emphasize key points (Circumscribe, Indicate)
+- Show relationships or connections
+- Viewer thinks: "Ah, that makes sense!"
+
+PHASE 4 (90-100%): GENTLE LANDING
+- Subtle final emphasis or pulse
+- Keep elements visible (don't fade to black!)
+- Viewer thinks: "Got it!"
 
 ============================================================
 🎨 ANIMATION QUALITY REQUIREMENTS (HIGH BAR)
@@ -4124,15 +4343,39 @@ Allowed colors ONLY:
 {allowed_colors}
 
 ============================================================
-⏱️ DURATION ENFORCEMENT (EXACTNESS REQUIRED)
+⏱️ DURATION ENFORCEMENT (SLOW AND DELIBERATE!)
 ============================================================
 
-- Carefully calculate animation run_time
-- Distribute timing across the full duration
-- Use small waits (0.2–0.6s) BETWEEN animation groups
-- Final self.wait() must be minimal and justified
-- TOTAL runtime MUST equal exactly:
-{segment.duration:.2f} seconds
+TOTAL DURATION: {segment.duration:.2f} seconds
+
+You MUST fill this ENTIRE duration with MEANINGFUL content.
+The animation should feel like it's TEACHING, not RUSHING.
+
+MINIMUM RUN_TIME RULES:
+- Title/main text: run_time=2.0 minimum
+- Secondary animations: run_time=1.5 minimum  
+- Emphasis effects: run_time=1.0 minimum
+- Wait between sections: self.wait(1.0) or more
+
+TIMING CALCULATION EXAMPLE for {segment.duration:.1f}s:
+```python
+# DO THIS - slow and deliberate:
+self.play(Write(title), run_time=2.5)  # 2.5s
+self.wait(1.0)                          # +1.0s = 3.5s
+self.play(FadeIn(content), run_time=2.0)# +2.0s = 5.5s
+self.play(Indicate(key_point), run_time=1.5) # +1.5s = 7.0s
+self.wait(1.5)                          # +1.5s = 8.5s
+# ... continue until reaching {segment.duration:.1f}s
+```
+
+```python
+# DON'T DO THIS - racing:
+self.play(Write(title), run_time=0.5)   # Too fast!
+self.play(FadeIn(content), run_time=0.3)# Racing!  
+self.wait(8.0)                          # Boring long wait!
+```
+
+REMEMBER: The viewer is LEARNING. Give them TIME to absorb each element!
 
 ============================================================
 ✅ OUTPUT FORMAT (STRICT)
@@ -5391,7 +5634,8 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="9:16"
+        aspect_ratio="9:16",
+        use_quality_pipeline=False
     )
     
     try:

@@ -17,6 +17,14 @@ from generator.dynamic_content_generator import DynamicContentGenerator
 from youtube_shorts_uploader import upload_video_to_youtube
 from instagram_upload import upload_reel_to_instagram
 
+# Analytics tracking - tracks uploaded videos for performance monitoring
+try:
+    from analytics.integrated_analytics import track_uploaded_video, get_analytics_service
+    ANALYTICS_ENABLED = True
+except ImportError:
+    ANALYTICS_ENABLED = False
+    track_uploaded_video = lambda *args, **kwargs: None  # No-op fallback
+
 # ✅ Setup logger with better formatting
 logging.basicConfig(
     level=logging.INFO,
@@ -126,6 +134,18 @@ async def run():
                         youtube_video_id = upload_video_to_youtube(final_video_path, topic, duration, metadata)
                         if youtube_video_id:
                             logger.info(f"✅ YouTube Short uploaded: {youtube_video_id}")
+                            
+                            # Track video for analytics (retention, views, decision engine)
+                            if ANALYTICS_ENABLED:
+                                try:
+                                    track_uploaded_video(
+                                        youtube_video_id=youtube_video_id,
+                                        topic=topic,
+                                        metadata=metadata
+                                    )
+                                    logger.info(f"📊 Video tracked for analytics: {youtube_video_id}")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Analytics tracking failed (non-critical): {e}")
                         else:
                             logger.error("❌ YouTube Short upload failed")
                         

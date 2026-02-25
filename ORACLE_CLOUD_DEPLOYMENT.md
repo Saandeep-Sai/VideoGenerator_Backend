@@ -7,11 +7,13 @@ Complete step-by-step guide to deploy the Video Generator API on Oracle Cloud In
 ## 📋 Prerequisites
 
 ### Local Requirements
+
 - Git installed
 - SSH key pair (for connecting to Oracle instance)
 - Oracle Cloud account with active instance
 
 ### Oracle Cloud Instance Requirements
+
 - **Recommended**: VM.Standard.E2.1.Micro (Always Free Tier)
 - **OS**: Ubuntu 20.04 LTS or later
 - **RAM**: 1GB minimum (E2 Micro provides this)
@@ -29,6 +31,7 @@ ssh -i /path/to/your-ssh-key.key ubuntu@<your-oracle-instance-ip>
 ```
 
 Replace:
+
 - `/path/to/your-ssh-key.key` with your actual SSH key path
 - `<your-oracle-instance-ip>` with your instance's public IP
 
@@ -91,6 +94,7 @@ pip install -r requirements.txt
 ```
 
 **Key packages for OpenRouter:**
+
 - `openai` - OpenRouter uses OpenAI-compatible API
 - `requests` - For HTTP requests
 - `python-dotenv` - For environment variable management
@@ -212,6 +216,7 @@ python run_api_only.py
 ```
 
 **Expected output:**
+
 ```
 INFO:     Started server process
 INFO:     Waiting for application startup.
@@ -294,6 +299,7 @@ curl http://<your-oracle-instance-ip>:10000/health
 ```
 
 **Expected response:**
+
 ```json
 {
   "status": "healthy",
@@ -318,26 +324,31 @@ curl -X POST http://<your-oracle-instance-ip>:10000/api/generate-video \
 ## 🔧 Step 7: Manage the Service
 
 ### Start Service
+
 ```bash
 sudo systemctl start video-generator-api.service
 ```
 
 ### Stop Service
+
 ```bash
 sudo systemctl stop video-generator-api.service
 ```
 
 ### Restart Service
+
 ```bash
 sudo systemctl restart video-generator-api.service
 ```
 
 ### Check Status
+
 ```bash
 sudo systemctl status video-generator-api.service
 ```
 
 ### View Logs
+
 ```bash
 # Real-time logs
 sudo journalctl -u video-generator-api.service -f
@@ -389,11 +400,13 @@ sudo journalctl -u video-generator-api.service -n 20
 OpenRouter uses the OpenAI-compatible API, so you need:
 
 1. **openai** (v1.0.0+)
+
    ```bash
    pip install openai>=1.0.0
    ```
 
 2. **requests** (for HTTP requests)
+
    ```bash
    pip install requests
    ```
@@ -428,6 +441,7 @@ print('✅ OpenRouter client initialized successfully')
 ### Issue: Port 10000 Not Accessible
 
 **Solution:**
+
 ```bash
 # Check if service is running
 sudo systemctl status video-generator-api.service
@@ -443,6 +457,7 @@ sudo iptables -L -n | grep 10000
 ### Issue: OpenRouter API Errors
 
 **Solution:**
+
 ```bash
 # Verify API key
 cat .env | grep OPENROUTER_API_KEY
@@ -455,6 +470,7 @@ curl https://openrouter.ai/api/v1/models \
 ### Issue: Out of Memory
 
 **Solution:**
+
 ```bash
 # Check memory usage
 free -h
@@ -466,6 +482,7 @@ free -h
 ### Issue: Manim Rendering Fails
 
 **Solution:**
+
 ```bash
 # Reinstall LaTeX packages
 sudo apt install -y texlive-full
@@ -480,6 +497,7 @@ python -c "import manim; print(manim.__version__)"
 ### Issue: Service Won't Start
 
 **Solution:**
+
 ```bash
 # Check detailed error logs
 sudo journalctl -u video-generator-api.service -n 100 --no-pager
@@ -504,6 +522,7 @@ The application is **already optimized** for Oracle E2 Micro instances:
 - ✅ Automatic cleanup of temporary files
 
 **Configuration in code:**
+
 ```python
 batch_size: int = 1  # E2.Micro: Process 1 segment at a time
 memory_limit_mb: int = 800  # Leave 200MB for system
