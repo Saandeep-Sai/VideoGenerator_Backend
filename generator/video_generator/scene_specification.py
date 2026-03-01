@@ -64,6 +64,13 @@ class ElementType(str, Enum):
     CHECKPOINT = "checkpoint"
     GATE = "gate"
     LOCK = "lock"
+    
+    # Modern primitives (engagement-optimized)
+    GLASS_CARD = "glass_card"
+    CODE_BLOCK = "code_block"
+    ICON_BADGE = "icon_badge"
+    TAG_PILL = "tag_pill"
+    PROGRESS_BAR = "progress_bar"
 
 
 class TransformAction(str, Enum):
@@ -96,11 +103,20 @@ class TransformAction(str, Enum):
     EMPHASIZE = "emphasize"     # Alias for highlight
     FOCUS = "focus"             # Alias for highlight
     GLOW = "glow"               # Glow effect
+    # Directional entries
+    SLIDE_IN_FROM_LEFT = "slide_in_from_left"
+    SLIDE_IN_FROM_RIGHT = "slide_in_from_right"
+    SLIDE_IN_FROM_TOP = "slide_in_from_top"
+    SLIDE_IN_FROM_BOTTOM = "slide_in_from_bottom"
+    # Drawing / emphasis extras
+    DRAW_BORDER_THEN_FILL = "draw_border_then_fill"
+    DRAW_ARROW = "draw_arrow"
+    CIRCUMSCRIBE = "circumscribe"
 
 
 class Position(str, Enum):
     """Grid-aligned positions for deterministic layouts."""
-    # Full positions
+    # 3x3 primary grid
     TOP_LEFT = "top_left"
     TOP_CENTER = "top_center"
     TOP_RIGHT = "top_right"
@@ -110,6 +126,13 @@ class Position(str, Enum):
     BOTTOM_LEFT = "bottom_left"
     BOTTOM_CENTER = "bottom_center"
     BOTTOM_RIGHT = "bottom_right"
+    # 5-row extended grid (upper/lower mid rows)
+    UPPER_LEFT = "upper_left"
+    UPPER_CENTER = "upper_center"
+    UPPER_RIGHT = "upper_right"
+    LOWER_LEFT = "lower_left"
+    LOWER_CENTER = "lower_center"
+    LOWER_RIGHT = "lower_right"
     # Relative positions
     LEFT_OF = "left_of"
     RIGHT_OF = "right_of"
@@ -172,7 +195,7 @@ class TransformationStep:
         """Validate this step against available elements."""
         errors = []
         
-        if self.target not in element_ids:
+        if self.target != "all" and self.target not in element_ids:
             errors.append(f"Transformation target '{self.target}' not found in elements")
         
         if self.action == TransformAction.TRANSFORM and self.to_element:
@@ -249,8 +272,8 @@ class VisualMetaphor:
         errors = []
         
         # Element count check
-        if len(self.visual_elements) > 4:
-            errors.append(f"Too many visual elements: {len(self.visual_elements)} (max 4)")
+        if len(self.visual_elements) > 8:
+            errors.append(f"Too many visual elements: {len(self.visual_elements)} (max 8)")
         
         # Validate each element
         for elem in self.visual_elements:
@@ -274,8 +297,8 @@ class Transformation:
         errors = []
         
         # Sequence length check
-        if len(self.sequence) > 6:
-            errors.append(f"Too many transformation steps: {len(self.sequence)} (max 6)")
+        if len(self.sequence) > 12:
+            errors.append(f"Too many transformation steps: {len(self.sequence)} (max 12)")
         
         # Validate each step
         for step in self.sequence:
@@ -336,6 +359,7 @@ class SceneSpecification:
     Manim code generation is CONSTRAINED by this specification.
     """
     scene_id: str
+    scene_type: str  # INTRO, CONTENT, OUTRO — used by VisualDirector for pacing
     concept: Concept
     visual_metaphor: VisualMetaphor
     transformation: Transformation
@@ -389,6 +413,7 @@ class SceneSpecification:
         """Convert to dictionary for JSON serialization."""
         return {
             "scene_id": self.scene_id,
+            "type": self.scene_type,
             "concept": {
                 "idea": self.concept.idea,
                 "pedagogical_goal": self.concept.pedagogical_goal,
@@ -495,6 +520,7 @@ class SceneSpecification:
         
         return cls(
             scene_id=data["scene_id"],
+            scene_type=data.get("type", "CONTENT").upper(),
             concept=Concept(
                 idea=data["concept"]["idea"],
                 pedagogical_goal=data["concept"]["pedagogical_goal"],
@@ -541,6 +567,7 @@ def create_example_zero_trust_scene() -> SceneSpecification:
     """Example: Create a scene specification for Zero Trust concept."""
     return SceneSpecification(
         scene_id="scene_001_zero_trust_verification",
+        scene_type="CONTENT",
         concept=Concept(
             idea="Zero Trust verifies every access request regardless of origin",
             pedagogical_goal="Understand that location doesn't grant trust",

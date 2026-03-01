@@ -197,23 +197,127 @@ self.play(Indicate(text, color=RED, scale_factor=1.3))
   • Add 0.3-0.5s pauses between major animations
   • Use run_time=1.2-1.8s for smooth, not-rushed feel
   • Combine multiple animations simultaneously (self.play with multiple args)
+  • Use FULL SCREEN: elements at LEFT*5, RIGHT*5, UP*3, DOWN*3
+  • Create labeled concept cards for every narration concept
+  • Connect related concepts with Arrow()
 
 ❌ DON'T:
   • Use only FadeIn/FadeOut (BORING!)
-  • Rush animations (min run_time=0.8s)
+  • Rush animations (min run_time=1.0s)
   • Use plain white/black only (use gradients!)
   • Forget emphasis on key points
   • Skip wait times between sections
   • Use jerky movements (always use rate_func=smooth)
+  • FadeOut all elements at end — KEEP THEM VISIBLE
+  • Put all content in center only — SPREAD ACROSS SCREEN
+  • Create unlabeled shapes — EVERY shape needs a text label
+
+═══════════════════════════════════════════════════════════════
+🎯 CONCEPT-DIAGRAM PATTERNS (Use these for explanations!)
+═══════════════════════════════════════════════════════════════
+
+💎 PATTERN A: Labeled Concept Cards (for any noun/concept)
+```python
+# Every concept in narration = a labeled RoundedRectangle
+card = RoundedRectangle(corner_radius=0.2, width=4, height=2.5,
+                        color=BLUE, fill_opacity=0.2, stroke_width=2)
+label = Text("API Gateway", font_size=28, color=WHITE, weight=BOLD)
+label.scale_to_fit_width(3.5)
+label.move_to(card.get_center())
+concept = VGroup(card, label)
+concept.move_to(LEFT * 4 + UP * 1)
+self.play(GrowFromCenter(concept), run_time=1.5)
+```
+
+💎 PATTERN B: Side-by-Side Comparison
+```python
+# For "X vs Y" or "X and Y" narration
+left_box = RoundedRectangle(width=6, height=4, color=TEAL, fill_opacity=0.15)
+left_box.move_to(LEFT * 4)
+left_title = Text("Python", font_size=26, color=TEAL, weight=BOLD)
+left_title.next_to(left_box, UP, buff=0.15)
+
+right_box = RoundedRectangle(width=6, height=4, color=PURPLE, fill_opacity=0.15)
+right_box.move_to(RIGHT * 4)
+right_title = Text("JavaScript", font_size=26, color=PURPLE, weight=BOLD)
+right_title.next_to(right_box, UP, buff=0.15)
+
+self.play(FadeIn(left_box), Write(left_title), run_time=1.5)
+self.play(FadeIn(right_box), Write(right_title), run_time=1.5)
+```
+
+💎 PATTERN C: Process Flow with Arrows
+```python
+# For step-by-step narration: "first... then... finally..."
+steps = []
+for i, (name, col) in enumerate([("Input", BLUE), ("Process", GREEN), ("Output", GOLD)]):
+    box = RoundedRectangle(width=3, height=1.5, color=col, fill_opacity=0.2)
+    lbl = Text(name, font_size=24, color=WHITE, weight=BOLD)
+    lbl.move_to(box.get_center())
+    grp = VGroup(box, lbl)
+    grp.move_to(LEFT * 5 + RIGHT * 5 * i + DOWN * 0.5)
+    steps.append(grp)
+
+for j, step in enumerate(steps):
+    self.play(GrowFromCenter(step), run_time=1.5)
+    if j < len(steps) - 1:
+        arrow = Arrow(step.get_right(), steps[j+1].get_left(), color=YELLOW)
+        self.play(GrowArrow(arrow), run_time=0.8)
+```
+
+💎 PATTERN D: Hierarchical Layout (Tree/Org Chart)
+```python
+# Parent concept at top, children below
+parent = VGroup(RoundedRectangle(width=4, height=1.5, color=GOLD, fill_opacity=0.2),
+                Text("Machine Learning", font_size=24, color=WHITE, weight=BOLD))
+parent[1].move_to(parent[0].get_center())
+parent.move_to(UP * 2.5)
+
+children_data = [("Supervised", LEFT*4), ("Unsupervised", ORIGIN), ("Reinforcement", RIGHT*4)]
+children = []
+for name, pos in children_data:
+    child = VGroup(RoundedRectangle(width=3.5, height=1.2, color=BLUE, fill_opacity=0.2),
+                   Text(name, font_size=20, color=WHITE))
+    child[1].move_to(child[0].get_center())
+    child.move_to(pos + DOWN * 0.5)
+    children.append(child)
+
+self.play(GrowFromCenter(parent), run_time=1.5)
+for child in children:
+    arrow = Arrow(parent.get_bottom(), child.get_top(), color=WHITE, stroke_width=2)
+    self.play(GrowArrow(arrow), GrowFromCenter(child), run_time=1.2)
+```
+
+═══════════════════════════════════════════════════════════════
+📐 POSITIONING RULES (MANDATORY — Use Full Screen!)
+═══════════════════════════════════════════════════════════════
+
+HORIZONTAL (16:9):
+  • Far left: LEFT * 5.5 to LEFT * 6
+  • Left: LEFT * 4
+  • Center-left: LEFT * 2
+  • Center: ORIGIN
+  • Center-right: RIGHT * 2
+  • Right: RIGHT * 4
+  • Far right: RIGHT * 5.5 to RIGHT * 6
+
+VERTICAL:
+  • Top: UP * 3 to UP * 3.5
+  • Upper: UP * 1.5
+  • Center: ORIGIN
+  • Lower: DOWN * 1.5
+  • Bottom: DOWN * 3 to DOWN * 3.5
+
+RULE: At least 2 different horizontal zones and 2 vertical zones per segment.
 
 ═══════════════════════════════════════════════════════════════
 🎯 ENGAGEMENT FORMULA FOR EVERY SEGMENT:
 ═══════════════════════════════════════════════════════════════
 
-1. OPEN: Dramatic entry (DrawBorderThenFill, Write, GrowFromCenter)
-2. EMPHASIZE: Highlight key points (Circumscribe, Flash, Indicate)
-3. TRANSITION: Smooth movements (animate.shift/scale with rate_func=smooth)
-4. CLOSE: Clean exit (FadeOut with shift)
-5. STYLE: Always use gradients, proper colors, spacing
+1. OPEN: Title with DrawBorderThenFill or Write (UP * 3)
+2. BUILD: Concept cards appear as narration mentions them
+3. CONNECT: Arrows/lines between related concepts
+4. EMPHASIZE: Circumscribe/Flash on key ideas
+5. HOLD: Keep ALL elements visible at end — NEVER FadeOut everything
 
 ═══════════════════════════════════════════════════════════════

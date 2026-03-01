@@ -31,47 +31,47 @@ METAPHOR_TAXONOMY = {
     # Abstract concept keywords → suggested metaphor types and visual elements
     "process": {
         "metaphor_type": MetaphorType.PROCESS_FLOW,
-        "suggested_elements": [ElementType.ARROW, ElementType.DATA_PACKET, ElementType.NODE],
+        "suggested_elements": [ElementType.ARROW, ElementType.DATA_PACKET, ElementType.NODE, ElementType.GLASS_CARD, ElementType.ICON_BADGE],
         "keywords": ["flow", "pipeline", "sequence", "steps", "order", "execute", "run"]
     },
     "container": {
         "metaphor_type": MetaphorType.CONTAINER,
-        "suggested_elements": [ElementType.BOUNDARY_BOX, ElementType.ROUNDED_RECTANGLE],
+        "suggested_elements": [ElementType.GLASS_CARD, ElementType.BOUNDARY_BOX, ElementType.TAG_PILL, ElementType.ICON_BADGE],
         "keywords": ["scope", "function", "class", "module", "encapsulate", "contains", "inside"]
     },
     "security": {
         "metaphor_type": MetaphorType.PROCESS_FLOW,
-        "suggested_elements": [ElementType.CHECKPOINT, ElementType.GATE, ElementType.LOCK, ElementType.BOUNDARY_BOX],
+        "suggested_elements": [ElementType.ICON_BADGE, ElementType.GLASS_CARD, ElementType.CHECKPOINT, ElementType.GATE, ElementType.LOCK],
         "keywords": ["verify", "authenticate", "trust", "secure", "protect", "access", "permission"]
     },
     "transformation": {
         "metaphor_type": MetaphorType.TRANSFORMATION,
-        "suggested_elements": [ElementType.NODE, ElementType.ARROW],
+        "suggested_elements": [ElementType.GLASS_CARD, ElementType.CODE_BLOCK, ElementType.ARROW, ElementType.ICON_BADGE],
         "keywords": ["convert", "transform", "change", "compile", "parse", "encode", "decode"]
     },
     "relationship": {
         "metaphor_type": MetaphorType.RELATIONSHIP,
-        "suggested_elements": [ElementType.NODE, ElementType.ARROW, ElementType.FLOW_LINE],
+        "suggested_elements": [ElementType.GLASS_CARD, ElementType.ARROW, ElementType.ICON_BADGE, ElementType.TAG_PILL],
         "keywords": ["connect", "link", "inherit", "depend", "relate", "associate", "reference"]
     },
     "state": {
         "metaphor_type": MetaphorType.STATE,
-        "suggested_elements": [ElementType.NODE, ElementType.CIRCLE],
+        "suggested_elements": [ElementType.ICON_BADGE, ElementType.TAG_PILL, ElementType.GLASS_CARD],
         "keywords": ["state", "status", "toggle", "switch", "enable", "disable", "active", "inactive"]
     },
     "quantity": {
         "metaphor_type": MetaphorType.QUANTITY,
-        "suggested_elements": [ElementType.RECTANGLE, ElementType.NODE],
+        "suggested_elements": [ElementType.PROGRESS_BAR, ElementType.GLASS_CARD, ElementType.TAG_PILL, ElementType.NODE],
         "keywords": ["array", "list", "collection", "count", "iterate", "loop", "memory", "stack"]
     },
     "comparison": {
         "metaphor_type": MetaphorType.COMPARISON,
-        "suggested_elements": [ElementType.BOUNDARY_BOX, ElementType.LABEL],
+        "suggested_elements": [ElementType.GLASS_CARD, ElementType.PROGRESS_BAR, ElementType.TAG_PILL, ElementType.ICON_BADGE],
         "keywords": ["compare", "versus", "difference", "similar", "contrast", "advantage"]
     },
     "hierarchy": {
         "metaphor_type": MetaphorType.HIERARCHY,
-        "suggested_elements": [ElementType.NODE, ElementType.ARROW, ElementType.BOUNDARY_BOX],
+        "suggested_elements": [ElementType.GLASS_CARD, ElementType.ICON_BADGE, ElementType.ARROW, ElementType.TAG_PILL],
         "keywords": ["tree", "parent", "child", "layer", "level", "inherit", "extend", "hierarchy"]
     }
 }
@@ -83,7 +83,29 @@ METAPHOR_TAXONOMY = {
 
 SCENE_SPEC_GENERATION_PROMPT = '''You are a viral YouTube Shorts creator who makes educational content that people can't stop watching. Your videos are so engaging that viewers watch till the end and share them.
 
-## 🎯 YOUR MISSION
+## � CINEMATIC DIRECTIVE (READ FIRST — This Overrides Everything!)
+You are DIRECTING an animated short film, NOT designing presentation slides.
+Every scene must feel like a STORY UNFOLDING VISUALLY — alive, intentional, and narratively driven.
+Static presentation = FAILURE. A screen where nothing moves for more than 0.8 seconds = FAILURE.
+
+### 🎥 Story Through Motion
+- Every animation MUST advance the narrative (not just decoration)
+- Elements don't just "appear" — they ENTER with purpose and INTERACT with each other
+- The spatial arrangement IS the explanation: left→right = sequence, top→bottom = hierarchy, side-by-side = comparison
+- Diagrams BUILD progressively as the narration unfolds — never show everything at once
+
+### 🎭 Interaction Over Appearance
+- Arrows GROWING between elements when narration says "connects to" or "leads to"
+- Elements REPOSITIONING to form relationships when narration says "works together"
+- Scale PULSING to emphasize the current narrative focus
+- Color TRANSFORMING to show state changes
+
+### 📷 Camera-Aware Composition
+- Think in SHOTS: establishing shot (zoom out to show context), close-up (zoom into key detail), reveal shot (pan to show new relationship)
+- The viewer's EYE should be GUIDED through the scene by motion sequence
+- Entry directions should match the narration flow: left-to-right for processes, top-down for hierarchies
+
+## �🎯 YOUR MISSION
 Create a scene specification that will make viewers say "Wow, that was actually useful!" NOT "Ugh, another boring explainer."
 
 ## 🚨 ANTI-BORING CHECKLIST (CRITICAL!)
@@ -130,18 +152,106 @@ Bad examples (NEVER USE):
 - "X is defined as a mechanism whereby..."
 - "In conclusion, we have learned that..."
 
-## 🎬 VISUAL DYNAMICS (No Static Screens!)
-Every scene MUST have:
-- ENTRANCE: Elements BOUNCE, SLIDE, or GROW in
-- FOCUS: Key elements PULSE, FLASH, or get HIGHLIGHTED
-- EXIT: Smooth transition to next scene
+## 🎬 VISUAL DYNAMICS — CINEMATIC CONCEPT DIAGRAMS (Not generic boxes!)
+Every scene MUST use the FULL SCREEN to create concept DIAGRAMS, NOT just text flying around:
 
-Animation verbs to use:
-- "Title BOUNCES in from above"
-- "Diagram GROWS from center with a POP"
-- "Arrow SLIDES in, then PULSES"
-- "Icons SPIN into position"
-- "Everything ZOOMS out to reveal the big picture"
+### 🎥 LAYOUT PATTERNS (Pick the best one for each scene's narration!):
+
+**Pattern 1 — Side-by-Side Comparison** (for "X vs Y", "before/after", "old vs new"):
+- Two large glass_cards at LEFT and RIGHT with contrasting colors
+- Icon badges above each card showing key difference
+- Used when narration COMPARES two things
+
+**Pattern 2 — Process Flow** (for "first... then... finally", "steps", "pipeline"):
+- 3-4 nodes/cards arranged LEFT→RIGHT with arrows between them
+- Each step appears when narration mentions it
+- Used when narration describes a SEQUENCE
+
+**Pattern 3 — Hierarchical Tree** (for "types of", "categories", "subtypes"):
+- Parent concept at TOP (glass_card)
+- 2-4 children spread across BOTTOM (LEFT, CENTER, RIGHT)
+- Arrows/lines from parent to each child
+- Used when narration CLASSIFIES things
+
+**Pattern 4 — Central Concept + Details** (for "what is X?"):
+- Main concept as large glass_card at CENTER
+- 3-4 supporting tag_pills/icon_badges ORBITING around it
+- Each detail appears when narration mentions it
+- Used for DEFINITION/EXPLANATION scenes
+
+**Pattern 5 — Cause → Effect** (for "because", "leads to", "results in"):
+- Two elements with bold ARROW between them
+- Left element = cause, right element = effect
+- Arrow DRAWS when narration describes the connection
+
+### 📏 SPATIAL RULES (MANDATORY — use the FULL SCREEN!):
+- NEVER put all elements in the center — spread them out!
+- Use positions: top_left, top_right, center_left, center_right, lower_left, lower_right
+- Each scene MUST use at least 3 different grid positions
+- For 16:9: elements at horizontal extremes (LEFT*5 and RIGHT*5)
+- For 9:16: elements stacked vertically (UP*5 and DOWN*5)
+- Leave NO empty quadrant — fill the screen with meaningful content
+
+### 🎭 ANIMATION STORYTELLING — Semantic Beats → Visual Events (CRITICAL!):
+Every narration phrase maps to a SPECIFIC visual event. This is DIRECTING, not decorating.
+
+**Semantic Beat Mapping Rules:**
+- "introduces X" → element GROWS FROM CENTER (dramatic reveal)
+- "compares X and Y" → two elements SLIDE IN from OPPOSITE sides simultaneously
+- "X leads to Y" → arrow DRAWS from X to Y (cause → effect)
+- "the key thing about X" → element PULSES + CIRCUMSCRIBE highlight (emphasis)
+- "types of X" → parent card ENTERS first, then children GROW from it (hierarchy)
+- "step 1... step 2... step 3" → elements appear LEFT→RIGHT with arrows DRAWING between
+- "X transforms into Y" → element MORPHS or COLOR SHIFTS
+- "the big picture" → all elements SCALE DOWN slightly to reveal full diagram (zoom out)
+- "focus on X" → element SCALES UP while others DIM (camera zoom)
+
+**Interaction Events (MANDATORY in CONTENT scenes):**
+- At least ONE arrow must DRAW between elements during the scene
+- At least ONE element must REPOSITION during the scene (shift toward another)
+- At least ONE emphasis event must sync with the narration's key phrase
+
+- HOLD all elements visible at end — NEVER FadeOut everything
+
+🚫 THE #1 MISTAKE: Generic animations disconnected from narration!
+❌ BAD: "boxes float around while narration talks about APIs" 
+✅ GOOD: "glass_card labeled 'API Gateway' GROWS FROM CENTER at left, then arrow DRAWS rightward to glass_card 'Server' when narration says 'sends request' — showing the data flow spatially"
+
+### 🎬 ANIMATION VERBS (Use these in visual_sync descriptions!):
+- "GROWS FROM CENTER at [position]" — first introduction (dramatic)
+- "SLIDES IN from left/right to [position]" — sequential step
+- "DRAWS BORDER THEN FILLS at [position]" — important reveal
+- "ARROW DRAWS from X to Y" — connection or data flow
+- "PULSES with golden GLOW" — emphasis on key point
+- "CIRCUMSCRIBE highlight in YELLOW" — "look at this!" moment
+- "TRANSFORMS into" — concept changing or evolving
+- "ZOOMS OUT to reveal all elements" — showing the big picture
+
+## 🎨 AVAILABLE VISUAL PRIMITIVES — Your Cinematic Toolkit
+You have premium visual elements — COMBINE THEM to build concept diagrams:
+
+| Type | Best For | Use In Layout | Example |
+|------|----------|---------------|---------|
+| `glass_card` | Key concepts, main ideas, definitions | CENTER, LEFT, RIGHT (large) | Frosted glass panel titled "Neural Network" |
+| `code_block` | Code snippets, commands, syntax | CENTER (large) | Dark editor-style block showing `pip install` |
+| `icon_badge` | Key symbols, comparison icons, status | TOP corners, ORBITING center | Glowing badge with ⚡ or 🔒 |
+| `tag_pill` | Labels, categories, keywords, types | BELOW parent cards, scattered | Rounded pill "Machine Learning" |
+| `progress_bar` | Metrics, comparisons, before/after | BOTTOM, under cards for comparison | Animated bar 75% filled in GREEN |
+| `boundary_box` | Grouping 2-3 related elements together | LARGE, enclosing sub-elements | Container labeled "Frontend" with child elements inside |
+| `node` | Entities in flow diagrams, tree children | In chains or tree layouts | Styled circle "Step 1" → "Step 2" |
+| `label` | Short annotations, captions, callouts | NEXT TO other elements | "O(n²)" label near code_block |
+| `arrow` | Connections, data flow, cause→effect | BETWEEN any two elements | Directional arrow from "Input" to "Output" |
+
+### 🏗️ ELEMENT COMBINATION RECIPES (Build diagrams, NOT just floating boxes!):
+- **Comparison**: 2× glass_card (LEFT + RIGHT) + 2× icon_badge above each + arrow between = VS layout
+- **Process Flow**: 3× node in a row + 2× arrow between them + tag_pill labels below = pipeline
+- **Definition**: 1× glass_card (CENTER) + 3× tag_pill around it + icon_badge on top = concept map
+- **Hierarchy**: 1× glass_card (TOP) + 3× node (BOTTOM spread) + arrows downward = tree
+
+🚨 CRITICAL: Use 4-6 elements per scene — build DIAGRAMS not isolated boxes!
+🚨 PREFER `glass_card` and `icon_badge` over basic `node` — they look 10x better!
+🚨 Use `medium` or `large` sizes — small elements are INVISIBLE on phone screens!
+🚨 ALWAYS include at least 1 `arrow` in CONTENT scenes — show CONNECTIONS!
 
 ## 📋 TOPIC TO EXPLAIN
 "{topic}"
@@ -171,26 +281,47 @@ Per scene: ~{seconds_per_scene} seconds
       "visual_elements": [
         {{
           "id": "elem1",
-          "element_type": "node|label|circle|rectangle|arrow|boundary_box",
+          "element_type": "glass_card|code_block|icon_badge|tag_pill|progress_bar|node|label|boundary_box|arrow",
           "label": "1-4 words MAX",
-          "position": "center|top_center|bottom_center|center_left|center_right",
-          "size": "small|medium|large",
-          "color": "BLUE|GREEN|RED|YELLOW|ORANGE|PURPLE|GOLD|WHITE"
+          "position": "center|top_center|bottom_center|center_left|center_right|upper_center|lower_center|upper_left|upper_right|lower_left|lower_right",
+          "size": "medium|large",
+          "color": "BLUE|GREEN|RED|YELLOW|ORANGE|PURPLE|GOLD|WHITE|TEAL"
+        }},
+        {{
+          "id": "elem2",
+          "element_type": "icon_badge",
+          "label": "⚡",
+          "position": "upper_right",
+          "size": "medium",
+          "color": "GOLD"
+        }},
+        {{
+          "id": "elem3",
+          "element_type": "tag_pill",
+          "label": "keyword",
+          "position": "lower_center",
+          "size": "medium",
+          "color": "TEAL"
         }}
       ]
     }},
     "transformation": {{
       "type": "intro_hook|explanation|reveal|conclusion",
       "sequence": [
-        {{"action": "appear|fade_in|grow_from_center|slide_in|bounce", "target": "elem1"}},
-        {{"action": "pulse|flash|highlight|wiggle|zoom_in", "target": "elem1"}},
-        {{"action": "fade_out|exit|shrink|disappear", "target": "elem1"}}
+        {{"action": "grow_from_center", "target": "elem1", "narration_cue": "appears when narration introduces the MAIN concept"}},
+        {{"action": "slide_in_from_left|slide_in_from_right", "target": "elem2", "narration_cue": "slides in when narration mentions the SECOND concept"}},
+        {{"action": "draw_arrow", "target": "arrow1", "narration_cue": "arrow draws when narration says 'connects to' or 'leads to'"}},
+        {{"action": "grow_from_center|bounce", "target": "elem3", "narration_cue": "appears when narration mentions supporting detail"}},
+        {{"action": "pulse|circumscribe|flash", "target": "elem1", "narration_cue": "emphasize when narration makes the KEY POINT"}},
+        {{"action": "pulse|flash", "target": "elem2", "narration_cue": "final emphasis on the secondary element"}}
       ]
     }},
     "narration": {{
       "text": "35-50 words of casual, engaging narration that sounds like texting a friend. Use contractions! Ask questions! Be enthusiastic!",
       "semantic_beats": [
-        {{"beat_phrase": "key phrase from narration", "visual_sync": "what animates on this phrase", "target_elements": ["elem1"]}}
+        {{"beat_phrase": "exact 3-6 word phrase from narration text", "visual_sync": "elem1 GROWS FROM CENTER — represents the concept being introduced", "target_elements": ["elem1"]}},
+        {{"beat_phrase": "another key phrase from narration", "visual_sync": "elem2 APPEARS and arrow DRAWS from elem1 to elem2 — shows the relationship", "target_elements": ["elem2"]}},
+        {{"beat_phrase": "concluding phrase", "visual_sync": "elem1 PULSES — reinforces the main takeaway", "target_elements": ["elem1"]}}
       ]
     }},
     "timing": {{ "cognitive_duration_estimate_seconds": {seconds_per_scene} }}
@@ -212,17 +343,60 @@ Per scene: ~{seconds_per_scene} seconds
 ]
 ```
 
-## ✨ QUALITY SELF-CHECK
+## ✨ QUALITY SELF-CHECK (Grade A Cinematic Standard)
 Before outputting, verify:
 1. Does the hook make YOU want to keep watching? (If not, rewrite!)
-2. Is every animation dynamic? (No "text appears" - use BOUNCES, SLIDES, GROWS)
+2. Is every animation SPATIALLY MEANINGFUL? (Does the motion match the narration's meaning — e.g., comparison = side-by-side, process = left→right flow)
 3. Does it sound like a friend explaining? (Read it out loud!)
 4. Is the narration 35-50 words per scene? (Not too short!)
 5. Would YOU share this video? (If not, make it better!)
+6. Do you have 4-6 visual elements per scene? (3 or less = BORING! Include arrows!)
+7. Are you using glass_card or icon_badge? (basic nodes are ugly!)
+8. Are sizes medium or large? (small = invisible on phone!)
+9. **LAYOUT CHECK**: Do elements use at LEAST 3 DIFFERENT positions per scene? (All center = REJECTED!)
+10. **DIAGRAM CHECK**: Does each CONTENT scene have at least 1 arrow or connection? (Isolated boxes = BORING!)
+11. **NARRATION SYNC**: For EACH semantic beat, can you answer: "What SPECIFIC visual element appears/moves WHERE on screen, and HOW does that spatial position + motion represent what the narration is saying?" If the visual_sync is generic, REWRITE to be specific!
+12. **LABEL CHECK**: Does each visual element label describe the concept it represents? ("elem1" with label "" = USELESS. "api_gateway" with label "API Gateway" = MEANINGFUL!)
+13. **NO FADE-OUT-ALL**: The last action in your sequence must NOT fade out all elements! End with emphasis (pulse/flash) on the key takeaway element!
+14. **CINEMATIC INTERACTION**: Does the CONTENT scene have at least 1 MOVE/REPOSITION event? Elements should shift toward each other to show relationships!
+15. **CAMERA AWARENESS**: Is there at least 1 emphasis event that acts as a "close-up" (scale pulse, circumscribe) synced to the KEY phrase?
+16. **ANIMATION VARIETY**: Count unique animation types — you need at least 4 DIFFERENT animation verbs across the scene (not all grow_from_center!)
+17. **PROGRESSIVE BUILD**: Does the diagram build piece-by-piece matching narration, or does everything dump on screen at once? (Dump = REJECTED!)
+18. **CONTINUOUS MOMENTUM** (Solution A): After each element enters, does it receive at least one follow-up event (emphasis, move, transform) within 2 seconds? Static elements after entry = DEAD SCREEN!
+19. **ENERGY PEAKS** (Solution D): Every 5-7 seconds, is there a burst of 2-3 simultaneous animations? Flat constant intensity = BORING! Plan peaks and valleys!
+20. **CAUSAL LOGIC** (Solution C): When narration says "X leads to Y" or "X becomes Y", do elements MORPH/TRANSFORM instead of just being replaced? Show EVOLUTION, not substitution!
+21. **SCALING HIERARCHY** (Solution F): Is the PRIMARY concept element visually LARGER than supporting elements? The main idea should dominate the screen — secondary details should be proportionally smaller!
+22. **MOTION VARIETY** (Solution G): Are any two CONSECUTIVE animations the same type? Alternate between grow, slide, draw, pulse, move — never repeat the same pattern twice in a row!
+23. **SPATIAL SAFETY**: With {num_scenes} segments, will elements FIT on screen? For 4+ elements per scene, use SMALLER sizes and WIDER spacing. No element should exceed 40% of screen width. MARGINS are sacred — keep 5% clear on all edges!
+24. **OVERFLOW PREVENTION**: If a scene has 5+ visual elements, use COMPACT sizes (tag_pill, icon_badge) for secondary items instead of full glass_cards. Crowded = REJECTED!
+
+## 🚨 ANTI-PATTERN CHECK (YOUR SPEC WILL BE REJECTED IF)
+- Elements have empty or generic labels (label must describe what concept the element represents)
+- Transformation sequence is just "appear, appear, appear, pulse, fade_out" (each animation must have a narrative reason AND a specific entry direction/style)
+- semantic_beats have generic visual_sync like "element animates" (must describe WHAT appears WHERE and WHY)
+- Visual elements don't map to concepts mentioned in the narration
+- More than 2 elements share the same position (use different grid positions!)
+- ALL elements are in CENTER position (spread them across the screen!)
+- CONTENT scene has zero arrows (you MUST show connections between concepts!)
+- Last transformation action is "fade_out" for ALL elements (keep elements visible at end!)
+- Every entry animation is the same type (vary between grow_from_center, slide_in_from_left, slide_in_from_right, bounce, draw_border_then_fill)
+- NO element interaction: elements just sit in place without moving toward each other or connecting (CINEMATIC = interaction!)
+- Scene feels like a SLIDESHOW: all elements appear at once, sit still, then disappear (PROGRESSIVE BUILD required!)
+- Zero emphasis events tied to narration key phrases (at least 2 required per scene!)
+- Animation density < 1.5 events/second (if your scene has 15 seconds, you need 20+ animation events across all beats)
+- **ENTRY-THEN-STATIC**: An element enters and has NO follow-up event for 3+ seconds (Solution A — every element must stay active!)
+- **FLAT ENERGY**: All animations are equally spaced with identical intensity — no peaks or valleys (Solution D — plan 2-3 energy bursts per scene!)
+- **PASSIVE CAMERA**: No emphasis event acts as a "close-up" or "zoom" moment — the camera never guides attention (Solution B — at least 2 camera-like events!)
+- **NO CAUSAL LOGIC**: When narration says "transforms into" or "leads to" but elements just appear/disappear instead of morphing (Solution C — use transform/morph actions!)
+- **UNIFORM SIZING**: All elements are the same visual weight — no clear primary vs secondary hierarchy (Solution F — primary concept must be LARGER!)
+- **REPETITIVE MOTION**: Same animation verb used 3+ times consecutively (Solution G — alternate between at least 3 different animation types!)
+- **SCREEN OVERFLOW**: More than 5 large elements (glass_card, boundary_box) in a single scene — use compact types (tag_pill, icon_badge, code_block) for secondary items! Max 3 glass_cards per scene!
+- **EDGE BLEEDING**: Elements positioned without considering margins — everything must stay within 90% of screen bounds with 5% margin on each side!
 
 ## 🚀 NOW GENERATE
 Create {num_scenes} engaging scene specifications for "{topic}".
 Remember: Hook them, help them, and leave them wanting more!
+USE THE PREMIUM ELEMENTS (glass_card, icon_badge, tag_pill, code_block)!
 '''
 
 
@@ -501,14 +675,26 @@ class SceneSpecGenerator:
     # Position aliases - maps simplified position names to valid enum values  
     POSITION_ALIASES = {
         "center": "center", "middle": "center", "mid": "center",
-        "top": "top_center", "up": "top_center", "upper": "top_center",
-        "bottom": "bottom_center", "down": "bottom_center", "lower": "bottom_center",
+        "top": "top_center", "up": "top_center", "upper": "upper_center",
+        "bottom": "bottom_center", "down": "bottom_center", "lower": "lower_center",
         "left": "center_left", "leftside": "center_left",
         "right": "center_right", "rightside": "center_right",
-        "top-left": "top_left", "topleft": "top_left", "upper-left": "top_left",
-        "top-right": "top_right", "topright": "top_right", "upper-right": "top_right",
-        "bottom-left": "bottom_left", "bottomleft": "bottom_left", "lower-left": "bottom_left",
-        "bottom-right": "bottom_right", "bottomright": "bottom_right", "lower-right": "bottom_right",
+        # Top row aliases
+        "top-left": "top_left", "topleft": "top_left",
+        "top-right": "top_right", "topright": "top_right",
+        "top-center": "top_center", "topcenter": "top_center",
+        # Upper row aliases (5-row grid — distinct from top)
+        "upper-left": "upper_left", "upperleft": "upper_left", "upper_left": "upper_left",
+        "upper-right": "upper_right", "upperright": "upper_right", "upper_right": "upper_right",
+        "upper-center": "upper_center", "uppercenter": "upper_center", "upper_center": "upper_center",
+        # Lower row aliases (5-row grid — distinct from bottom)
+        "lower-left": "lower_left", "lowerleft": "lower_left", "lower_left": "lower_left",
+        "lower-right": "lower_right", "lowerright": "lower_right", "lower_right": "lower_right",
+        "lower-center": "lower_center", "lowercenter": "lower_center", "lower_center": "lower_center",
+        # Bottom row aliases
+        "bottom-left": "bottom_left", "bottomleft": "bottom_left",
+        "bottom-right": "bottom_right", "bottomright": "bottom_right",
+        "bottom-center": "bottom_center", "bottomcenter": "bottom_center",
     }
     
     # TransformAction aliases - maps common animation verbs to valid enum values
@@ -519,6 +705,10 @@ class SceneSpecGenerator:
         "grow_from_center": "grow_from_center", "grow": "grow_from_center", "expand": "grow_from_center",
         "fade_in": "fade_in", "fadein": "fade_in", "materialize": "fade_in",
         "slide_in": "slide_in", "slidein": "slide_in", "slide": "slide_in",
+        "slide_in_from_left": "slide_in_from_left", "slide_from_left": "slide_in_from_left",
+        "slide_in_from_right": "slide_in_from_right", "slide_from_right": "slide_in_from_right",
+        "slide_in_from_top": "slide_in_from_top", "slide_from_top": "slide_in_from_top",
+        "slide_in_from_bottom": "slide_in_from_bottom", "slide_from_bottom": "slide_in_from_bottom",
         "bounce": "bounce", "spring": "bounce", "hop": "bounce",
         # Emphasis variants
         "pulse": "pulse", "throb": "pulse", "beat": "pulse",
@@ -545,6 +735,11 @@ class SceneSpecGenerator:
         # Connect variants
         "connect": "connect", "link": "connect", "attach": "connect",
         "flow": "flow", "animate_path": "flow",
+        # Drawing / emphasis extras
+        "draw_border_then_fill": "draw_border_then_fill", "draw_border": "draw_border_then_fill",
+        "draw_and_fill": "draw_border_then_fill", "border_fill": "draw_border_then_fill",
+        "draw_arrow": "draw_arrow", "arrow": "draw_arrow", "create_arrow": "draw_arrow",
+        "circumscribe": "circumscribe", "circle": "circumscribe", "outline": "circumscribe",
     }
     
     def _safe_parse_element_type(self, value: str) -> ElementType:
@@ -589,6 +784,26 @@ class SceneSpecGenerator:
             logger.debug(f"🔄 Position '{value}' → '{aliased}'")
             return Position(aliased)
         
+        # Fuzzy match: strip trailing punctuation, fix double chars
+        import re as _re
+        import difflib
+        cleaned = _re.sub(r"['\"\s]+$", "", value_lower)  # strip trailing quotes
+        cleaned = _re.sub(r'(.)\1{2,}', r'\1\1', cleaned)  # collapse triple+ chars
+        # Try cleaned value
+        try:
+            return Position(cleaned)
+        except ValueError:
+            pass
+        if cleaned in self.POSITION_ALIASES:
+            return Position(self.POSITION_ALIASES[cleaned])
+        
+        # Closest match from valid positions
+        valid_positions = [p.value for p in Position]
+        matches = difflib.get_close_matches(cleaned, valid_positions, n=1, cutoff=0.7)
+        if matches:
+            logger.info(f"🔄 Fuzzy position '{value}' → '{matches[0]}'")
+            return Position(matches[0])
+        
         # Fallback
         logger.warning(f"⚠️ Unknown position '{value}', using CENTER")
         return Position.CENTER
@@ -612,7 +827,45 @@ class SceneSpecGenerator:
             logger.debug(f"🔄 TransformAction '{value}' → '{aliased}'")
             return TransformAction(aliased)
         
-        # Fallback
+        # Strip trailing 's' (LLM sometimes pluralizes: "fades" → "fade", "draws" → "draw")
+        if value_lower.endswith('s') and len(value_lower) > 3:
+            stripped = value_lower[:-1]
+            try:
+                return TransformAction(stripped)
+            except ValueError:
+                pass
+            if stripped in self.ACTION_ALIASES:
+                aliased = self.ACTION_ALIASES[stripped]
+                logger.debug(f"🔄 TransformAction '{value}' (depluralized) → '{aliased}'")
+                return TransformAction(aliased)
+        
+        # Fuzzy match against all valid action values
+        valid_actions = [a.value for a in TransformAction]
+        all_candidates = valid_actions + list(self.ACTION_ALIASES.keys())
+        matches = difflib.get_close_matches(value_lower, all_candidates, n=1, cutoff=0.7)
+        if matches:
+            best = matches[0]
+            if best in self.ACTION_ALIASES:
+                best = self.ACTION_ALIASES[best]
+            logger.info(f"🔄 Fuzzy action '{value}' → '{best}'")
+            return TransformAction(best)
+        
+        # Final fallback — pick the closest semantic match instead of APPEAR
+        # Map unknown actions to reasonable defaults based on keyword presence
+        for keyword, action in [
+            ("slide", "slide_in"), ("fade", "fade_in"), ("draw", "draw_border_then_fill"),
+            ("grow", "grow_from_center"), ("shrink", "shrink"), ("zoom", "zoom_in"),
+            ("scale", "scale"), ("spin", "spin"), ("flash", "flash"),
+            ("glow", "glow"), ("pulse", "pulse"), ("wiggle", "wiggle"),
+            ("bounce", "bounce"), ("arrow", "draw_arrow"), ("circle", "circumscribe"),
+            ("highlight", "highlight"), ("emphasize", "emphasize"),
+            ("move", "move"), ("exit", "exit"), ("enter", "enter"),
+            ("disappear", "disappear"), ("appear", "appear"),
+        ]:
+            if keyword in value_lower:
+                logger.info(f"🔄 Keyword action '{value}' → '{action}'")
+                return TransformAction(action)
+        
         logger.warning(f"⚠️ Unknown action '{value}', using APPEAR")
         return TransformAction.APPEAR
     
@@ -674,6 +927,7 @@ class SceneSpecGenerator:
         # Construct specification
         return SceneSpecification(
             scene_id=data.get("scene_id", f"scene_{index:03d}"),
+            scene_type=data.get("type", "CONTENT").upper(),
             concept=Concept(
                 idea=data.get("concept", {}).get("idea", ""),
                 pedagogical_goal=data.get("concept", {}).get("pedagogical_goal", ""),
@@ -690,8 +944,8 @@ class SceneSpecGenerator:
                 sequence=transformation_steps
             ),
             constraints=Constraints(
-                max_objects=4,
-                max_text_elements=2,
+                max_objects=8,
+                max_text_elements=4,
                 text_role=TextRole.LABEL,
                 grid_alignment=True
             ),
@@ -718,7 +972,7 @@ class SceneSpecGenerator:
             # Fix: Too many visual elements
             if "Too many visual elements" in error:
                 elements = fixed_data.get("visual_metaphor", {}).get("visual_elements", [])
-                fixed_data["visual_metaphor"]["visual_elements"] = elements[:4]
+                fixed_data["visual_metaphor"]["visual_elements"] = elements[:8]
             
             # Fix: Label too long
             if "exceeds 4 words" in error:
@@ -732,7 +986,7 @@ class SceneSpecGenerator:
             # Fix: Too many transformation steps
             if "Too many transformation steps" in error:
                 sequence = fixed_data.get("transformation", {}).get("sequence", [])
-                fixed_data["transformation"]["sequence"] = sequence[:6]
+                fixed_data["transformation"]["sequence"] = sequence[:12]
             
             # Fix: Transformation target not found in elements
             if "not found in elements" in error:
@@ -863,8 +1117,8 @@ class SpecificationValidator:
         
         # Penalize for too many elements
         elem_count = len(spec.visual_metaphor.visual_elements)
-        if elem_count > 3:
-            score -= 0.1 * (elem_count - 3)
+        if elem_count > 7:
+            score -= 0.1 * (elem_count - 7)
         
         # Penalize for missing semantic beats
         beat_count = len(spec.narration.semantic_beats)

@@ -70,3 +70,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+manim_v0.19.0_complete_reference.md
+shrusti_title_reveal.py

@@ -1,4 +1,5 @@
-# PROFESSIONAL MANIM SAMPLES - Safe Positioning + Engaging Animations
+# PROFESSIONAL MANIM SAMPLES — Narration-Driven, Full-Screen, Rich Animations
+# These samples illustrate how animations should REPRESENT narration concepts visually.
 
 from manim import *
 
@@ -7,74 +8,224 @@ config.frame_height = 9
 config.pixel_width = 1920
 config.pixel_height = 1080
 
-# 
-# EXAMPLE 1: Dynamic Title with Perfect Spacing
-# 
-class DynamicIntro(Scene):
+
+# ═══════════════════════════════════════════════════════════
+# EXAMPLE 1: Concept Explanation — "How APIs Work"
+# Narration: "An API acts as a messenger between your app and the server."
+# Principle: Every narration concept becomes a LABELED visual element.
+# ═══════════════════════════════════════════════════════════
+
+class APIExplanation(Scene):
     def construct(self):
-        # Title in TOP zone
-        title = Text("The Future of AI", font_size=56, weight=BOLD, color=BLUE)
-        title.scale_to_fit_width(config.frame_width * 0.85)  #  MANDATORY
-        title.move_to(UP * 2.5)  #  Safe TOP position
-        
-        self.play(Write(title, run_time=1.5))
-        self.play(title.animate.set_color(GOLD), Circumscribe(title, color=YELLOW))
-        
-        # Subtitle in MIDDLE zone (2.5 units from title)
-        subtitle = Text("Transforming Tomorrow", font_size=38, color=WHITE)
-        subtitle.scale_to_fit_width(config.frame_width * 0.8)
-        subtitle.move_to(ORIGIN)  #  Safe MIDDLE
-        
-        self.play(GrowFromCenter(subtitle))
-        self.play(Flash(subtitle, color=BLUE))
-        
-        # Call to action in BOTTOM zone
-        cta = Text("Let's Explore", font_size=32, color=GREEN)
-        cta.scale_to_fit_width(config.frame_width * 0.7)
-        cta.move_to(DOWN * 2.5)  #  Safe BOTTOM
-        
-        self.play(FadeIn(cta, shift=UP*0.3))
-        self.play(Indicate(cta, scale_factor=1.2))
-        
-        self.play(Uncreate(title), FadeOut(subtitle, scale=0.5), FadeOut(cta))
+        # PHASE 1 — Title (first 20% of duration)
+        title = Text("How APIs Work", font_size=48, weight=BOLD)
+        title.set_color_by_gradient(BLUE, TEAL)
+        title.scale_to_fit_width(config.frame_width * 0.6)
+        title.move_to(UP * 3)
+        self.play(DrawBorderThenFill(title), run_time=2.0)
+        self.wait(0.5)
+
+        # PHASE 2 — Core elements: App, API, Server (middle 50%)
+        # Each concept from the narration gets its own labeled card
+        app_card = RoundedRectangle(corner_radius=0.2, width=3.5, height=2, color=GREEN, fill_opacity=0.25, stroke_width=2)
+        app_label = Text("Your App", font_size=28, color=WHITE, weight=BOLD)
+        app_label.scale_to_fit_width(3.0)
+        app_group = VGroup(app_card, app_label).arrange(DOWN, buff=0.1)
+        app_group.move_to(LEFT * 5 + DOWN * 0.5)
+
+        api_card = RoundedRectangle(corner_radius=0.2, width=3, height=2, color=GOLD, fill_opacity=0.3, stroke_width=2)
+        api_label = Text("API", font_size=36, color=WHITE, weight=BOLD)
+        api_icon = Text("⇄", font_size=40, color=GOLD)
+        api_inner = VGroup(api_icon, api_label).arrange(DOWN, buff=0.15)
+        api_group = VGroup(api_card, api_inner).arrange(DOWN, buff=0.0)
+        api_inner.move_to(api_card.get_center())
+        api_group.move_to(DOWN * 0.5)
+
+        server_card = RoundedRectangle(corner_radius=0.2, width=3.5, height=2, color=BLUE, fill_opacity=0.25, stroke_width=2)
+        server_label = Text("Server", font_size=28, color=WHITE, weight=BOLD)
+        server_label.scale_to_fit_width(3.0)
+        server_group = VGroup(server_card, server_label).arrange(DOWN, buff=0.1)
+        server_group.move_to(RIGHT * 5 + DOWN * 0.5)
+
+        # Elements appear when narration mentions them
+        self.play(GrowFromCenter(app_group), run_time=1.5)
+        self.wait(0.3)
+        self.play(GrowFromCenter(api_group), run_time=1.5)
+        self.wait(0.3)
+        self.play(GrowFromCenter(server_group), run_time=1.5)
+
+        # PHASE 3 — Show relationship: arrows for "messenger" concept
+        arrow_left = Arrow(app_group.get_right(), api_group.get_left(), color=YELLOW, stroke_width=3)
+        arrow_right = Arrow(api_group.get_right(), server_group.get_left(), color=YELLOW, stroke_width=3)
+        self.play(GrowArrow(arrow_left), GrowArrow(arrow_right), run_time=1.5)
+        self.wait(0.3)
+
+        # Label the arrows
+        req_label = Text("Request", font_size=18, color=YELLOW)
+        req_label.next_to(arrow_left, UP, buff=0.15)
+        res_label = Text("Response", font_size=18, color=YELLOW)
+        res_label.next_to(arrow_right, UP, buff=0.15)
+        self.play(Write(req_label), Write(res_label), run_time=1.0)
+
+        # PHASE 4 — Emphasis on key concept
+        self.play(Circumscribe(api_group, color=GOLD, buff=0.2), run_time=1.5)
+        self.play(Indicate(api_label, color=WHITE, scale_factor=1.2), run_time=1.0)
+
+        # Hold everything visible — DO NOT FadeOut everything
+        self.wait(1.0)
 
 
-# 
-# EXAMPLE 2: Bullet List with Cascade Effect
-# 
-class EngagingList(Scene):
+# ═══════════════════════════════════════════════════════════
+# EXAMPLE 2: Comparison — "ML vs DL"
+# Narration: "Machine Learning uses features you select. Deep Learning
+#             learns features automatically from raw data."
+# Principle: Side-by-side labeled elements for comparison narration.
+# ═══════════════════════════════════════════════════════════
+
+class MLvsDL(Scene):
     def construct(self):
-        title = Text("Key Benefits", font_size=48, weight=BOLD, color=BLUE)
-        title.scale_to_fit_width(config.frame_width * 0.85)
-        title.move_to(UP * 2.8)
-        self.play(DrawBorderThenFill(title))
-        
-        point1 = Text(" Speed: 10x faster", font_size=34, color=WHITE)
-        point1.scale_to_fit_width(config.frame_width * 0.75)
-        point1.move_to(UP * 1.2)
-        
-        point2 = Text(" Accuracy: 99.9%", font_size=34, color=WHITE)
-        point2.scale_to_fit_width(config.frame_width * 0.75)
-        point2.move_to(ORIGIN)
-        
-        point3 = Text(" Efficiency: 50% savings", font_size=34, color=WHITE)
-        point3.scale_to_fit_width(config.frame_width * 0.75)
-        point3.move_to(DOWN * 1.2)
-        
-        points = VGroup(point1, point2, point3)
-        self.play(AnimationGroup(*[Write(p) for p in points], lag_ratio=0.3))
-        
-        for point in points:
-            self.play(Flash(point, color=YELLOW), point.animate.set_color(GOLD))
-        
-        self.play(FadeOut(title, shift=UP), *[FadeOut(p, shift=LEFT*0.5) for p in points])
+        title = Text("ML vs Deep Learning", font_size=42, weight=BOLD, color=WHITE)
+        title.scale_to_fit_width(config.frame_width * 0.55)
+        title.move_to(UP * 3.2)
+        self.play(Write(title), run_time=2.0)
+
+        # LEFT side — Machine Learning
+        ml_box = RoundedRectangle(corner_radius=0.25, width=6, height=4, color=TEAL, fill_opacity=0.15, stroke_width=2)
+        ml_box.move_to(LEFT * 4 + DOWN * 0.3)
+        ml_title = Text("Machine Learning", font_size=26, color=TEAL, weight=BOLD)
+        ml_title.scale_to_fit_width(5.0)
+        ml_title.next_to(ml_box, UP, buff=0.15)
+
+        feat1 = Text("• You select features", font_size=20, color=WHITE)
+        feat2 = Text("• Structured data", font_size=20, color=WHITE)
+        feat3 = Text("• Simpler models", font_size=20, color=WHITE)
+        ml_features = VGroup(feat1, feat2, feat3).arrange(DOWN, buff=0.4, aligned_edge=LEFT)
+        ml_features.scale_to_fit_width(5.0)
+        ml_features.move_to(ml_box.get_center())
+
+        # RIGHT side — Deep Learning
+        dl_box = RoundedRectangle(corner_radius=0.25, width=6, height=4, color=PURPLE, fill_opacity=0.15, stroke_width=2)
+        dl_box.move_to(RIGHT * 4 + DOWN * 0.3)
+        dl_title = Text("Deep Learning", font_size=26, color=PURPLE, weight=BOLD)
+        dl_title.scale_to_fit_width(5.0)
+        dl_title.next_to(dl_box, UP, buff=0.15)
+
+        dfeat1 = Text("• Learns features auto", font_size=20, color=WHITE)
+        dfeat2 = Text("• Raw/unstructured data", font_size=20, color=WHITE)
+        dfeat3 = Text("• Neural networks", font_size=20, color=WHITE)
+        dl_features = VGroup(dfeat1, dfeat2, dfeat3).arrange(DOWN, buff=0.4, aligned_edge=LEFT)
+        dl_features.scale_to_fit_width(5.0)
+        dl_features.move_to(dl_box.get_center())
+
+        # Animate left side when narration talks about ML
+        self.play(FadeIn(ml_box), Write(ml_title), run_time=1.5)
+        self.play(AnimationGroup(*[FadeIn(f, shift=RIGHT * 0.3) for f in ml_features], lag_ratio=0.3), run_time=2.5)
+        self.wait(0.5)
+
+        # Animate right side when narration shifts to DL
+        self.play(FadeIn(dl_box), Write(dl_title), run_time=1.5)
+        self.play(AnimationGroup(*[FadeIn(f, shift=LEFT * 0.3) for f in dl_features], lag_ratio=0.3), run_time=2.5)
+        self.wait(0.5)
+
+        # VS divider between them
+        vs_text = Text("VS", font_size=36, color=GOLD, weight=BOLD)
+        vs_text.move_to(DOWN * 0.3)
+        self.play(GrowFromCenter(vs_text), run_time=0.8)
+        self.play(Flash(vs_text, color=GOLD, flash_radius=0.5), run_time=0.8)
+
+        # Emphasize key difference
+        self.play(Circumscribe(ml_features[0], color=TEAL), run_time=1.0)
+        self.play(Circumscribe(dl_features[0], color=PURPLE), run_time=1.0)
+
+        # Hold — keep all visible
+        self.wait(1.5)
 
 
-# 
-# KEY RULES:
-# 
-#  ALWAYS: .scale_to_fit_width(config.frame_width * 0.85) on ALL text
-#  Safe zones: TOP (UP*2.5-3.0), MIDDLE (0.5), BOTTOM (DOWN*2.5)
-#  Spacing: Minimum 1.5 units between objects
-#  Bounds: -6.5 to +6.5 horizontal, -3.5 to +3.5 vertical
-#  Diversity: Use 8+ different animations (Write, GrowFromCenter, Flash, etc.)
+# ═══════════════════════════════════════════════════════════
+# EXAMPLE 3: Process/Flow — "How Data Flows"
+# Narration: "First, data is collected. Then it's cleaned and transformed.
+#             Finally, the model trains on it."
+# Principle: Sequential reveals with arrows for process narration.
+# ═══════════════════════════════════════════════════════════
+
+class DataFlow(Scene):
+    def construct(self):
+        title = Text("The Data Pipeline", font_size=42, weight=BOLD)
+        title.set_color_by_gradient(GREEN, TEAL)
+        title.scale_to_fit_width(config.frame_width * 0.5)
+        title.move_to(UP * 3.2)
+        self.play(Write(title), run_time=2.0)
+
+        # Step 1: Collect
+        step1 = RoundedRectangle(corner_radius=0.2, width=3, height=1.5, color=BLUE, fill_opacity=0.25, stroke_width=2)
+        s1_label = Text("1. Collect", font_size=24, color=WHITE, weight=BOLD)
+        s1_label.scale_to_fit_width(2.5)
+        s1_label.move_to(step1.get_center())
+        s1_group = VGroup(step1, s1_label)
+        s1_group.move_to(LEFT * 5.5 + DOWN * 0.5)
+
+        # Step 2: Clean
+        step2 = RoundedRectangle(corner_radius=0.2, width=3, height=1.5, color=TEAL, fill_opacity=0.25, stroke_width=2)
+        s2_label = Text("2. Clean", font_size=24, color=WHITE, weight=BOLD)
+        s2_label.scale_to_fit_width(2.5)
+        s2_label.move_to(step2.get_center())
+        s2_group = VGroup(step2, s2_label)
+        s2_group.move_to(LEFT * 1.5 + DOWN * 0.5)
+
+        # Step 3: Transform
+        step3 = RoundedRectangle(corner_radius=0.2, width=3, height=1.5, color=GREEN, fill_opacity=0.25, stroke_width=2)
+        s3_label = Text("3. Transform", font_size=24, color=WHITE, weight=BOLD)
+        s3_label.scale_to_fit_width(2.5)
+        s3_label.move_to(step3.get_center())
+        s3_group = VGroup(step3, s3_label)
+        s3_group.move_to(RIGHT * 2.5 + DOWN * 0.5)
+
+        # Step 4: Train
+        step4 = RoundedRectangle(corner_radius=0.2, width=3, height=1.5, color=GOLD, fill_opacity=0.25, stroke_width=2)
+        s4_label = Text("4. Train", font_size=24, color=WHITE, weight=BOLD)
+        s4_label.scale_to_fit_width(2.5)
+        s4_label.move_to(step4.get_center())
+        s4_group = VGroup(step4, s4_label)
+        s4_group.move_to(RIGHT * 6 + DOWN * 0.5)
+
+        # Sequential appearance with arrows
+        self.play(GrowFromCenter(s1_group), run_time=1.5)
+        arrow1 = Arrow(s1_group.get_right(), s2_group.get_left(), color=YELLOW, stroke_width=3)
+        self.play(GrowArrow(arrow1), GrowFromCenter(s2_group), run_time=1.5)
+        self.wait(0.3)
+
+        arrow2 = Arrow(s2_group.get_right(), s3_group.get_left(), color=YELLOW, stroke_width=3)
+        self.play(GrowArrow(arrow2), GrowFromCenter(s3_group), run_time=1.5)
+        self.wait(0.3)
+
+        arrow3 = Arrow(s3_group.get_right(), s4_group.get_left(), color=YELLOW, stroke_width=3)
+        self.play(GrowArrow(arrow3), GrowFromCenter(s4_group), run_time=1.5)
+
+        # Emphasize final step
+        self.play(Circumscribe(s4_group, color=GOLD, buff=0.15), run_time=1.2)
+        self.play(Flash(s4_group, color=GOLD, flash_radius=0.6), run_time=0.8)
+
+        # Hold everything visible
+        self.wait(1.5)
+
+
+# ═══════════════════════════════════════════════════════════
+# KEY RULES (ENFORCED):
+# ═══════════════════════════════════════════════════════════
+#
+# ✅ Every narration concept = labeled RoundedRectangle or VGroup
+# ✅ Use full screen width: elements at LEFT * 5, RIGHT * 5
+# ✅ Comparisons: side-by-side with boxes (LEFT * 4, RIGHT * 4)
+# ✅ Processes: sequential elements + arrows
+# ✅ ALWAYS .scale_to_fit_width() on text
+# ✅ Minimum run_time=1.5 for main animations
+# ✅ Use 6+ different animation types per segment
+# ✅ NEVER FadeOut everything at the end — hold visible
+# ✅ Use color gradients on titles
+# ✅ Label all shapes — no unlabeled circles/rectangles
+#
+# ❌ NEVER: Plain FadeIn/FadeOut only
+# ❌ NEVER: Unlabeled generic shapes
+# ❌ NEVER: Content only in center — use full screen
+# ❌ NEVER: FadeOut all elements → blank screen at end
+# ❌ NEVER: run_time < 1.0 for important content

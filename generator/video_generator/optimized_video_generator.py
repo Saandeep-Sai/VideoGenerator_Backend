@@ -258,7 +258,7 @@ class VideoGenerationPipeline:
         self.device = "cpu"
         self.scaled_intro_path = None  # Cache for pre-scaled intro
         
-        self._setup_directories()
+        self._setup_directories()   
         self._validate_dependencies()
         self._setup_models()
         
@@ -410,15 +410,21 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
     
 
     async def generate_all_audio_segments(self, segments, temp_dir):
-        """Generate audio using Edge TTS (with gTTS fallback) for all segments."""
+        """Generate audio using Edge TTS (with gTTS fallback) for all segments.
+        
+        DURATION ENFORCEMENT: If TTS audio exceeds the scripted segment duration
+        by more than 10%, speed up the audio to match using ffmpeg atempo.
+        """
         from pathlib import Path
         from pydub import AudioSegment
         import asyncio
+        import subprocess
 
         for i, segment in enumerate(segments):
             try:
                 text = segment.text.strip()
                 mp3_path = Path(temp_dir) / f"audio_segment_{i:03d}.mp3"
+                scripted_duration = segment.duration  # Save BEFORE TTS overwrites it
 
                 # Add delay between segments to avoid rate limiting (skip first segment)
                 if i > 0:
@@ -447,8 +453,36 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
                 audio = AudioSegment.from_mp3(mp3_path)
                 actual_duration = round(len(audio) / 1000.0, 2)
 
+                # DURATION ENFORCEMENT: speed up if TTS audio is too long
+                if scripted_duration > 0 and actual_duration > scripted_duration * 1.1:
+                    speed_factor = min(actual_duration / scripted_duration, 1.35)  # Cap at 1.35x
+                    logger.warning(
+                        f"⏩ Segment {i+1}: TTS={actual_duration:.1f}s > scripted={scripted_duration:.1f}s "
+                        f"→ speeding up {speed_factor:.2f}x"
+                    )
+                    # Use ffmpeg atempo for clean speed-up (preserves pitch)
+                    sped_path = Path(temp_dir) / f"audio_segment_{i:03d}_sped.mp3"
+                    try:
+                        cmd = [
+                            'ffmpeg', '-y', '-i', str(mp3_path),
+                            '-filter:a', f'atempo={speed_factor:.4f}',
+                            '-vn', str(sped_path)
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, timeout=30)
+                        if result.returncode == 0 and sped_path.exists():
+                            # Replace original with sped-up version
+                            sped_path.replace(mp3_path)
+                            audio = AudioSegment.from_mp3(mp3_path)
+                            actual_duration = round(len(audio) / 1000.0, 2)
+                            logger.info(f"✅ Segment {i+1}: sped up → {actual_duration:.1f}s")
+                        else:
+                            logger.warning(f"⚠️ Speed-up failed for segment {i+1}, using original")
+                    except Exception as speed_err:
+                        logger.warning(f"⚠️ Speed-up error for segment {i+1}: {speed_err}")
+
                 segment.audio_path = str(mp3_path)
                 segment.duration = actual_duration
+                segment._audio_duration_final = actual_duration  # Lock actual TTS duration for quality pipeline
                 segment.start_time = round(sum(s.duration for s in segments[:i]), 2)
                 segment.end_time = round(segment.start_time + actual_duration, 2)
 
@@ -474,7 +508,19 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
         
         prompt = f"""You are a viral YouTube Shorts creator who NEVER makes boring content. Your videos hook people instantly and they can't stop watching.
 
-🎯 TASK: Create a {duration}-second educational video script about "{topic}" for {self.config.aspect_ratio} format.
+� CINEMATIC DIRECTIVE: You are DIRECTING an animated short film, NOT creating slides.
+Every scene must feel like a story UNFOLDING VISUALLY — alive, intentional, and narratively driven.
+Static screen for >0.8 seconds = FAILURE. Elements sitting still without interacting = FAILURE.
+
+🔥 ENGAGEMENT MANDATES (Solutions A-G):
+A. CONTINUOUS MOMENTUM: No element stays static >2s after entry — pulse, drift, or transform it!
+B. CAMERA AS GUIDE: Zoom-in for focus, zoom-out for context, lateral shifts for flow — min 3 camera moments.
+C. CAUSAL LOGIC: When X leads to Y, MORPH/TRANSFORM X — show EVOLUTION, not replacement.
+D. ENERGY PEAKS: Every 5-7s, burst of 2-3 simultaneous animations (flash + scale + shift).
+E. INTERACTION-FIRST: Every narration beat triggers MOVE, TRANSFORM, or emphasis — not passive appearance.
+F. SCALING HIERARCHY: Primary concept = LARGEST. Supporting details = proportionally SMALLER.
+G. MOTION VARIETY: NEVER use the same animation type twice consecutively.
+H. SPATIAL SAFETY: Max 4-5 elements per scene. Keep ALL within 90% screen bounds. 5% margin on all edges. For 5+ elements, use compact types (icon_badge, tag_pill). NO element exceeds 40% screen width!
 
 📄 OUTPUT FORMAT (STRICT):
 SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
@@ -482,11 +528,13 @@ SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
 🚨 ANTI-BORING RULES (CRITICAL!):
 ❌ NEVER start with "Today we'll learn about..." or "In this video..."
 ❌ NEVER say "The concept of X is defined as..."
-❌ NEVER have static visuals (everything must MOVE!)
+❌ NEVER have static visuals (everything must MOVE and INTERACT!)
 ❌ NEVER sound like a textbook or Wikipedia article
+❌ NEVER let elements sit alone — they must CONNECT, SHIFT, or REACT to each other
 
 ✅ ALWAYS start with a hook (question, surprising fact, relatable pain)
 ✅ ALWAYS use dynamic visual verbs: BOUNCES, SLIDES, ZOOMS, PULSES, SPINS
+✅ ALWAYS show INTERACTIONS: arrows GROWING between elements, elements SHIFTING toward each other
 ✅ ALWAYS sound like you're explaining to a friend, not lecturing
 ✅ ALWAYS end with energy: "Boom!", "Pretty cool, right?", "Mind-blowing!"
 
@@ -498,12 +546,29 @@ SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
 - [Curious] = Intrigued, drawing viewer in
 - [Confident] = Authoritative but friendly
 
-🎬 VISUAL REQUIREMENTS:
-- Every scene needs MOVEMENT: things BOUNCE in, PULSE, ZOOM, SLIDE
+🎬 VISUAL REQUIREMENTS — CINEMATIC CONCEPT DIAGRAMS, NOT RANDOM SHAPES!
+- Every scene needs visuals that progressively BUILD A DIAGRAM illustrating the narration
+- Elements enter ONE AT A TIME as the narration mentions them (progressive reveal)
 - Aspect ratio: {visual_guide}
-- Use dynamic verbs: "Title BOUNCES in", "Icons SPIN into position", "Arrow SLIDES and PULSES"
-- Colors: BLUE, RED, GREEN, YELLOW, PURPLE, ORANGE, TEAL
-- Positions: center, top, bottom, left, right
+
+🎥 STORY THROUGH MOTION:
+- Elements don't just "appear" — they ENTER with purpose and INTERACT
+- Spatial arrangement IS the explanation: left→right = sequence, top→bottom = hierarchy
+- Arrows GROW between elements when narration says "connects to" or "leads to"
+- Elements SHIFT POSITION to form relationships when narration describes connections
+- Scale PULSES draw attention to the current focus element
+
+- LAYOUT PATTERNS (pick the best one per segment!):
+  • COMPARISON: Two glass cards at LEFT and RIGHT with contrasting colors when narration compares things
+  • PROCESS FLOW: 3-4 nodes arranged LEFT→RIGHT with arrows DRAWING between them for sequences/steps
+  • HIERARCHY: Parent card at TOP, child cards spread at BOTTOM for categories/types
+  • CENTRAL CONCEPT: Main card CENTER + orbiting tag_pills for definitions
+  • CAUSE→EFFECT: Element A on left + bold arrow + Element B on right
+- USE FULL SCREEN: elements at LEFT*5 and RIGHT*5, NOT everything in center!
+- Dynamic verbs: "GROWS FROM CENTER", "SLIDES IN from left", "Arrow DRAWS between", "PULSES with glow"
+- Colors: BLUE, RED, GREEN, YELLOW, PURPLE, ORANGE, TEAL, GOLD
+- NAME the objects: "glass card titled 'API'", "icon badge with ⚡", "code block showing the function"
+- Show CONNECTIONS: arrows between related concepts, not isolated floating shapes
 
 ⏱️ TIMING:
 - Each segment: 12-18 seconds (aim for 15)
@@ -512,17 +577,20 @@ SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
 
 📚 EXAMPLES:
 
-✅ GOOD (Engaging):
-SEGMENT: 15 | [Excited] Okay wait - you know that thing your code does where it just... breaks for no reason? There's actually a name for it! | Title "THE BUG" BOUNCES in from top, explosion effect, code snippet SLIDES in from left with red highlight PULSING on the error line
+✅ GOOD (Concept Diagram — Comparison Layout):
+SEGMENT: 15 | [Curious] Ever wondered why APIs are everywhere? Think of them as waiters in a restaurant! | Glass card titled "Your App" GROWS FROM CENTER at LEFT. Glass card titled "API" SLIDES IN at CENTER. Glass card titled "Database" GROWS FROM CENTER at RIGHT. Arrow DRAWS from "Your App" → "API" when narration says "sends request". Arrow DRAWS from "API" → "Database" when narration says "fetches data". The API card PULSES with golden glow on "waiter" to show it's the middleman.
 
-✅ GOOD (Hook + Visual Sync):
-SEGMENT: 12 | [Curious] Ever wondered why APIs are everywhere? Think of them as waiters in a restaurant! | Waiter icon SPINS into center, restaurant scene FADES in around it, menu and food icons SLIDE in on cue
+✅ GOOD (Process Flow Layout):
+SEGMENT: 15 | [Excited] Machine learning is just three steps - collect, train, predict! | Three node cards appear LEFT→CENTER→RIGHT as narration names each step. First, node "Collect" GROWS at LEFT with data icon. Then arrow DRAWS rightward and node "Train" BOUNCES IN at CENTER with gear icon. Finally arrow DRAWS and node "Predict" SLIDES IN at RIGHT with lightbulb icon. All three PULSE together on "just three steps!"
+
+✅ GOOD (Central Concept + Details):
+SEGMENT: 12 | [Confident] Here's the thing - a variable is just a labeled container! | Large glass card titled "Variable" GROWS FROM CENTER. Then tag pill "Name" APPEARS at upper-left of the card. Tag pill "Value" APPEARS at upper-right. Tag pill "Type" APPEARS below. Icon badge with 📦 SPINS IN above the card on "container". All elements FLASH on "that's it!"
 
 ❌ BAD (Boring):
 SEGMENT: 15 | Today we will learn about functions in programming | Show function diagram
 
-❌ BAD (Static):
-SEGMENT: 12 | Functions are an important concept | Display text about functions
+❌ BAD (Vague — produces random boxes):
+SEGMENT: 12 | Functions are an important concept | Title bounces in with effects
 
 📋 STRUCTURE:
 - Segment 1: HOOK - Make them STOP SCROLLING (question/surprising fact)
@@ -698,6 +766,29 @@ Generate ONLY SEGMENT lines now (no extra text):
 
 {segment_info}
 
+🎬 CINEMATIC DIRECTIVE: You are directing an animated SHORT FILM, NOT making slides.
+Every motion MUST advance the narrative. Elements must INTERACT — arrows growing between
+them, elements shifting to form relationships, progressive diagram building.
+No static screen for >0.8 seconds. Target: 1.5+ visual events per second.
+Story through motion: the spatial arrangement IS the explanation.
+Solutions A-G: Continuous momentum (no element idle >2s), camera guides attention (zoom/pan/focus),
+causal transforms (morph not replace), energy peaks every 5-7s, interaction-first beats,
+scaling hierarchy (primary=largest), motion variety (never same animation consecutively).
+H. SPATIAL SAFETY: Max 4-5 elements per scene. ALL within 90% screen bounds. 5% margin all edges. For 5+ elements, use compact types. NO element >40% screen width!
+
+🧠 VISUAL–NARRATION CORRESPONDENCE (MOST IMPORTANT RULE):
+Each segment has Content (what the narrator says) and Visual description.
+Your animation MUST visually depict what the narration describes — not just decorate.
+- For every concept mentioned in narration, create a LABELED visual element
+  (RoundedRectangle with Text label, or titled VGroup).
+- Animate each element APPEARING when the narration mentions it (progressive reveal!).
+- If narration says "three types" → show exactly three labeled items appearing one-by-one.
+- If narration compares A vs B → show two labeled elements SLIDING IN from opposite sides.
+- If narration describes a process → show sequential flow with arrows DRAWING between elements.
+- At least ONE arrow must DRAW to show a connection between concepts.
+- At least ONE element must receive an emphasis PULSE synced to the KEY narration phrase.
+- NEVER show unlabeled circles/squares floating around with no meaning.
+
 🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
 {layout_guide}
 
@@ -858,14 +949,38 @@ Content: {segment.text}
 Visual: {segment.visual_description}
 Aspect Ratio: {self.config.aspect_ratio}
 
-� CRITICAL AUDIO-VIDEO SYNCHRONIZATION RULE:
+🧠 VISUAL–NARRATION BINDING (THE MOST IMPORTANT RULE):
 ═══════════════════════════════════════════════════════════════
-⚠️ The visuals MUST match what's being said in the narration!
-  • If narration says "three types", show exactly THREE items on screen
+Read the Content above. Your animation must VISUALLY ILLUSTRATE it — not just decorate.
+
+STEP 1 — Identify every concept/noun mentioned in the narration.
+STEP 2 — For each concept, create a LABELED visual element:
+   • RoundedRectangle + Text label naming the concept
+   • Or titled VGroup that represents the idea
+STEP 3 — Animate elements APPEARING when the narration would mention them:
+   • First quarter of duration: introduce topic (title + first concept)
+   • Second quarter: expand (2-3 more labeled elements)
+   • Third quarter: show relationships (arrows, transforms)
+   • Final quarter: emphasize key takeaway
+
+🎯 WHAT TO SHOW:
+✅ Labeled glass cards / rounded rectangles representing narration concepts
+✅ Arrows connecting related concepts
+✅ Side-by-side comparisons when narration compares things
+✅ Sequential reveals when narration lists items
+✅ Progress indicators when narration describes growth
+
+🚫 WHAT NEVER TO SHOW:
+❌ Unlabeled circles or squares floating around
+❌ Random geometric patterns with no meaning
+❌ Text-only screens (just paragraphs of the narration)
+❌ Generic decorative animations unrelated to what is being said
+
+⚠️ CRITICAL SYNC RULE:
+  • If narration says "three types", show exactly THREE labeled items
   • If narration mentions "comparison", show side-by-side comparison
   • If narration says "process", show step-by-step flow with arrows
   • Timing: Spread animations evenly across the {segment.duration} seconds
-  • Key words in narration = visual elements on screen
 
 🎬 ANIMATION QUALITY REQUIREMENTS (CRITICAL!):
 ═══════════════════════════════════════════════════════════════
@@ -1916,8 +2031,12 @@ SCRIPT:
 
             cmd = [
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", str(concat_list_path), "-c", "copy", final_output_path
+                "-i", str(concat_list_path), "-c", "copy",
             ]
+            # A2: Duration cap REMOVED — let content run its full length
+            # The audio/video segments already have correct durations from generation.
+            # Trimming here cuts off valid narrated content.
+            cmd.append(final_output_path)
 
             logger.info("🎞️ Concatenating all segments...")
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=self.config.ffmpeg_timeout)
@@ -2781,15 +2900,16 @@ Your task:
 
 ⛔ STRICTLY FORBIDDEN CHANGES:
 - Removing .scale_to_fit_width() calls (causes off-screen text)
-- Using positions like UP*4, DOWN*4, LEFT*8, RIGHT*8 (goes off-screen)
+- Using positions like UP*5, DOWN*5, LEFT*8, RIGHT*8 (goes off-screen)
 - Increasing font sizes beyond limits (causes overflow)
-- Reducing vertical spacing below 1.5 units (causes overlap)
+- Reducing vertical spacing below 1.0 units (causes overlap)
+- Adding FadeOut for all elements at the end (causes blank screen)
 
 ✅ REQUIRED VALIDATIONS:
 1. Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
-2. Positions MUST stay within safe bounds: UP*2.5 max, DOWN*2.5 max
+2. Positions MUST stay within safe bounds: UP*3.5 max, DOWN*3.5 max, LEFT*6 max, RIGHT*6 max
 3. Font sizes MUST NOT exceed limits (title: 56px, body: 42px)
-4. Vertical spacing MUST be >= 1.5 units between text objects
+4. Vertical spacing MUST be >= 1.0 units between text objects
 
 Constraints:
 - Total animation time must remain unchanged
@@ -2873,15 +2993,16 @@ STAGE 3 CONSTRAINTS (ABSOLUTE):
 
 ⛔ STRICTLY FORBIDDEN:
 - Removing .scale_to_fit_width() calls (causes text to go off-screen)
-- Using extreme positions: UP*4, DOWN*4, LEFT*8, RIGHT*8 (goes off-screen)
+- Using extreme positions: UP*5, DOWN*5, LEFT*8, RIGHT*8 (goes off-screen)
 - Font sizes exceeding limits (causes overflow)
-- Spacing < 1.5 units between text (causes overlap/off-screen)
+- Spacing < 1.0 units between text (causes overlap/off-screen)
+- Adding FadeOut for all elements at end (causes blank screen)
 
 ✅ REQUIRED:
 - Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
-- Positions within safe bounds: UP*2.5 max, DOWN*2.5 max, LEFT*5 max, RIGHT*5 max
+- Positions within safe bounds: UP*3.5 max, DOWN*3.5 max, LEFT*6 max, RIGHT*6 max
 - Font sizes within limits
-- Vertical spacing >= 1.5 units
+- Vertical spacing >= 1.0 units
 
 {locked_constraints}
 
@@ -3341,10 +3462,11 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                     )
                 
                 # Create LLM adapter for spec generation
+                # C4: Share model rotation state with adapter
                 llm_adapter = GeminiClientAdapter(
                     self.gemini_client,
                     self.gemini_models,
-                    self.current_gemini_model_index
+                    pipeline=self
                 )
                 
                 # Step 1: Generate scene specifications
@@ -3470,8 +3592,8 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             segments = await self._parallel_video_generation_fixed(segments)
             logger.info("🎥 Video rendering complete.")
 
-            # Step 5: Sync audio/video + concatenate
-            final_path = await self._parallel_final_assembly_with_proper_sync(segments, topic)
+            # Step 5: Sync audio/video + concatenate (A2: pass duration for hard cap)
+            final_path = await self._parallel_final_assembly_with_proper_sync(segments, topic, duration)
             logger.info(f"✅ Final video created at: {final_path}")
 
             return final_path
@@ -3537,28 +3659,44 @@ SEGMENT [number]: [duration in seconds]
 VISUALS: [Brief animation description - 1-2 sentences max]
 NARRATION: [What will be spoken - friendly and engaging]
 
-**VISUAL DESCRIPTION RULES (CRITICAL!):**
-- Keep visuals SHORT (1-2 sentences)
-- Make visuals FUN and PLAYFUL - like explaining to a friend!
-- Include: colors, animations, movement, emphasis
-- For {self.config.aspect_ratio}: {"stack vertically" if self.config.aspect_ratio == "9:16" else "arrange horizontally" if self.config.aspect_ratio == "16:9" else "center elements"}
-- Use LIVELY animations: bounce, wiggle, pop, glow, flash, pulse, spin
-- Add PERSONALITY: emojis as icons, arrows that dance, text that bounces
+**VISUAL DESCRIPTION RULES (CRITICAL — THIS DRIVES THE ENTIRE ANIMATION!):**
+🎬 CINEMATIC DIRECTIVE: You are directing an animated short film, NOT creating slides.
+Every motion MUST advance the narrative. Static screen >0.8s = FAILURE.
+🔥 Solutions A-G: No element idle >2s (continuous momentum), camera guides attention (zoom/pan/focus),
+causal transforms (morph/evolve, not replace), energy peaks every 5-7s (burst of simultaneous animations),
+interaction-first (every beat triggers MOVE/TRANSFORM/emphasis), scaling hierarchy (primary=largest),
+motion variety (NEVER same animation twice consecutively).
+H. SPATIAL SAFETY: Max 4-5 elements per scene. Keep within 90% screen bounds. 5% margins. Compact types for secondary items. No element >40% screen width!
+- The VISUAL line is the BLUEPRINT for the animation. If you write vague visuals, you get vague boring boxes flying around.
+- DESCRIBE EXACTLY WHAT SHOULD APPEAR on screen to illustrate the narration.
+- NAME the specific objects: "a glass card titled 'API Gateway'", "a code block showing the function", "an icon badge with a lock symbol"
+- DESCRIBE the MOTION that tells the story: "Arrow DRAWS from Client to Server to show the request flow", "Progress bar FILLS from 0% to 100% as narration explains loading"
+- DESCRIBE INTERACTIONS: elements must CONNECT, SHIFT TOWARD each other, or REACT — not just sit in place
+- CONNECT visuals to narration words: "When narration says 'three layers', THREE stacked glass cards APPEAR one-by-one from top to bottom"
+- SPECIFY POSITIONS — use the FULL SCREEN: "at LEFT", "at RIGHT", "at top-center", "at bottom" — NEVER cram everything in center!
+- PROGRESSIVE BUILD: elements appear ONE AT A TIME as narration introduces them — never dump everything on screen at once!
+- For {self.config.aspect_ratio}: {"stack vertically, title at top, content in middle, summary at bottom" if self.config.aspect_ratio == "9:16" else "arrange horizontally, use the full width for side-by-side comparisons" if self.config.aspect_ratio == "16:9" else "center elements with balanced spacing"}
 
-**VISUAL STYLE GUIDE:**
+**🏗️ LAYOUT PATTERNS — Choose based on what the narration describes:**
+• COMPARISON → Two elements at LEFT and RIGHT with different colors, arrow or "VS" between
+• PROCESS FLOW → 3+ elements arranged LEFT→CENTER→RIGHT with arrows DRAWING between them
+• HIERARCHY → Parent at TOP, children spread at BOTTOM, lines connecting them
+• DEFINITION → Large central card + orbiting detail pills around it
+• CAUSE & EFFECT → Element A at left → bold arrow → Element B at right
 
-✅ LIVELY VISUALS (DO THIS):
-- "Title BOUNCES in with a fun bounce effect. Sparkle emoji grows around it!"
-- "Diagram POPS IN piece by piece like building blocks. Arrow DANCES to connect them."
-- "Code types out with satisfying CLICKS. Green checkmarks POP IN after each line!"
-- "Before/After boxes SLIDE IN from sides. GLOW emphasizes the difference!"
-- "Icons WIGGLE happily when mentioned. FLASH highlights key concept!"
+**VISUAL DESCRIPTION FORMAT — BE SPECIFIC, NOT GENERIC:**
 
-❌ BORING VISUALS (NEVER DO THIS):
-- "Text appears on screen" (Too static!)
-- "Diagram is shown" (Zero energy!)
-- "Elements fade in" (Snooze fest!)
-- "Simple animation with text" (Vague and boring!)
+✅ GOOD VISUALS (stories told through motion):
+- "Glass card titled 'Input' APPEARS at top-left → arrow DRAWS rightward → glass card titled 'Process' GROWS at center → arrow DRAWS → glass card titled 'Output' BOUNCES in at right. Each appears as narration mentions that step."
+- "Code block showing 'for item in list:' TYPES IN line-by-line. As each line appears, a NODE labeled with that variable GROWS beside it. When the loop completes, a CHECKMARK icon badge FLASHES."
+- "Two glass cards labeled 'Before' and 'After' SLIDE IN from opposite sides. A PROGRESS BAR between them FILLS as narration explains the improvement. The 'After' card PULSES with a GLOW when narration says 'faster'."
+- "Icon badge with '⚡' SPINS IN at center for the hook. Then it SHRINKS to top-corner as a BOUNDARY BOX labeled 'How It Works' GROWS to fill the screen. Inside the box, 3 TAG PILLS appear one-by-one as narration lists each benefit."
+
+❌ BAD VISUALS (result in random boxes moving around):
+- "Title bounces in with fun effect" (WHAT title? What does it say? WHY is it bouncing?)
+- "Diagram pops in" (WHAT diagram? What are the parts? What connections?)
+- "Elements appear and animate" (WHICH elements? Doing WHAT? Representing WHAT concept?)
+- "Colorful animation with icons" (This produces generic meaningless motion!)
 
 **NARRATION STYLE GUIDE (CRITICAL!):**
 
@@ -3579,15 +3717,15 @@ NARRATION: [What will be spoken - friendly and engaging]
 **EXAMPLE (for a 45-second video with 3 segments):**
 
 SEGMENT 1: 15
-VISUALS: Title "{topic}" BOUNCES in with spring effect at top! Colorful code icons SPIN IN around it. Fun SPARKLE emphasis!
+VISUALS: Icon badge with "?" SPINS IN at center (hook). Then glass card titled "{topic}" GROWS FROM CENTER below it. Tag pills labeled with 2-3 key terms BOUNCE IN below the card as narration mentions each concept.
 NARRATION: Hey! Ever wondered what {topic} is all about? I get it - sounds fancy, right? But here's a secret... it's actually pretty simple once you see it in action! Let me show you how this works.
 
 SEGMENT 2: 15
-VISUALS: Concept diagram POPS IN piece by piece like Legos! Arrow DANCES between parts. GLOW effect on key word!
+VISUALS: Boundary box labeled "How It Works" SLIDES IN. Inside it, 3 NODES appear one-by-one (left→center→right) as narration explains each step. ARROWS DRAW between nodes to show the flow. When narration says "smart way", the center node PULSES with a golden GLOW.
 NARRATION: So basically, think of it like this - you know how you organize stuff in your room? Same idea here! You're just organizing code in a smart way. Pretty cool when you see it click, right?
 
 SEGMENT 3: 15
-VISUALS: Code example TYPES IN with satisfying effect. Each line gets GREEN CHECKMARK that POPS! Final result GLOWS and PULSES!
+VISUALS: Code block TYPES IN showing a 3-line example. As each line appears, a GREEN CHECKMARK icon badge POPS IN beside it. When all lines are done, the entire code block ZOOMS OUT slightly and a glass card titled "Result" GROWS below it with the output. Final FLASH emphasis on the result.
 NARRATION: Here's the cool part - watch what happens when we do this. Boom! That's literally it. Told you it was simpler than it sounds! Thanks for hanging with me - shoutout to Code Tapasya!
 
 **NOW GENERATE {expected_segments} SEGMENTS for "{topic}" that ADD UP TO EXACTLY {duration} SECONDS:**
@@ -4131,6 +4269,30 @@ Animation personality techniques:
 - SpinInFromNothing() for fun reveals
 - Flash() and Indicate() for "look at this!" moments
 - ApplyMethod(obj.scale, 1.1) then back for attention pulses
+- GrowFromEdge(obj, LEFT) for sequential reveals
+- DrawBorderThenFill() for premium glass-card feel
+
+🏗️ CREATIVE LAYOUT RECIPES (Pick based on narration content!):
+
+COMPARISON (narration says "vs", "unlike", "compared to"):
+→ Two RoundedRectangles side-by-side at LEFT*4 and RIGHT*4
+→ Different colors (BLUE vs RED), arrows or "VS" badge between them
+→ Each appears when narration introduces that concept
+
+PROCESS FLOW (narration says "first", "then", "finally", "steps"):
+→ 3 elements arranged LEFT→CENTER→RIGHT
+→ Arrows DRAW between them as narration progresses
+→ Each step GrowFromCenter when narration mentions it
+
+HIERARCHY (narration says "types of", "categories", "includes"):
+→ Parent at UP*2, children spread at DOWN*1 (LEFT*3, ORIGIN, RIGHT*3)
+→ Lines connect parent to each child
+→ Children appear one-by-one as narration lists them
+
+DEFINITION (narration says "what is", "means", "basically"):
+→ Large central glass card with the term
+→ Tag pills orbit around it showing key attributes
+→ Icon badge on top for visual metaphor
 
 THINK: "Would a friend showing this on their phone do it this way?"
 If it feels like a PowerPoint presentation - YOU'RE DOING IT WRONG!
@@ -4145,8 +4307,29 @@ You are an ELITE Manim animation engineer and cinematic motion designer.
 Your task is to generate a FULLY FUNCTIONAL, ERROR-FREE Manim script
 that produces a visually FASCINATING, DYNAMIC, and CONTINUOUSLY ENGAGING video.
 
+THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.
+Every element on screen must represent a concept from the narration. If the
+narration mentions "3 types", show 3 labeled items. If it describes a flow,
+show arrows connecting labeled boxes. Random shapes moving around = REJECTED.
+
 The video MUST feel alive for the ENTIRE duration.
 Blank screens, dead time, or static visuals are STRICTLY FORBIDDEN.
+
+🎬 CINEMATIC DIRECTIVE: You are directing an animated SHORT FILM, NOT making slides.
+- Every motion MUST advance the narrative — no decorative animation
+- Elements INTERACT: arrows grow between them, they shift to form relationships
+- Diagrams build PROGRESSIVELY as narration unfolds — never dump everything at once
+- Story through motion: spatial arrangement IS the explanation
+- Target: 1.5+ visual events per second, max 0.8s between any two events
+🔥 ENGAGEMENT MANDATES (A-G):
+- A: No element idle >2s after entry — pulse, drift, transform to maintain continuous momentum
+- B: Camera guides attention — zoom-in for focus, zoom-out for context, lateral shifts for flow
+- C: Causal logic — morph/transform elements, don't just replace. Show evolution!
+- D: Energy peaks every 5-7s — burst of 2-3 simultaneous animations
+- E: Every narration beat triggers MOVE, TRANSFORM, or emphasis — not passive appearance
+- F: Primary concept = LARGEST element; supporting = proportionally smaller
+- G: NEVER same animation type consecutively — alternate grow, slide, draw, pulse, shift
+- H: SPATIAL SAFETY — max 4-5 elements per scene, ALL within 90% screen bounds, 5% margin all edges, compact types for 5+ elements, no element >40% screen width
 {personality_section}
 The animation MUST match the audio duration EXACTLY:
 {segment.duration:.2f} seconds.
@@ -4177,6 +4360,81 @@ Narration (spoken audio, DO NOT alter wording):
 
 Visual intent (conceptual meaning, NOT implementation):
 {segment.visual_description}
+
+============================================================
+🧠 VISUAL–NARRATION BINDING (THE MOST IMPORTANT RULE!)
+============================================================
+
+Your animation is NOT a screensaver or decoration. It is a VISUAL EXPLANATION
+of the narration. The viewer should be able to understand the topic JUST by
+watching the animation — even with sound off.
+
+🎥 THINK IN CINEMATIC SHOTS:
+- ESTABLISHING SHOT (first 25%): Main concept appears dramatically (GrowFromCenter)
+- MEDIUM SHOT (25-50%): Related elements enter, connections DRAW between them
+- CLOSE-UP (50-75%): Key element gets focused attention (scale pulse, circumscribe)
+- REVEAL SHOT (75-100%): Full diagram visible, final emphasis on takeaway
+
+STEP 1: Read the narration text above. List the key concepts mentioned.
+STEP 2: For EACH concept, create a labeled visual element (RoundedRectangle
+  with Text label, or a meaningful titled shape).
+STEP 3: Animate each element APPEARING when the narration mentions it.
+  - First 25% of duration → first concept appears with title (ESTABLISHING SHOT)
+  - 25-50% → second concept appears, ARROW DRAWS showing relationship (MEDIUM SHOT)
+  - 50-75% → emphasis PULSE on key element, interaction between elements (CLOSE-UP)
+  - 75-100% → summary view, gentle emphasis, no blank screen (REVEAL SHOT)
+
+🔄 MANDATORY INTERACTIONS:
+- At least ONE arrow must DRAW between two elements (show connections!)
+- At least ONE element must receive a PULSE/CIRCUMSCRIBE emphasis synced to narration
+- Elements should SHIFT toward each other when narration describes relationships
+
+WHAT TO SHOW (based on narration content):
+• Named concepts → labeled RoundedRectangle or titled group
+• Comparisons → two elements side-by-side at LEFT*4 and RIGHT*4 with different colors + "VS" or arrow between
+• Processes/flows → 3+ elements LEFT→CENTER→RIGHT + arrows DRAWING between them as narration progresses
+• Lists/categories → parent at TOP + children spread at BOTTOM as narration lists each item
+• Definitions → large central glass card + orbiting tag_pills for key attributes
+• Cause/effect → element A at left → ARROW → element B at right (arrow draws when narration says the connection)
+• Code concepts → Text objects showing pseudo-code with line-by-line Write() animation + labeled annotations beside the code
+• Quantities → EXACTLY as many elements as narration mentions ("three types" = THREE labeled items)
+
+WHAT NEVER TO SHOW:
+❌ Unlabeled circles/rectangles floating around
+❌ Generic shapes with no connection to the narration
+❌ Text that just says the narration words (that's a subtitle, not a visual)
+❌ Single static screen for the entire duration
+
+============================================================
+📐 POSITIONING — USE THE FULL SCREEN! (CRITICAL!)
+============================================================
+
+DO NOT cram everything in the center. Spread across the full frame.
+
+HORIZONTAL POSITIONS (16:9 — frame is 16 units wide):
+  • Far left: LEFT * 5.5        • Left: LEFT * 4
+  • Center-left: LEFT * 2       • Center: ORIGIN
+  • Center-right: RIGHT * 2     • Right: RIGHT * 4
+  • Far right: RIGHT * 5.5
+
+VERTICAL POSITIONS (frame is 9 units tall):
+  • Top: UP * 3 to UP * 3.5     • Upper: UP * 1.5
+  • Center: ORIGIN               • Lower: DOWN * 1.5
+  • Bottom: DOWN * 3 to DOWN * 3.5
+
+RULE: Each segment MUST use at least 2 different horizontal zones
+AND 2 different vertical zones.
+
+COMMON LAYOUTS:
+• Comparisons: LEFT * 4 vs RIGHT * 4 for side-by-side
+• Flows: LEFT * 5.5 → LEFT * 1.5 → RIGHT * 2.5 → RIGHT * 6
+• Hierarchy: Top (UP*2.5) parent → Bottom (DOWN*0.5) children spread LEFT*4/ORIGIN/RIGHT*4
+• Title + content: Title at UP*3, concept cards in center/bottom area
+
+ELEMENT SIZES:
+• RoundedRectangle cards: width=3-6, height=1.5-3 (not smaller!)
+• Text font_size: titles 38-48, body 22-30
+• Always .scale_to_fit_width() on all text
 
 ============================================================
 ⏱️ TEMPORAL DOMINANCE RULES (CRITICAL - READ CAREFULLY!)
@@ -4530,6 +4788,89 @@ Now generate the COMPLETE, PROFESSIONAL, CINEMATIC Manim script.
 
 You are an expert Manim animation developer. For each provided **segment**, you must generate a **fully functional Manim script** that is clean, logically structured, visually engaging, and completely error-free.
 
+**THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.**
+
+🎬 **CINEMATIC DIRECTIVE**: You are DIRECTING an animated short film, NOT making slides.
+- Every motion MUST advance the narrative — elements INTERACT, CONNECT, and REACT
+- Diagrams build PROGRESSIVELY as narration unfolds — never show everything at once
+- Arrows GROW between elements when narration describes connections
+- Elements REPOSITION (shift toward each other) when narration describes relationships
+- Scale PULSES and CIRCUMSCRIBE highlights sync with KEY narration phrases
+- Target event density: 1.5+ visual events per second, max 0.8s static gap
+- The spatial arrangement IS the explanation (left→right = sequence, top→bottom = hierarchy)
+- **Solutions A-G (MANDATORY):**
+  - A: No element idle >2s — continuous momentum via pulse, drift, or micro-transform
+  - B: Camera guides attention — zoom/pan/focus, at least 3 camera moments per scene
+  - C: Causal logic — morph/transform elements, don't replace. Show evolution!
+  - D: Energy peaks every 5-7s — burst of 2-3 simultaneous animations
+  - E: Every narration beat triggers MOVE/TRANSFORM/emphasis — not passive appearance
+  - F: Primary concept = LARGEST element; supporting details = proportionally smaller
+  - G: NEVER use same animation type twice consecutively
+  - H: SPATIAL SAFETY — max 4-5 elements per scene, ALL within 90% screen bounds, 5% margin on all edges, use compact types (tag_pill, icon_badge) for secondary items, no element >40% screen width
+
+---
+
+### 🧠 **CRITICAL: VISUAL–NARRATION CORRESPONDENCE (READ THIS FIRST!)**
+
+**THE #1 QUALITY PROBLEM: Animations that show random shapes moving around
+instead of illustrating what the narration is actually saying.**
+
+Your animation MUST be a VISUAL EXPLANATION of the spoken narration:
+
+**RULE: Every visual element on screen must represent a concept from the narration.**
+
+1. **READ the "Spoken Text" carefully** — identify every KEY CONCEPT being explained
+2. **CREATE labeled visual elements** (titled Rectangles, Text, diagrams) that REPRESENT those concepts by name
+3. **ANIMATE them appearing** when the narration mentions them (e.g., first 20% of duration = first concept)
+4. **SHOW RELATIONSHIPS** — if narration says "A connects to B", draw an arrow from A to B
+5. **SHOW QUANTITIES** — if narration says "three types", show exactly 3 labeled items
+6. **SHOW PROCESSES** — if narration describes steps, show them appearing sequentially with arrows
+
+**🏗️ LAYOUT RECIPES — Pick based on narration content:**
+
+**COMPARISON** (narration says "vs", "unlike", "compared to"):
+→ Two RoundedRectangles side-by-side at LEFT*4 and RIGHT*4, different colors
+→ "VS" badge or arrow between them
+→ Each appears when narration introduces that concept
+
+**PROCESS FLOW** (narration says "first", "then", "finally"):
+→ 3 elements arranged LEFT*4→ORIGIN→RIGHT*4 with arrows DRAWING between
+→ Each step GrowFromCenter/SlideIn when narration mentions it
+
+**HIERARCHY** (narration says "types of", "categories"):
+→ Parent at UP*2, children at DOWN*1 spread LEFT*3/ORIGIN/RIGHT*3
+→ Lines connecting parent to each child
+
+**DEFINITION** (narration says "what is", "means"):
+→ Large central RoundedRectangle with term label
+→ Tag pills orbiting for key attributes
+
+**Example — Narration: "An API gateway routes requests to the right microservice."**
+```python
+# ✅ GOOD: Visual elements represent narration concepts with LABELS
+gateway = RoundedRectangle(corner_radius=0.2, width=3, height=1.2, color=BLUE, fill_opacity=0.2)
+gw_label = Text("API Gateway", font_size=28, color=WHITE)
+gw_label.scale_to_fit_width(config.frame_width * 0.4)
+gw_group = VGroup(gateway, gw_label).arrange(DOWN, buff=0.1).move_to(UP * 1)
+self.play(GrowFromCenter(gw_group), run_time=2.0)  # Appears as narration introduces it
+
+# Arrow + service appear when narration says "routes to microservice"
+service = RoundedRectangle(corner_radius=0.1, width=2.5, height=1, color=TEAL, fill_opacity=0.2)
+s_label = Text("Microservice", font_size=24, color=WHITE)
+s_label.scale_to_fit_width(config.frame_width * 0.35)
+s_group = VGroup(service, s_label).arrange(DOWN, buff=0.05).move_to(DOWN * 2)
+route_arrow = Arrow(gw_group.get_bottom(), s_group.get_top(), color=YELLOW)
+self.play(GrowFromCenter(s_group), GrowArrow(route_arrow), run_time=2.5)
+```
+
+```python
+# ❌ BAD: Generic shapes with no labels, no connection to narration
+circle1 = Circle(color=BLUE)
+circle2 = Circle(color=RED)
+self.play(FadeIn(circle1), FadeIn(circle2))  # What do these represent??
+self.play(circle1.animate.shift(RIGHT))  # Why is it moving??
+```
+
 ---
 
 ### 🚫 **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
@@ -4882,6 +5223,46 @@ You are acting as a **senior Manim Community developer**. Your script quality mu
         return f"""🎯 PRIMARY OBJECTIVE
 You are a world-class Manim animation generation engine. Your task is to generate ONE complete, production-ready Manim script for a SINGLE video segment. The output will be executed automatically in a pipeline. Any deviation from rules will cause hard failure.
 
+**THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.**
+Every visual element must represent a concept from the narration. Labels must name
+concepts. Animations must tell the same story the narration tells. Random shapes
+floating around without meaning = HARD REJECTION.
+
+---
+
+🧠 **VISUAL–NARRATION CORRESPONDENCE (THE MOST IMPORTANT RULE)**
+
+Read the narration below. Identify every concept, comparison, or process described.
+For each concept: create a LABELED visual element (RoundedRectangle with Text, or titled group).
+Animate each element APPEARING when the narration mentions it.
+Show relationships with arrows, comparisons with side-by-side placement, processes with sequential reveals.
+
+**MAPPING NARRATION TO VISUALS:**
+- Narration introduces concept X → labeled element for X GROWS FROM CENTER
+- Narration says "connects to" → ARROW draws between the two elements
+- Narration says "three types" → THREE labeled items appear one-by-one
+- Narration says "faster/better" → PROGRESS BAR fills or element SCALES UP
+- Narration compares A vs B → two elements side-by-side at LEFT*4 and RIGHT*4 with contrasting colors
+- Narration concludes → key element gets EMPHASIS (Circumscribe/Flash), NOT fade out
+
+**🏗️ LAYOUT RECIPES — Pick based on narration content:**
+
+COMPARISON (narration says "vs", "unlike", "compared to"):
+→ Two RoundedRectangles at LEFT*4 and RIGHT*4, contrasting colors
+→ "VS" badge or connecting arrow between them
+
+PROCESS FLOW (narration says "first", "then", "finally"):
+→ 3+ elements LEFT*4→ORIGIN→RIGHT*4 with arrows DRAWING between
+→ Each step appears when narration names it
+
+HIERARCHY (narration says "types of", "categories"):
+→ Parent at UP*2, children spread at DOWN*1 (LEFT*3, ORIGIN, RIGHT*3)
+→ Lines from parent to children, children appear as narration lists them
+
+DEFINITION (narration says "what is", "means", "basically"):
+→ Large central RoundedRectangle + orbiting tag_pills for attributes
+→ Icon badge above for visual metaphor
+
 ---
 
 � **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
@@ -5028,11 +5409,36 @@ FORBIDDEN:
 
 ---
 
-🧠 VISUAL–NARRATION BINDING (CRITICAL)
-• Every narrated concept MUST appear visually
-• If narration says "three", show exactly three elements
-• If narration explains a process, show flow or transformation
-• Visuals must appear when narration mentions them
+🧠 VISUAL–NARRATION BINDING (CRITICAL — READ CAREFULLY)
+
+The narration below is what the viewer HEARS. Your animation is what the viewer SEES.
+They must tell the SAME story. Follow these steps:
+
+STEP 1 — Parse the narration. List every noun/concept mentioned.
+STEP 2 — For every concept, create a LABELED visual element:
+   - Use RoundedRectangle + Text label naming the concept
+   - Use color-coded groups for categories
+   - Use numbered items if narration says "first, second, third"
+STEP 3 — Animate each element APPEARING at the moment the narration mentions it:
+   - First quarter of duration: introduce the topic (title + first concept)
+   - Second quarter: expand with supporting details (2-3 elements)
+   - Third quarter: show relationships/process (arrows, transforms)
+   - Final quarter: conclude/emphasize key takeaway
+
+🎯 WHAT TO SHOW:
+✅ Glass cards / rounded rectangles with TEXT LABELS naming the concept
+✅ Arrows connecting related concepts
+✅ Icons or emoji-like symbols representing ideas (⚡ for speed, 🔒 for security)
+✅ Side-by-side comparisons when narration compares things
+✅ Sequential reveals (one-by-one) when narration lists items
+✅ Progress indicators when narration describes growth/improvement
+
+🚫 WHAT NEVER TO SHOW:
+❌ Unlabeled circles or squares floating around
+❌ Random geometric patterns with no meaning
+❌ Text-only screens (just paragraphs of the narration)
+❌ Generic decorative animations that don't represent narration content
+❌ Elements that exist but are never connected to what is being said
 
 ---
 
@@ -5210,7 +5616,7 @@ Generate the script now.
         return segments
 
     def _generate_fallback_script(self, segment: Optional[NarrationSegment], index: int, duration: float, is_dummy: bool = False) -> str:
-        """Generate a reliable fallback script."""
+        """Generate a reliable fallback script with concept-card layout (not blank text)."""
         aspect_ratio_config = self._get_aspect_ratio_config()
         
         if is_dummy:
@@ -5226,7 +5632,8 @@ class Segment{index:03d}(Scene):
         self.wait(max(0.1, {duration}))
 '''
 
-        content = segment.text[:80].replace('"', "'") if segment else f"Educational content for segment {index}"
+        content = segment.text[:70].replace('"', "'") if segment else f"Educational content for segment {index}"
+        short_title = segment.text[:35].replace('"', "'") if segment else f"Segment {index}"
         
         return f'''from manim import *
 
@@ -5234,49 +5641,77 @@ class Segment{index:03d}(Scene):
 
 class Segment{index:03d}(Scene):
     def construct(self):
-        # Main title
-        title = Text("{content}...", font_size=32)
-        title.scale_to_fit_width(config.frame_width * 0.85)
-        title.set_color(BLUE)
-        title.move_to(UP * 1.5)
+        # Title card at top
+        title = Text("{short_title}...", font_size=38, weight=BOLD)
+        title.set_color_by_gradient(BLUE, TEAL)
+        title.scale_to_fit_width(config.frame_width * 0.7)
+        title.move_to(UP * 3)
         
-        # Subtitle
-        subtitle = Text(f"Segment {index}", font_size=24)
-        subtitle.scale_to_fit_width(config.frame_width * 0.75)
-        subtitle.set_color(GRAY)
-        subtitle.move_to(DOWN * 1.5)
+        # Concept card — labeled box in center
+        card = RoundedRectangle(
+            corner_radius=0.25, width=min(10, config.frame_width * 0.7),
+            height=3.5, color=BLUE, fill_opacity=0.2, stroke_width=2
+        )
+        card.move_to(DOWN * 0.3)
+        card_text = Text("{content}...", font_size=22, color=WHITE)
+        card_text.scale_to_fit_width(min(9, config.frame_width * 0.6))
+        card_text.move_to(card.get_center())
+        
+        # Decorative side elements
+        left_dot = Circle(radius=0.3, color=TEAL, fill_opacity=0.3, stroke_width=1)
+        left_dot.move_to(LEFT * 5.5 + DOWN * 0.3)
+        right_dot = Circle(radius=0.3, color=GOLD, fill_opacity=0.3, stroke_width=1)
+        right_dot.move_to(RIGHT * 5.5 + DOWN * 0.3)
+        
+        # Segment indicator at bottom
+        indicator = Text("Part {index + 1}", font_size=18, color=GRAY)
+        indicator.scale_to_fit_width(config.frame_width * 0.15)
+        indicator.move_to(DOWN * 3.5)
         
         # Animations
-        self.play(Write(title), run_time=1.5)
-        self.play(FadeIn(subtitle), run_time=1.0)
+        self.play(DrawBorderThenFill(title), run_time=1.5)
+        self.play(
+            GrowFromCenter(card), FadeIn(card_text),
+            GrowFromCenter(left_dot), GrowFromCenter(right_dot),
+            run_time=1.5
+        )
+        self.play(FadeIn(indicator), run_time=0.5)
+        self.play(Circumscribe(card, color=BLUE, buff=0.1), run_time=1.0)
         
-        # Wait for remaining duration
-        remaining_time = max(0.1, {duration} - 2.5)
+        # Hold everything visible
+        remaining_time = max(0.1, {duration} - 4.5)
         self.wait(remaining_time)'''
 
     async def _generate_emergency_fallback_video(self, segment: NarrationSegment, index: int) -> str:
         """
         Generate an ultra-simple emergency fallback video when all else fails.
-        This creates a basic black screen video with the exact duration needed.
+        Uses concept-card layout instead of plain text on black.
         """
         output_dir = Path(self.config.output_dir) / f"segment_{index:03d}"
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"Segment{index:03d}.mp4"
         
         aspect_ratio_config = self._get_aspect_ratio_config()
+        short_label = segment.text[:40].replace('"', "'").replace('\n', ' ') if segment.text else f"Part {index+1}"
         
-        # Create ultra-simple script with just text and timing
+        # Create fallback with visible concept card (not just text on black)
         fallback_script = f'''from manim import *
 
 {aspect_ratio_config}
 
 class Segment{index:03d}(Scene):
     def construct(self):
-        # Ultra-simple fallback
-        text = Text("Segment {index+1}", font_size=48, color=WHITE)
-        text.scale_to_fit_width(config.frame_width * 0.75)
-        self.add(text)
-        self.wait({segment.duration:.2f})
+        # Background card for visibility
+        card = RoundedRectangle(
+            corner_radius=0.3, width=min(10, config.frame_width * 0.75),
+            height=3, color=BLUE, fill_opacity=0.2, stroke_width=2
+        )
+        label = Text("{short_label}...", font_size=28, color=WHITE, weight=BOLD)
+        label.scale_to_fit_width(min(9, config.frame_width * 0.65))
+        label.move_to(card.get_center())
+        group = VGroup(card, label)
+        self.play(GrowFromCenter(group), run_time=1.5)
+        self.wait({max(0.1, segment.duration - 1.5):.2f})
 '''
         
         script_path = Path(self.config.temp_dir) / f"segment_{index:03d}_emergency.py"
@@ -5452,9 +5887,10 @@ class Segment{index:03d}(Scene):
                 normalized_path = Path(path).resolve().as_posix()
                 f.write(f"file '{normalized_path}'\n")
 
-    async def _parallel_final_assembly_with_proper_sync(self, segments: List[NarrationSegment], topic: str) -> str:
+    async def _parallel_final_assembly_with_proper_sync(self, segments: List[NarrationSegment], topic: str, duration: int = None) -> str:
         """
         Parallel synchronization with proper video-audio alignment and validation.
+        A2: Accepts duration for hard cap on final output.
         """
         logger.info("🎞️ Starting parallel final assembly with proper sync...")
         
@@ -5571,8 +6007,11 @@ class Segment{index:03d}(Scene):
             "-safe", "0",    # Allow unsafe file paths
             "-i", str(concat_list_path),  # Input concat list
             "-c", "copy",    # Copy streams without re-encoding
-            final_output_path
         ]
+        # A2: Duration cap REMOVED — let content run its full length
+        # The audio/video segments already have correct durations from generation.
+        # Trimming here cuts off valid narrated content.
+        cmd.append(final_output_path)
         
         logger.info(f"🎬 Final concatenation command: {' '.join(cmd)}")
         
@@ -5634,8 +6073,8 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="9:16",
-        use_quality_pipeline=False
+        aspect_ratio="16:9",
+        use_quality_pipeline=True
     )
     
     try:
@@ -5646,7 +6085,7 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="What is the difference between JS and JSX?", 
+            topic="What is the difference between Deep Learning and Machine Learning?", 
             duration=60,
         )
 

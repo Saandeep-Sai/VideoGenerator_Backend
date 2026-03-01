@@ -27,6 +27,8 @@ from .scene_specification import (
 )
 from .scene_spec_generator import SceneSpecGenerator, GenerationConfig, SpecificationValidator
 from .manim_code_generator import ManimCodeGenerator, GeneratorConfig, CodeValidator
+from .visual_director import VisualDirector, VisualTimeline
+from .quality_scorer import QualityScorer, VideoScore, PipelineHealthCheck
 
 logger = logging.getLogger(__name__)
 
@@ -39,56 +41,108 @@ class GeminiClientAdapter:
     """
     Adapts the Gemini client from OptimizedVideoGenerationPipeline to work
     with the SceneSpecGenerator's expected interface.
+    
+    C4: If `pipeline` is provided, rotation state is shared bidirectionally —
+    any model rotation here is visible to the parent pipeline and vice-versa.
     """
     
-    def __init__(self, gemini_client, gemini_models: List[str], current_model_index: int = 0):
+    def __init__(self, gemini_client, gemini_models: List[str], current_model_index: int = 0, pipeline=None):
         self.gemini_client = gemini_client
         self.gemini_models = gemini_models
-        self.current_model_index = current_model_index
+        self._pipeline = pipeline
+        self._local_model_index = current_model_index
+    
+    @property
+    def current_model_index(self):
+        if self._pipeline is not None:
+            return self._pipeline.current_gemini_model_index
+        return self._local_model_index
+    
+    @current_model_index.setter
+    def current_model_index(self, value):
+        if self._pipeline is not None:
+            self._pipeline.current_gemini_model_index = value
+        else:
+            self._local_model_index = value
     
     def generate(self, prompt: str, temperature: float = 0.7) -> str:
-        """Generate response using Gemini client with JSON mode."""
+        """Generate response using Gemini client with JSON mode and automatic model rotation on 503."""
         from google.genai import types
+        import time
         
-        model_name = self.gemini_models[self.current_model_index]
+        # Try each model in rotation before giving up
+        attempts = len(self.gemini_models)
+        last_error = None
         
-        # Try to use JSON response format for better parsing
-        try:
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=8192,
-                response_mime_type="application/json"  # Request JSON output
-            )
-        except (TypeError, AttributeError):
-            # Fallback if response_mime_type not supported
-            logger.warning("⚠️ JSON mode not available, using standard generation")
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=8192
-            )
+        for attempt in range(attempts):
+            model_name = self.gemini_models[self.current_model_index]
+            
+            try:
+                # Try to use JSON response format for better parsing
+                try:
+                    config = types.GenerateContentConfig(
+                        temperature=temperature,
+                        max_output_tokens=8192,
+                        response_mime_type="application/json"  # Request JSON output
+                    )
+                except (TypeError, AttributeError):
+                    logger.warning("⚠️ JSON mode not available, using standard generation")
+                    config = types.GenerateContentConfig(
+                        temperature=temperature,
+                        max_output_tokens=8192
+                    )
+                
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                
+                if hasattr(response, 'text') and response.text:
+                    logger.debug(f"✅ Gemini response length: {len(response.text)} chars")
+                    return response.text
+                
+                # Handle cases where text is None but candidates exist
+                if hasattr(response, 'candidates') and response.candidates:
+                    for candidate in response.candidates:
+                        if hasattr(candidate, 'content') and candidate.content:
+                            if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                                for part in candidate.content.parts:
+                                    if hasattr(part, 'text') and part.text:
+                                        logger.debug(f"✅ Extracted from candidate: {len(part.text)} chars")
+                                        return part.text
+                
+                logger.error(f"❌ Could not extract text from Gemini response: {type(response)}")
+                return str(response)
+                
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                
+                # Check if this is a retryable error (503, quota, rate limit, etc.)
+                is_retryable = (
+                    "503" in error_str or
+                    "unavailable" in error_str or
+                    "quota" in error_str or
+                    "429" in error_str or
+                    "overloaded" in error_str or
+                    "resource" in error_str or
+                    "rate limit" in error_str or
+                    "capacity" in error_str or
+                    "high demand" in error_str
+                )
+                
+                if is_retryable and attempt < attempts - 1:
+                    old_model = model_name
+                    self.current_model_index = (self.current_model_index + 1) % len(self.gemini_models)
+                    new_model = self.gemini_models[self.current_model_index]
+                    logger.warning(f"⚠️ {old_model} failed ({str(e)[:100]}), cycling to {new_model}")
+                    time.sleep(3)  # Brief pause before retrying
+                    continue
+                else:
+                    raise
         
-        response = self.gemini_client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=config
-        )
-        
-        if hasattr(response, 'text') and response.text:
-            logger.debug(f"✅ Gemini response length: {len(response.text)} chars")
-            return response.text
-        
-        # Handle cases where text is None but candidates exist
-        if hasattr(response, 'candidates') and response.candidates:
-            for candidate in response.candidates:
-                if hasattr(candidate, 'content') and candidate.content:
-                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                logger.debug(f"✅ Extracted from candidate: {len(part.text)} chars")
-                                return part.text
-        
-        logger.error(f"❌ Could not extract text from Gemini response: {type(response)}")
-        return str(response)
+        raise RuntimeError(f"All {attempts} Gemini models failed. Last error: {last_error}")
 
 
 class OpenRouterAdapter:
@@ -163,9 +217,10 @@ def generate_quality_segments(
         Tuple of (list of QualityNarrationSegment, list of errors)
     """
     # Configure spec generator
+    # A3: Align with legacy formula (~15s per segment)
     config = GenerationConfig(
-        max_scenes=max(3, min(6, duration // 10)),
-        target_scene_duration=12.0,
+        max_scenes=max(3, round(duration / 15)),
+        target_scene_duration=15.0,
         aspect_ratio=aspect_ratio
     )
     
@@ -277,10 +332,9 @@ def generate_quality_scripts_bulk(
     aspect_ratio: str = "9:16"
 ) -> List[str]:
     """
-    Generate Manim scripts from segments using the template-based approach.
+    Generate Manim scripts from segments using the Visual Director + template approach.
     
-    This function replaces _generate_scripts_in_bulk for segments that have
-    scene specifications attached.
+    Pipeline: SceneSpec + AudioDuration → VisualDirector → VisualTimeline → ManimCodeGenerator
     
     Args:
         segments: List of QualityNarrationSegment with scene specs
@@ -293,19 +347,49 @@ def generate_quality_scripts_bulk(
         GeneratorConfig(aspect_ratio=aspect_ratio)
     )
     code_validator = CodeValidator()
+    visual_director = VisualDirector()
     
     scripts = []
     
     for i, segment in enumerate(segments):
         if segment.scene_spec:
-            # Use template-based generation from spec
             logger.info(f"🎨 Generating script from spec for segment {i+1}")
             
             # Update spec timing with actual audio duration if available
             if segment._audio_duration_final:
                 segment.scene_spec.timing.audio_duration_seconds = segment._audio_duration_final
             
-            script = code_generator.generate_scene_code(segment.scene_spec, i)
+            audio_dur = (
+                segment._audio_duration_final
+                or segment.scene_spec.timing.audio_duration_seconds
+                or segment.duration
+                or 10.0
+            )
+            
+            # Determine scene type from spec
+            scene_type = getattr(segment.scene_spec, 'scene_type', 'CONTENT')
+            if not scene_type:
+                scene_type = "CONTENT"
+            
+            # === VISUAL DIRECTOR: Plan the timeline ===
+            try:
+                timeline = visual_director.plan_timeline(
+                    spec=segment.scene_spec,
+                    audio_duration=audio_dur,
+                    scene_type=scene_type
+                )
+                logger.info(
+                    f"📐 Visual Director: {timeline.event_count} events, "
+                    f"density={timeline.density:.2f}/s for segment {i+1}"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ VisualDirector failed for segment {i+1}: {e}. Using legacy path.")
+                timeline = None
+            
+            # === MANIM CODE GENERATION (timeline-driven or legacy) ===
+            script = code_generator.generate_scene_code(
+                segment.scene_spec, i, timeline=timeline
+            )
             
             # Validate generated code
             is_valid, issues = code_validator.validate(script)
@@ -314,16 +398,64 @@ def generate_quality_scripts_bulk(
                 logger.warning(f"⚠️ Script {i+1} has issues: {issues}")
             
             scripts.append(script)
-            segment.script_path = f"segment_{i:03d}.py"  # Track script
+            segment.script_path = f"segment_{i:03d}.py"
         else:
-            # Fallback: no spec attached, will need legacy generation
             logger.warning(f"⚠️ Segment {i+1} has no spec, needs legacy generation")
-            scripts.append(None)  # Signal that legacy gen is needed
+            scripts.append(None)
     
     valid_count = sum(1 for s in scripts if s is not None)
     logger.info(f"✅ Generated {valid_count}/{len(segments)} scripts from specs")
     
     return scripts
+
+
+def score_video_quality(
+    segments: List[QualityNarrationSegment],
+    timelines: List[Optional[VisualTimeline]],
+) -> VideoScore:
+    """
+    Score all segments for engagement quality.
+    
+    Call after generate_quality_scripts_bulk to get quality metrics.
+    
+    Returns:
+        VideoScore with per-segment and aggregate scores
+    """
+    scorer = QualityScorer()
+    
+    audio_durations = []
+    element_counts = []
+    beat_counts = []
+    
+    for seg in segments:
+        dur = (
+            seg._audio_duration_final
+            or (seg.scene_spec.timing.audio_duration_seconds if seg.scene_spec else None)
+            or seg.duration
+            or 10.0
+        )
+        audio_durations.append(dur)
+        
+        if seg.scene_spec:
+            element_counts.append(len(seg.scene_spec.visual_metaphor.visual_elements))
+            beats = seg.scene_spec.narration.semantic_beats if seg.scene_spec.narration else []
+            beat_counts.append(len(beats))
+        else:
+            element_counts.append(0)
+            beat_counts.append(0)
+    
+    video_score = scorer.score_video(
+        timelines=timelines,
+        audio_durations=audio_durations,
+        element_counts=element_counts,
+        beat_counts=beat_counts,
+    )
+    
+    # Run health checks
+    health = PipelineHealthCheck()
+    alerts = health.check(video_score)
+    
+    return video_score
 
 
 # =============================================================================
