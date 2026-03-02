@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Color codes for terminal output
 GREEN = '\033[92m'

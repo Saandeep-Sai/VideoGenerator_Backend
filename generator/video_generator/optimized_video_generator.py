@@ -132,12 +132,42 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from generator.openrouter_key_manager import OpenRouterKeyManager
 
+# Import centralized prompt registry
+from generator.video_generator.prompt_registry import (
+    format_narrative_prompt,
+    format_narrative_retry_prompt,
+    format_scene_direction_prompt,
+    format_scene_direction_batch_prompt,
+    format_manim_execution_prompt,
+    format_manim_execution_batch_prompt,
+    format_error_correction_prompt,
+    format_error_correction_minimal_prompt,
+    get_aspect_params,
+)
+
+# Import concept visualizer (pipeline intelligence layer)
+from generator.video_generator.concept_visualizer import (
+    generate_visual_models_batch,
+    format_visual_model_context,
+)
+
+# Import visual validation (global gate for both pipelines)
+from generator.video_generator.visual_validation import (
+    make_visual_contract,
+    contract_from_visualizer,
+    serialize_contract,
+    deserialize_contract,
+    validate_visual_simulation,
+    validate_script_simulation,
+    validate_quality_spec_against_contract,
+)
+
 # TTS import with robust error handling
 
 # Setup logging with DEBUG level temporarily to diagnose key rotation
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-load_dotenv()
+load_dotenv(override=True)
 
 @dataclass
 class NarrationSegment:
@@ -150,6 +180,11 @@ class NarrationSegment:
     script_path: Optional[str] = None
     video_path: Optional[str] = None
     _audio_duration_final: Optional[float] = None  # Stage 2: Temporal authority (immutable)
+    scene_direction: Optional[str] = None  # Stage 2.5: Scene direction JSON from Director layer
+    idea: Optional[str] = None  # Learning concept from narrative director
+    emotion: Optional[str] = None  # Emotional beat from narrative director
+    layout_strategy: Optional[str] = None  # Layout type from narrative director
+    visual_contract: Optional[str] = None  # GLOBAL: Frozen visual authority (JSON), persists through all stages
 
 class EdgeTTSWrapper:
     """Enhanced Edge TTS wrapper with retry logic and custom headers."""
@@ -254,6 +289,10 @@ class VideoGenerationPipeline:
         self.groq_client = None
         self.tts_model = None   
         self.tts_available = False
+        
+        # OpenRouter model names for different pipeline stages
+        self.narration_model = "qwen/qwen3-next-80b-a3b-instruct:free"
+        self.script_model = "qwen/qwen3-next-80b-a3b-instruct:free"
         self.output_dir = Path(config.output_dir)
         self.device = "cpu"
         self.scaled_intro_path = None  # Cache for pre-scaled intro
@@ -412,19 +451,17 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
     async def generate_all_audio_segments(self, segments, temp_dir):
         """Generate audio using Edge TTS (with gTTS fallback) for all segments.
         
-        DURATION ENFORCEMENT: If TTS audio exceeds the scripted segment duration
-        by more than 10%, speed up the audio to match using ffmpeg atempo.
+        Audio is kept at natural TTS speed to preserve quality.
+        Downstream scripts adapt their duration to match actual audio length.
         """
         from pathlib import Path
         from pydub import AudioSegment
         import asyncio
-        import subprocess
 
         for i, segment in enumerate(segments):
             try:
                 text = segment.text.strip()
                 mp3_path = Path(temp_dir) / f"audio_segment_{i:03d}.mp3"
-                scripted_duration = segment.duration  # Save BEFORE TTS overwrites it
 
                 # Add delay between segments to avoid rate limiting (skip first segment)
                 if i > 0:
@@ -453,33 +490,6 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
                 audio = AudioSegment.from_mp3(mp3_path)
                 actual_duration = round(len(audio) / 1000.0, 2)
 
-                # DURATION ENFORCEMENT: speed up if TTS audio is too long
-                if scripted_duration > 0 and actual_duration > scripted_duration * 1.1:
-                    speed_factor = min(actual_duration / scripted_duration, 1.35)  # Cap at 1.35x
-                    logger.warning(
-                        f"⏩ Segment {i+1}: TTS={actual_duration:.1f}s > scripted={scripted_duration:.1f}s "
-                        f"→ speeding up {speed_factor:.2f}x"
-                    )
-                    # Use ffmpeg atempo for clean speed-up (preserves pitch)
-                    sped_path = Path(temp_dir) / f"audio_segment_{i:03d}_sped.mp3"
-                    try:
-                        cmd = [
-                            'ffmpeg', '-y', '-i', str(mp3_path),
-                            '-filter:a', f'atempo={speed_factor:.4f}',
-                            '-vn', str(sped_path)
-                        ]
-                        result = subprocess.run(cmd, capture_output=True, timeout=30)
-                        if result.returncode == 0 and sped_path.exists():
-                            # Replace original with sped-up version
-                            sped_path.replace(mp3_path)
-                            audio = AudioSegment.from_mp3(mp3_path)
-                            actual_duration = round(len(audio) / 1000.0, 2)
-                            logger.info(f"✅ Segment {i+1}: sped up → {actual_duration:.1f}s")
-                        else:
-                            logger.warning(f"⚠️ Speed-up failed for segment {i+1}, using original")
-                    except Exception as speed_err:
-                        logger.warning(f"⚠️ Speed-up error for segment {i+1}: {speed_err}")
-
                 segment.audio_path = str(mp3_path)
                 segment.duration = actual_duration
                 segment._audio_duration_final = actual_duration  # Lock actual TTS duration for quality pipeline
@@ -494,124 +504,21 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
 
     def generate_narration_segments(self, topic: str, duration: int) -> List[NarrationSegment]:
         """
-        Generates narration segments with detailed visual descriptions for Manim animation.
-        """
-        # Aspect ratio-specific visual guidance
-        aspect_ratio_visual_guide = {
-            "16:9": "Wide horizontal layout - use side-by-side elements, wide diagrams, landscape compositions",
-            "9:16": "Vertical portrait - stack elements vertically, use tall narrow visualizations, mobile-friendly layouts",
-            "1:1": "Square format - balanced centered layouts, symmetrical designs",
-            "4:3": "Standard format - traditional layouts, centered content",
-            "21:9": "Ultra-wide cinematic - use full width, panoramic visualizations, side-by-side comparisons"
-        }
-        visual_guide = aspect_ratio_visual_guide.get(self.config.aspect_ratio, aspect_ratio_visual_guide["16:9"])
+        LAYER 1 — NARRATIVE DIRECTOR (WRITER)
         
-        prompt = f"""You are a viral YouTube Shorts creator who NEVER makes boring content. Your videos hook people instantly and they can't stop watching.
-
-� CINEMATIC DIRECTIVE: You are DIRECTING an animated short film, NOT creating slides.
-Every scene must feel like a story UNFOLDING VISUALLY — alive, intentional, and narratively driven.
-Static screen for >0.8 seconds = FAILURE. Elements sitting still without interacting = FAILURE.
-
-🔥 ENGAGEMENT MANDATES (Solutions A-G):
-A. CONTINUOUS MOMENTUM: No element stays static >2s after entry — pulse, drift, or transform it!
-B. CAMERA AS GUIDE: Zoom-in for focus, zoom-out for context, lateral shifts for flow — min 3 camera moments.
-C. CAUSAL LOGIC: When X leads to Y, MORPH/TRANSFORM X — show EVOLUTION, not replacement.
-D. ENERGY PEAKS: Every 5-7s, burst of 2-3 simultaneous animations (flash + scale + shift).
-E. INTERACTION-FIRST: Every narration beat triggers MOVE, TRANSFORM, or emphasis — not passive appearance.
-F. SCALING HIERARCHY: Primary concept = LARGEST. Supporting details = proportionally SMALLER.
-G. MOTION VARIETY: NEVER use the same animation type twice consecutively.
-H. SPATIAL SAFETY: Max 4-5 elements per scene. Keep ALL within 90% screen bounds. 5% margin on all edges. For 5+ elements, use compact types (icon_badge, tag_pill). NO element exceeds 40% screen width!
-
-📄 OUTPUT FORMAT (STRICT):
-SEGMENT: [duration_in_seconds] | [narration_with_emotion] | [visual_description]
-
-🚨 ANTI-BORING RULES (CRITICAL!):
-❌ NEVER start with "Today we'll learn about..." or "In this video..."
-❌ NEVER say "The concept of X is defined as..."
-❌ NEVER have static visuals (everything must MOVE and INTERACT!)
-❌ NEVER sound like a textbook or Wikipedia article
-❌ NEVER let elements sit alone — they must CONNECT, SHIFT, or REACT to each other
-
-✅ ALWAYS start with a hook (question, surprising fact, relatable pain)
-✅ ALWAYS use dynamic visual verbs: BOUNCES, SLIDES, ZOOMS, PULSES, SPINS
-✅ ALWAYS show INTERACTIONS: arrows GROWING between elements, elements SHIFTING toward each other
-✅ ALWAYS sound like you're explaining to a friend, not lecturing
-✅ ALWAYS end with energy: "Boom!", "Pretty cool, right?", "Mind-blowing!"
-
-🎙️ NARRATION STYLE (Sound Like a Friend!):
-- Use contractions: "don't", "can't", "it's", "here's"
-- Use casual phrases: "So basically...", "Here's the thing...", "Wait for it..."
-- Add personality: "Boom!", "Mind-blowing!", "Pretty cool, right?"
-- [Excited] = High energy, smiling voice
-- [Curious] = Intrigued, drawing viewer in
-- [Confident] = Authoritative but friendly
-
-🎬 VISUAL REQUIREMENTS — CINEMATIC CONCEPT DIAGRAMS, NOT RANDOM SHAPES!
-- Every scene needs visuals that progressively BUILD A DIAGRAM illustrating the narration
-- Elements enter ONE AT A TIME as the narration mentions them (progressive reveal)
-- Aspect ratio: {visual_guide}
-
-🎥 STORY THROUGH MOTION:
-- Elements don't just "appear" — they ENTER with purpose and INTERACT
-- Spatial arrangement IS the explanation: left→right = sequence, top→bottom = hierarchy
-- Arrows GROW between elements when narration says "connects to" or "leads to"
-- Elements SHIFT POSITION to form relationships when narration describes connections
-- Scale PULSES draw attention to the current focus element
-
-- LAYOUT PATTERNS (pick the best one per segment!):
-  • COMPARISON: Two glass cards at LEFT and RIGHT with contrasting colors when narration compares things
-  • PROCESS FLOW: 3-4 nodes arranged LEFT→RIGHT with arrows DRAWING between them for sequences/steps
-  • HIERARCHY: Parent card at TOP, child cards spread at BOTTOM for categories/types
-  • CENTRAL CONCEPT: Main card CENTER + orbiting tag_pills for definitions
-  • CAUSE→EFFECT: Element A on left + bold arrow + Element B on right
-- USE FULL SCREEN: elements at LEFT*5 and RIGHT*5, NOT everything in center!
-- Dynamic verbs: "GROWS FROM CENTER", "SLIDES IN from left", "Arrow DRAWS between", "PULSES with glow"
-- Colors: BLUE, RED, GREEN, YELLOW, PURPLE, ORANGE, TEAL, GOLD
-- NAME the objects: "glass card titled 'API'", "icon badge with ⚡", "code block showing the function"
-- Show CONNECTIONS: arrows between related concepts, not isolated floating shapes
-
-⏱️ TIMING:
-- Each segment: 12-18 seconds (aim for 15)
-- Total: EXACTLY {duration} seconds
-- Structure: Hook (short) → Explain (longer) → Payoff (medium)
-
-📚 EXAMPLES:
-
-✅ GOOD (Concept Diagram — Comparison Layout):
-SEGMENT: 15 | [Curious] Ever wondered why APIs are everywhere? Think of them as waiters in a restaurant! | Glass card titled "Your App" GROWS FROM CENTER at LEFT. Glass card titled "API" SLIDES IN at CENTER. Glass card titled "Database" GROWS FROM CENTER at RIGHT. Arrow DRAWS from "Your App" → "API" when narration says "sends request". Arrow DRAWS from "API" → "Database" when narration says "fetches data". The API card PULSES with golden glow on "waiter" to show it's the middleman.
-
-✅ GOOD (Process Flow Layout):
-SEGMENT: 15 | [Excited] Machine learning is just three steps - collect, train, predict! | Three node cards appear LEFT→CENTER→RIGHT as narration names each step. First, node "Collect" GROWS at LEFT with data icon. Then arrow DRAWS rightward and node "Train" BOUNCES IN at CENTER with gear icon. Finally arrow DRAWS and node "Predict" SLIDES IN at RIGHT with lightbulb icon. All three PULSE together on "just three steps!"
-
-✅ GOOD (Central Concept + Details):
-SEGMENT: 12 | [Confident] Here's the thing - a variable is just a labeled container! | Large glass card titled "Variable" GROWS FROM CENTER. Then tag pill "Name" APPEARS at upper-left of the card. Tag pill "Value" APPEARS at upper-right. Tag pill "Type" APPEARS below. Icon badge with 📦 SPINS IN above the card on "container". All elements FLASH on "that's it!"
-
-❌ BAD (Boring):
-SEGMENT: 15 | Today we will learn about functions in programming | Show function diagram
-
-❌ BAD (Vague — produces random boxes):
-SEGMENT: 12 | Functions are an important concept | Title bounces in with effects
-
-📋 STRUCTURE:
-- Segment 1: HOOK - Make them STOP SCROLLING (question/surprising fact)
-- Segments 2-N: EXPLAIN - Break it down with visuals that MOVE
-- Final Segment: PAYOFF - Quick recap + memorable sign-off ("Boom! Now you know!")
-
-📝 TOPIC: "{topic}"
-⏱️ DURATION: {duration} seconds
-
-Generate ONLY SEGMENT lines now (no extra text):
-"""
-
-        """ safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        } """
+        Uses centralized prompt registry for narration generation.
+        Outputs structured segments with narration, visual_intent, emotion, layout.
+        """
+        import json as _json
+        
+        prompt = format_narrative_prompt(
+            topic=topic,
+            duration=duration,
+            aspect_ratio=self.config.aspect_ratio,
+        )
 
         try:
-            # Use OpenRouter with Llama 3.3 70B for narration generation
+            # Use OpenRouter for narration generation
             def call_openrouter(client):
                 response = client.chat.completions.create(
                     model=self.narration_model,
@@ -629,37 +536,14 @@ Generate ONLY SEGMENT lines now (no extra text):
             if not response_text:
                 raise ValueError("OpenRouter response was empty.")
 
-            lines = response_text.strip().splitlines()
-            segments = []
-            current_time = 0.0
-
-            for line in lines:
-                if not line.strip().startswith("SEGMENT:"):
-                    continue
-                try:
-                    # SEGMENT: 5 | [Calm] ... | blue circle diagram ...
-                    segment_data = line.strip()[len("SEGMENT:"):].strip()
-                    parts = segment_data.split("|", maxsplit=2)
-                    if len(parts) < 3:
-                        raise ValueError("Missing fields")
-
-                    duration_val = float(parts[0].strip())
-                    narration_text = parts[1].strip()
-                    visual_description = parts[2].strip()
-
-                    segment = NarrationSegment(
-                        start_time=round(current_time, 2),
-                        end_time=round(current_time + duration_val, 2),
-                        duration=round(duration_val, 2),
-                        text=narration_text,
-                        visual_description=visual_description
-                    )
-                    segments.append(segment)
-                    current_time += duration_val
-                except Exception as e:
-                    logger.warning(f"⚠️ Skipping malformed segment: {line} | Error: {e}")
-                    continue
-
+            # Try JSON parsing first (new narrative director format)
+            segments = self._parse_narrative_json(response_text, duration)
+            
+            if not segments:
+                # Fallback: try legacy SEGMENT: format parsing
+                logger.warning("⚠️ JSON parse failed, trying legacy SEGMENT format...")
+                segments = self._parse_legacy_segments(response_text)
+            
             if not segments:
                 raise ValueError("No valid narration segments parsed.")
             return segments
@@ -667,6 +551,348 @@ Generate ONLY SEGMENT lines now (no extra text):
         except Exception as e:
             logger.error(f"❌ Narration generation failed: {e}")
             raise RuntimeError("Narration segment generation failed.")
+    
+    def _parse_narrative_json(self, response_text: str, duration: int) -> List[NarrationSegment]:
+        """Parse narrative director JSON response into NarrationSegments."""
+        import json as _json
+        
+        text = response_text.strip()
+        
+        # Remove markdown code blocks
+        if '```json' in text:
+            start = text.find('```json') + 7
+            end = text.rfind('```')
+            if end > start:
+                text = text[start:end].strip()
+        elif '```' in text:
+            start = text.find('```') + 3
+            end = text.rfind('```')
+            if end > start:
+                text = text[start:end].strip()
+        
+        # Find JSON object
+        brace_start = text.find('{')
+        brace_end = text.rfind('}')
+        if brace_start < 0 or brace_end <= brace_start:
+            return []
+        
+        try:
+            data = _json.loads(text[brace_start:brace_end + 1])
+        except _json.JSONDecodeError:
+            return []
+        
+        raw_segments = data.get('segments', [])
+        if not raw_segments:
+            return []
+        
+        segments = []
+        current_time = 0.0
+        
+        for s in raw_segments:
+            seg_duration = float(s.get('duration', 15))
+            narration = s.get('narration', '')
+            visual_desc = s.get('visual_intent', s.get('visual_description', ''))
+            
+            # Clean emotion tags from narration
+            narration = re.sub(r'\[.*?\]', '', narration).strip()
+            
+            segment = NarrationSegment(
+                start_time=round(current_time, 2),
+                end_time=round(current_time + seg_duration, 2),
+                duration=round(seg_duration, 2),
+                text=narration,
+                visual_description=visual_desc,
+                idea=s.get('idea', ''),
+                emotion=s.get('emotion', 'clarity'),
+                layout_strategy=s.get('layout_strategy', 'process_flow'),
+            )
+            segments.append(segment)
+            current_time += seg_duration
+        
+        logger.info(f"✅ Parsed {len(segments)} narrative segments from JSON (total: {current_time}s)")
+        return segments
+    
+    def _parse_legacy_segments(self, response_text: str) -> List[NarrationSegment]:
+        """Fallback parser for legacy SEGMENT: format."""
+        lines = response_text.strip().splitlines()
+        segments = []
+        current_time = 0.0
+
+        for line in lines:
+            if not line.strip().startswith("SEGMENT:"):
+                continue
+            try:
+                segment_data = line.strip()[len("SEGMENT:"):].strip()
+                parts = segment_data.split("|", maxsplit=2)
+                if len(parts) < 3:
+                    raise ValueError("Missing fields")
+
+                duration_val = float(parts[0].strip())
+                narration_text = parts[1].strip()
+                visual_description = parts[2].strip()
+
+                segment = NarrationSegment(
+                    start_time=round(current_time, 2),
+                    end_time=round(current_time + duration_val, 2),
+                    duration=round(duration_val, 2),
+                    text=narration_text,
+                    visual_description=visual_description
+                )
+                segments.append(segment)
+                current_time += duration_val
+            except Exception as e:
+                logger.warning(f"\u26a0\ufe0f Skipping malformed segment: {line} | Error: {e}")
+                continue
+
+        return segments
+
+
+    def generate_scene_directions(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
+        """
+        STAGE 2.5: SCENE DIRECTION (DIRECTOR LAYER)
+        
+        Pipeline: Narration → Concept Visualizer → visual_contract → Scene Direction LLM → Validation
+        
+        1. Builds segment metadata
+        2. Runs Concept Visualizer → creates FROZEN visual_contract per segment
+        3. Injects visual model context into each segment for the LLM
+        4. Calls LLM for cinematic scene directions
+        5. Validates directions against visual_contract (global gate)
+        """
+        logger.info(f"🎬 DIRECTOR LAYER: Generating scene directions for {len(segments)} segments...")
+        
+        try:
+            # ── Step 1: Build segment metadata ──
+            segments_data = []
+            for i, seg in enumerate(segments):
+                segments_data.append({
+                    "segment_number": i + 1,
+                    "duration": seg.duration,
+                    "idea": getattr(seg, 'idea', None) or seg.visual_description[:80],
+                    "emotion": getattr(seg, 'emotion', None) or "clarity",
+                    "narration": seg.text,
+                    "visual_intent": seg.visual_description,
+                    "layout_strategy": getattr(seg, 'layout_strategy', None) or "process_flow",
+                })
+            
+            # ── Step 2: Concept Visualizer → FROZEN visual_contract ──
+            visual_models = generate_visual_models_batch(segments_data)
+            logger.info(f"  🧠 Concept Visualizer: generated {len(visual_models)} visual models")
+            
+            # Create and freeze contracts
+            contracts = []
+            for i, vm in enumerate(visual_models):
+                contract = contract_from_visualizer(vm)
+                contracts.append(contract)
+                # Persist on segment — survives through ALL pipeline stages
+                if i < len(segments):
+                    segments[i].visual_contract = serialize_contract(contract)
+                dep_type = contract.get("depiction_mode", "unknown")
+                vis_model = contract.get("visual_model", "unknown")
+                logger.info(f"    Seg {i+1}: depiction={dep_type}, model={vis_model}")
+            
+            # ── Step 3: Inject visual model context into segment data ──
+            for i, seg_data in enumerate(segments_data):
+                if i < len(visual_models):
+                    vm_context = format_visual_model_context(visual_models[i])
+                    seg_data["visual_behavior_model"] = vm_context
+            
+            import json
+            segments_json = json.dumps(segments_data, indent=2)
+            
+            batch_prompt = format_scene_direction_batch_prompt(
+                segments_json=segments_json,
+                num_scenes=len(segments),
+                aspect_ratio=self.config.aspect_ratio,
+            )
+            
+            # ── Step 4: Call LLM for scene direction ──
+            def call_openrouter(client):
+                response = client.chat.completions.create(
+                    model=self.narration_model,
+                    messages=[{"role": "user", "content": batch_prompt}],
+                    temperature=0.6,
+                    max_tokens=8192,
+                )
+                return response.choices[0].message.content
+            
+            response_text = self.openrouter_key_manager.execute_with_rotation(
+                call_openrouter,
+                model=self.narration_model
+            )
+            
+            if not response_text:
+                logger.warning("⚠️ Scene direction response empty, using fallback")
+                return self._generate_fallback_directions(segments)
+            
+            # Parse JSON response
+            directions = self._parse_scene_directions(response_text, len(segments))
+            
+            if directions and len(directions) >= len(segments):
+                for i, seg in enumerate(segments):
+                    seg.scene_direction = json.dumps(directions[i])
+                    logger.info(f"  ✅ Scene {i+1} direction: {directions[i].get('scene_goal', 'N/A')[:60]}")
+                
+                # ── Step 5: Validate against visual_contract (global gate) ──
+                for i, direction in enumerate(directions):
+                    contract = contracts[i] if i < len(contracts) else make_visual_contract()
+                    passed, issues, score = validate_visual_simulation(direction, contract)
+                    if not passed:
+                        issues_str = ", ".join(issues)
+                        logger.warning(
+                            f"  ⚠️ Scene {i+1} contract validation FAILED (score={score}): {issues_str}"
+                        )
+                    else:
+                        logger.info(f"  ✓ Scene {i+1} contract validation passed (score={score})")
+            else:
+                logger.warning(f"⚠️ Got {len(directions) if directions else 0} directions for {len(segments)} segments, using fallback")
+                return self._generate_fallback_directions(segments)
+            
+            logger.info("✅ DIRECTOR LAYER: All scene directions generated.")
+            return segments
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Scene direction generation failed: {e}, using fallback")
+            return self._generate_fallback_directions(segments)
+    
+    def _parse_scene_directions(self, response_text: str, expected_count: int) -> list:
+        """Parse scene direction JSON from LLM response."""
+        import json
+        
+        # Try direct JSON parse
+        text = response_text.strip()
+        
+        # Remove markdown code blocks if present
+        if '```json' in text:
+            start = text.find('```json') + 7
+            end = text.rfind('```')
+            if end > start:
+                text = text[start:end].strip()
+        elif '```' in text:
+            start = text.find('```') + 3
+            end = text.rfind('```')
+            if end > start:
+                text = text[start:end].strip()
+        
+        # Try parsing as JSON array
+        try:
+            result = json.loads(text)
+            if isinstance(result, list):
+                return result
+            elif isinstance(result, dict) and 'scenes' in result:
+                return result['scenes']
+            elif isinstance(result, dict):
+                return [result]
+        except json.JSONDecodeError:
+            pass
+        
+        # Try finding JSON array in the text
+        bracket_start = text.find('[')
+        bracket_end = text.rfind(']')
+        if bracket_start >= 0 and bracket_end > bracket_start:
+            try:
+                return json.loads(text[bracket_start:bracket_end + 1])
+            except json.JSONDecodeError:
+                pass
+        
+        logger.warning("⚠️ Could not parse scene direction JSON")
+        return []
+    
+    def _generate_fallback_directions(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
+        """Generate simulation-first fallback directions when LLM fails."""
+        import json
+        
+        # Run concept visualizer even for fallbacks
+        segments_data = []
+        for i, seg in enumerate(segments):
+            segments_data.append({
+                "segment_number": i + 1,
+                "duration": seg.duration,
+                "idea": getattr(seg, 'idea', None) or seg.visual_description[:80],
+                "narration": seg.text,
+                "visual_intent": seg.visual_description,
+                "layout_strategy": getattr(seg, 'layout_strategy', None) or "process_flow",
+            })
+        
+        visual_models = generate_visual_models_batch(segments_data)
+        
+        # Create and freeze contracts for fallback path too
+        contracts = []
+        for i, vm in enumerate(visual_models):
+            contract = contract_from_visualizer(vm)
+            contracts.append(contract)
+            if i < len(segments):
+                segments[i].visual_contract = serialize_contract(contract)
+        
+        for i, seg in enumerate(segments):
+            vm = visual_models[i] if i < len(visual_models) else {}
+            entities = vm.get("entities", ["main_element"])
+            behaviors = vm.get("behaviors", ["appear", "transform"])
+            
+            elem_ids = [f"s{i+1}_{e}" for e in entities[:4]]
+            elements = []
+            for j, eid in enumerate(elem_ids):
+                elements.append({
+                    "id": eid,
+                    "type": "node" if j == 0 else "signal",
+                    "label": entities[j] if j < len(entities) else f"element_{j}",
+                    "role": "primary" if j == 0 else "secondary",
+                    "position": ["center", "right", "left", "top"][j % 4],
+                    "size": "large" if j == 0 else "medium",
+                    "color": ["BLUE", "GREEN", "ORANGE", "PURPLE"][j % 4],
+                })
+            
+            fallback = {
+                "scene_number": i + 1,
+                "depiction_mode": vm.get("depiction_type", "simulation"),
+                "scene_goal": seg.visual_description[:100],
+                "focus_object": entities[0] if entities else "main concept",
+                "visual_metaphor": vm.get("visual_model", "process_flow"),
+                "layout": {
+                    "strategy": getattr(seg, 'layout_strategy', None) or "process_flow",
+                    "primary_zone": "center",
+                    "element_spread": "balanced across screen"
+                },
+                "elements": elements or [{
+                    "id": f"s{i+1}_elem_1",
+                    "type": "node",
+                    "label": "Main",
+                    "role": "primary",
+                    "position": "center",
+                    "size": "large",
+                    "color": "BLUE",
+                }],
+                "direction_beats": [
+                    {
+                        "beat": 1, "time_percent": "0-30%",
+                        "action": f"{behaviors[0] if behaviors else 'Introduce'} main elements",
+                        "purpose": "Set the scene",
+                        "elements_involved": elem_ids[:2] or [f"s{i+1}_elem_1"],
+                        "motion_type": "activate",
+                    },
+                    {
+                        "beat": 2, "time_percent": "30-70%",
+                        "action": f"{behaviors[1] if len(behaviors) > 1 else 'Transform'} — show process",
+                        "purpose": "Build understanding through motion",
+                        "elements_involved": elem_ids or [f"s{i+1}_elem_1"],
+                        "motion_type": "propagate",
+                    },
+                    {
+                        "beat": 3, "time_percent": "70-100%",
+                        "action": "Complete transformation cycle",
+                        "purpose": "Reinforce learning visually",
+                        "elements_involved": elem_ids or [f"s{i+1}_elem_1"],
+                        "motion_type": "transform",
+                    },
+                ],
+                "transformation_chain": behaviors[:3] if behaviors else ["appear", "transform", "settle"],
+                "attention_flow": elem_ids or [f"s{i+1}_elem_1"],
+                "interaction_plan": [f"Elements animate {b}" for b in (behaviors[:2] or ["appear", "transform"])],
+                "transition_out": "hold"
+            }
+            seg.scene_direction = json.dumps(fallback)
+        
+        return segments
 
     def generate_all_manim_scripts(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
         """
@@ -708,132 +934,32 @@ Generate ONLY SEGMENT lines now (no extra text):
         return segments
 
     def _generate_batch_scripts(self, batch_segments: List[NarrationSegment], batch_start: int) -> bool:
-        """Generate scripts for a batch of segments."""
-        
-        # Get aspect ratio configuration
+        """
+        LAYER 3 — MANIM EXECUTION (ANIMATOR) — Batch mode.
+        Uses scene direction from Director layer when available.
+        """
         aspect_ratio_config = self._get_aspect_ratio_config()
+        params = get_aspect_params(self.config.aspect_ratio)
         
-        # Aspect ratio-specific layout guidelines
-        aspect_ratio_guidelines = {
-            "16:9": {
-                "guide": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
-                "max_text_width": "config.frame_width * 0.85",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "layout_example": "Place title at TOP (UP * 3), content at CENTER, footer at BOTTOM (DOWN * 3)"
-            },
-            "9:16": {
-                "guide": "CRITICAL: Vertical/portrait layout for mobile. Frame is NARROW (9 wide × 16 tall). Text MUST be constrained to prevent overflow.",
-                "max_text_width": "config.frame_width * 0.65",
-                "max_font_title": 32,
-                "max_font_body": 24,
-                "layout_example": "Stack vertically: title at UP*6, content1 at UP*2, content2 at ORIGIN, content3 at DOWN*2, footer at DOWN*6"
-            },
-            "1:1": {
-                "guide": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
-                "max_text_width": "config.frame_width * 0.75",
-                "max_font_title": 42,
-                "max_font_body": 30,
-                "layout_example": "Center everything with balanced spacing"
-            },
-            "4:3": {
-                "guide": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
-                "max_text_width": "config.frame_width * 0.80",
-                "max_font_title": 44,
-                "max_font_body": 32,
-                "layout_example": "Traditional TV layout with centered content"
-            },
-            "21:9": {
-                "guide": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible.",
-                "max_text_width": "config.frame_width * 0.90",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "layout_example": "Use full width, place elements side-by-side"
-            }
-        }
-        layout_info = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
-        layout_guide = layout_info["guide"]
-        max_text_width = layout_info["max_text_width"]
-        max_font_title = layout_info["max_font_title"]
-        max_font_body = layout_info["max_font_body"]
-        
-        # Create batch prompt with aspect ratio guidance
-        segment_info = ""
+        # Build segment info with scene directions
+        all_segments_with_direction = ""
         for i, segment in enumerate(batch_segments):
-            segment_info += f"SEGMENT_{i+1}: {segment.duration}s | {segment.text[:60]}... | {segment.visual_description[:60]}...\n"
-
-        batch_prompt = f"""Generate {len(batch_segments)} separate Manim scripts for aspect ratio {self.config.aspect_ratio}:
-
-{segment_info}
-
-🎬 CINEMATIC DIRECTIVE: You are directing an animated SHORT FILM, NOT making slides.
-Every motion MUST advance the narrative. Elements must INTERACT — arrows growing between
-them, elements shifting to form relationships, progressive diagram building.
-No static screen for >0.8 seconds. Target: 1.5+ visual events per second.
-Story through motion: the spatial arrangement IS the explanation.
-Solutions A-G: Continuous momentum (no element idle >2s), camera guides attention (zoom/pan/focus),
-causal transforms (morph not replace), energy peaks every 5-7s, interaction-first beats,
-scaling hierarchy (primary=largest), motion variety (never same animation consecutively).
-H. SPATIAL SAFETY: Max 4-5 elements per scene. ALL within 90% screen bounds. 5% margin all edges. For 5+ elements, use compact types. NO element >40% screen width!
-
-🧠 VISUAL–NARRATION CORRESPONDENCE (MOST IMPORTANT RULE):
-Each segment has Content (what the narrator says) and Visual description.
-Your animation MUST visually depict what the narration describes — not just decorate.
-- For every concept mentioned in narration, create a LABELED visual element
-  (RoundedRectangle with Text label, or titled VGroup).
-- Animate each element APPEARING when the narration mentions it (progressive reveal!).
-- If narration says "three types" → show exactly three labeled items appearing one-by-one.
-- If narration compares A vs B → show two labeled elements SLIDING IN from opposite sides.
-- If narration describes a process → show sequential flow with arrows DRAWING between elements.
-- At least ONE arrow must DRAW to show a connection between concepts.
-- At least ONE element must receive an emphasis PULSE synced to the KEY narration phrase.
-- NEVER show unlabeled circles/squares floating around with no meaning.
-
-🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
-{layout_guide}
-
-🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES:
-
-1. **MANDATORY TEXT WIDTH CONSTRAINT:**
-   - EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
-   - NO EXCEPTIONS - even single words need scaling
-
-2. **STRICT FONT SIZE LIMITS:**
-   - Titles: MAX {max_font_title}px
-   - Body text: MAX {max_font_body}px
-
-3. **MANDATORY VERTICAL SPACING:**
-   - Minimum 1.5 units between ANY two text objects
-   - Use .next_to(other_object, DOWN, buff=1.5)
-
-4. **ASPECT RATIO CONFIG MUST BE INCLUDED:**
-{aspect_ratio_config}
-
-Output Format - STRICTLY FOLLOW:
-=== SCRIPT_1 ===
-from manim import *
-
-{aspect_ratio_config}
-
-class GeneratedAnimation1(Scene):
-    def construct(self):
-        # Every text: text.scale_to_fit_width({max_text_width})
-        # Minimum vertical spacing: 1.5 units
-        self.wait({batch_segments[0].duration})
-
-=== SCRIPT_2 ===
-from manim import *
-
-{aspect_ratio_config}
-
-class GeneratedAnimation2(Scene):
-    def construct(self):
-        # Every text: text.scale_to_fit_width({max_text_width})
-        # Minimum vertical spacing: 1.5 units
-        self.wait({batch_segments[1].duration if len(batch_segments) > 1 else 10})
-
-Continue for all {len(batch_segments)} segments. Output ONLY scripts with separators. Include aspect ratio config in EVERY script.
+            direction = getattr(segment, 'scene_direction', '') or f"Visual intent: {segment.visual_description}"
+            all_segments_with_direction += f"""
+--- Segment {batch_start + i + 1} ---
+Class: Segment{batch_start + i:03d}
+Duration: {segment.duration:.2f}s
+Narration: "{segment.text}"
+Scene Direction: {direction}
 """
+
+        batch_prompt = format_manim_execution_batch_prompt(
+            num_segments=len(batch_segments),
+            all_segments_with_direction=all_segments_with_direction,
+            aspect_ratio=self.config.aspect_ratio,
+            aspect_ratio_config=aspect_ratio_config,
+            allowed_colors=self.allowed_colors,
+        )
 
         try:
             # Use OpenRouter with Qwen Coder for batch script generation
@@ -890,384 +1016,28 @@ Continue for all {len(batch_segments)} segments. Output ONLY scripts with separa
             return False
 
     def _generate_individual_script(self, segment: NarrationSegment, segment_number: int) -> str:
-        """Generate a single script for one segment with retry logic."""
+        """
+        LAYER 3 — MANIM EXECUTION (ANIMATOR) — Individual mode.
+        Uses scene direction from Director layer when available.
+        """
         logger.info(f"🎬 ENTERING _generate_individual_script for segment {segment_number}")
         
-        # Get aspect ratio configuration
         aspect_ratio_config = self._get_aspect_ratio_config()
         
-        # Aspect ratio-specific layout guidelines with detailed constraints
-        aspect_ratio_guidelines = {
-            "16:9": {
-                "guide": "Wide horizontal layout. Place titles at top, content in center, use full width. Safe area: 14 units wide × 7 units tall.",
-                "max_text_width": "config.frame_width * 0.85",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "layout_example": "Place title at TOP (UP * 3), content at CENTER, footer at BOTTOM (DOWN * 3)"
-            },
-            "9:16": {
-                "guide": "CRITICAL: Vertical/portrait layout for mobile. Frame is NARROW (9 wide × 16 tall). Text MUST be constrained to prevent overflow.",
-                "max_text_width": "config.frame_width * 0.65",  # Much narrower for vertical
-                "max_font_title": 32,  # Smaller fonts for narrow screen
-                "max_font_body": 24,
-                "layout_example": "Stack vertically: title at UP*6, content1 at UP*2, content2 at ORIGIN, content3 at DOWN*2, footer at DOWN*6"
-            },
-            "1:1": {
-                "guide": "Square layout. Center all elements. Balanced spacing. Safe area: 8×8 units.",
-                "max_text_width": "config.frame_width * 0.75",
-                "max_font_title": 42,
-                "max_font_body": 30,
-                "layout_example": "Center everything with balanced spacing"
-            },
-            "4:3": {
-                "guide": "Standard layout. Slightly wider than tall. Center content, moderate spacing.",
-                "max_text_width": "config.frame_width * 0.80",
-                "max_font_title": 44,
-                "max_font_body": 32,
-                "layout_example": "Traditional TV layout with centered content"
-            },
-            "21:9": {
-                "guide": "Ultra-wide cinematic. Use horizontal space. Place elements side-by-side when possible.",
-                "max_text_width": "config.frame_width * 0.90",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "layout_example": "Use full width, place elements side-by-side"
-            }
-        }
-        layout_info = aspect_ratio_guidelines.get(self.config.aspect_ratio, aspect_ratio_guidelines["16:9"])
-        layout_guide = layout_info["guide"]
-        max_text_width = layout_info["max_text_width"]
-        max_font_title = layout_info["max_font_title"]
-        max_font_body = layout_info["max_font_body"]
-        layout_example = layout_info["layout_example"]
+        # Build scene direction context
+        direction = getattr(segment, 'scene_direction', '') or f"Visual intent: {segment.visual_description}"
         
-        # Enhanced prompt with professional animation requirements
-        prompt = f"""Create a PROFESSIONAL, ENGAGING Manim script for this segment:
-
-Duration: {segment.duration} seconds
-Content: {segment.text}
-Visual: {segment.visual_description}
-Aspect Ratio: {self.config.aspect_ratio}
-
-🧠 VISUAL–NARRATION BINDING (THE MOST IMPORTANT RULE):
-═══════════════════════════════════════════════════════════════
-Read the Content above. Your animation must VISUALLY ILLUSTRATE it — not just decorate.
-
-STEP 1 — Identify every concept/noun mentioned in the narration.
-STEP 2 — For each concept, create a LABELED visual element:
-   • RoundedRectangle + Text label naming the concept
-   • Or titled VGroup that represents the idea
-STEP 3 — Animate elements APPEARING when the narration would mention them:
-   • First quarter of duration: introduce topic (title + first concept)
-   • Second quarter: expand (2-3 more labeled elements)
-   • Third quarter: show relationships (arrows, transforms)
-   • Final quarter: emphasize key takeaway
-
-🎯 WHAT TO SHOW:
-✅ Labeled glass cards / rounded rectangles representing narration concepts
-✅ Arrows connecting related concepts
-✅ Side-by-side comparisons when narration compares things
-✅ Sequential reveals when narration lists items
-✅ Progress indicators when narration describes growth
-
-🚫 WHAT NEVER TO SHOW:
-❌ Unlabeled circles or squares floating around
-❌ Random geometric patterns with no meaning
-❌ Text-only screens (just paragraphs of the narration)
-❌ Generic decorative animations unrelated to what is being said
-
-⚠️ CRITICAL SYNC RULE:
-  • If narration says "three types", show exactly THREE labeled items
-  • If narration mentions "comparison", show side-by-side comparison
-  • If narration says "process", show step-by-step flow with arrows
-  • Timing: Spread animations evenly across the {segment.duration} seconds
-
-🎬 ANIMATION QUALITY REQUIREMENTS (CRITICAL!):
-═══════════════════════════════════════════════════════════════
-✨ Your animations must be:
-  • VISUALLY STUNNING - Use professional effects, not basic FadeIn/FadeOut
-  • DYNAMIC & ENGAGING - Multiple animation types, smooth transitions
-  • PERFECTLY SYNCED - Visuals appear as narration mentions them
-  • PROFESSIONALLY STYLED - Gradients, colors, glows, proper spacing
-  • ATTENTION-GRABBING - Use emphasis animations (Circumscribe, Flash, Indicate)
-  • SMOOTH & POLISHED - Always use rate_func=smooth, proper run_times
-  • INTERACTIVE FEEL - Use transforms, morphs, reveals that respond to narration
-
-🚨 BANNED: Plain FadeIn/FadeOut only scripts will be REJECTED!
-✅ REQUIRED: Use 5-8 different animation techniques per segment for maximum engagement
-
-📚 ANIMATION REFERENCE:
-{self.animation_reference}
-
-🎯 CRITICAL LAYOUT REQUIREMENTS for {self.config.aspect_ratio}:
-{layout_guide}
-
-🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES (MUST FOLLOW):
-
-**⛔ WARNING: Elements going off-screen is the #1 video generation failure cause!**
-
-1. **MANDATORY TEXT WIDTH CONSTRAINT (PREVENTS OFF-SCREEN):**
-   - ⚠️ EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
-   - ⛔ NO EXCEPTIONS - even single words need scaling
-   - ⛔ FORBIDDEN: Creating Text without .scale_to_fit_width() call
-   - Example: 
-     ```python
-     title = Text("Title", font_size=48)
-     title.scale_to_fit_width({max_text_width})  # MANDATORY - DO NOT SKIP!
-     ```
-
-2. **STRICT FONT SIZE LIMITS (PREVENTS OVERFLOW):**
-   - ⛔ Titles: ABSOLUTE MAX {max_font_title}px (exceeding this = off-screen)
-   - ⛔ Body text: ABSOLUTE MAX {max_font_body}px (exceeding this = off-screen)
-   - ⛔ Small text: ABSOLUTE MAX {max_font_body - 6}px
-   - Using larger sizes will push elements beyond screen boundaries!
-
-3. **MANDATORY VERTICAL SPACING (PREVENTS OVERLAP/OFF-SCREEN):**
-   - ⛔ MINIMUM 1.5 units between ANY two text objects
-   - ✅ Use .next_to(other_object, DOWN, buff=1.5) or similar
-   - ❌ NEVER place text closer than 1.5 units vertically
-   - Example: 
-     ```python
-     title.move_to(UP * 2.5)    # Safe position
-     content.move_to(ORIGIN)    # 2.5 units apart - GOOD
-     # ❌ BAD: content.move_to(UP * 1.5)  # Only 1 unit apart - TOO CLOSE!
-     ```
-     
-4. **HORIZONTAL SPACING (PREVENTS OFF-SCREEN):**
-   - ⛔ MANDATORY: Leave 1 unit margin from left/right edges
-   - ✅ Objects side-by-side: minimum 2 units apart horizontally
-   - ✅ Use .shift(LEFT * 3) or .shift(RIGHT * 3) for separation
-   - ❌ NEVER: .shift(LEFT * 8) or .shift(RIGHT * 8) - goes off-screen!
-
-5. **⛔ FORBIDDEN POSITIONS (WILL GO OFF-SCREEN - NEVER USE):**
-   - ❌ UP * 3.5 or higher (goes off top of screen)
-   - ❌ DOWN * 3.5 or lower (goes off bottom of screen)
-   - ❌ LEFT * 7 or beyond (goes off left edge)
-   - ❌ RIGHT * 7 or beyond (goes off right edge)
-
-6. **✅ SAFE POSITION GRID (USE ONLY THESE):**
-   For {self.config.aspect_ratio}:
-   - ✅ TOP zone: UP * 2.5, UP * 2, UP * 1.5 (SAFE)
-   - ✅ MIDDLE zone: UP * 0.5, ORIGIN, DOWN * 0.5 (SAFE)
-   - ✅ BOTTOM zone: DOWN * 1.5, DOWN * 2, DOWN * 2.5 (SAFE)
-   - ⛔ NEVER use UP * 4, DOWN * 4 or beyond!
-
-7. **TEXT LENGTH HANDLING (PREVENTS OVERFLOW):**
-   - Text > 50 chars: MUST split into 2-3 Text objects, stack vertically
-   - Text > 100 chars: MUST split into 3-4 Text objects
-   - Use smaller font_size for long text (reduce by 20%)
-   - Each piece MUST have .scale_to_fit_width()
-
-8. **SAFE POSITIONING CHECKLIST (VERIFY BEFORE SUBMITTING):**
-   ✓ Every text has .scale_to_fit_width({max_text_width})
-   ✓ Font sizes within absolute limits
-   ✓ Vertical spacing >= 1.5 units
-   ✓ Horizontal margin >= 1 unit from edges
-   ✓ Using ONLY safe positions (UP*2.5 max, DOWN*2.5 max)
-   ✓ No forbidden positions (UP*4, DOWN*4, LEFT*8, RIGHT*8)
-   ✓ Long text split into multiple lines
-
-📐 PROFESSIONAL EXAMPLE (COPY THIS PATTERN FOR STUNNING RESULTS):
-```python
-# ✨ PROFESSIONAL: Engaging animations, perfect audio-video sync, beautiful styling
-
-# 1. DRAMATIC TITLE REVEAL (matches narration opening)
-title = Text("Educational Topic", font_size={max_font_title}, weight=BOLD)
-title.set_color_by_gradient(BLUE, PURPLE)  # Gradient = professional!
-title.scale_to_fit_width({max_text_width})  # MANDATORY
-title.move_to(UP * {"6" if self.config.aspect_ratio == "9:16" else "3"})  # TOP zone
-self.play(DrawBorderThenFill(title, run_time=1.5), rate_func=smooth)  # Smooth entry
-self.play(Circumscribe(title, color=YELLOW, buff=0.2))  # Emphasize title
-self.wait(0.3)  # Let it breathe
-
-# 2. SUBTITLE WITH STYLE (appears as narration mentions key concept)
-subtitle = Text("Key Concept", font_size={max_font_body}, color=YELLOW)
-subtitle.scale_to_fit_width({max_text_width})  # MANDATORY  
-subtitle.move_to(UP * {"2" if self.config.aspect_ratio == "9:16" else "1"})  # MIDDLE zone, 1.5+ units below
-self.play(Write(subtitle, run_time=1.2))  # Classic write effect
-self.wait(0.3)
-
-# 3. CONTENT WITH EMPHASIS (synced with narration explaining main point)
-content = Text("Main point here", font_size={max_font_body})
-content.scale_to_fit_width({max_text_width})  # MANDATORY
-content.move_to({"ORIGIN" if self.config.aspect_ratio == "9:16" else "DOWN * 0.5"})  # MIDDLE zone
-self.play(FadeIn(content, shift=DOWN*0.5, run_time=1.0))  # Slide in smoothly
-self.play(Flash(content, color=YELLOW), Indicate(content, scale_factor=1.2))  # Attention!
-self.wait(0.4)
-
-# 4. INTERACTIVE TRANSFORMATION (creates visual interest)
-circle = Circle(radius=0.8, color=BLUE)
-circle.set_fill(BLUE, opacity=0.7)  # Semi-transparent fill
-circle.set_stroke(WHITE, width=3)  # White outline
-circle.move_to(DOWN * {"4" if self.config.aspect_ratio == "9:16" else "2.5"})  # BOTTOM zone
-self.play(GrowFromCenter(circle, run_time=1.2))  # Grow animation
-self.wait(0.2)
-
-# 5. MORPH FOR ENGAGEMENT (circle transforms to square)
-square = Square(side_length=1.5, color=GREEN).move_to(circle.get_center())
-square.set_fill(GREEN, opacity=0.7)
-self.play(Transform(circle, square, run_time=1.3))  # Smooth morph
-self.wait(0.3)
-
-# 6. CLEAN EXIT
-everything = VGroup(title, subtitle, content, circle)
-self.play(FadeOut(everything, shift=DOWN*0.5, run_time=1.0))  # Smooth exit
-```
-
-💡 NOTICE THE DIFFERENCE:
-  ✅ Multiple animation types (DrawBorderThenFill, Write, FadeIn, GrowFromCenter, Transform)
-  ✅ Color gradients and styling (set_color_by_gradient, set_fill, set_stroke)
-  ✅ Emphasis effects (Circumscribe, Flash, Indicate)
-  ✅ Smooth timing (rate_func=smooth, strategic wait() calls)
-  ✅ Professional pacing (run_time 1.0-1.5s, not rushed)
-  ✅ Interactive transformations (Transform, ReplacementTransform for dynamic feel)
-  ✅ Perfect audio-video sync (visuals match narration timing)
-  ✅ Visual variety keeps viewer engaged and entertained!
-
-❌ WRONG EXAMPLES (NEVER DO THIS - CAUSES OFF-SCREEN ELEMENTS):
-```python
-# ❌ BAD #1: No scale_to_fit_width - TEXT GOES OFF-SCREEN!
-title = Text("Long title here", font_size=48)
-title.move_to(UP * 2)  # FATAL ERROR! Missing .scale_to_fit_width() - text will be invisible!
-
-# ✅ CORRECT VERSION:
-title = Text("Long title here", font_size=48)
-title.scale_to_fit_width(config.frame_width * 0.85)  # NOW it fits on screen!
-title.move_to(UP * 2)
-
-# ❌ BAD #2: Extreme position - GOES OFF-SCREEN!
-title.move_to(UP * 4)  # FATAL! Goes above screen boundary - invisible!
-subtitle.move_to(DOWN * 4)  # FATAL! Goes below screen boundary - invisible!
-
-# ✅ CORRECT VERSION:
-title.move_to(UP * 2)  # Safe position - stays visible
-subtitle.move_to(DOWN * 2)  # Safe position - stays visible
-
-# ❌ BAD #3: Objects too close - OVERLAP OR GO OFF-SCREEN!
-title.move_to(UP * 2)
-subtitle.move_to(UP * 1.5)  # WRONG! Only 0.5 units apart (minimum is 1.5) - causes overlap!
-
-# ✅ CORRECT VERSION:
-title.move_to(UP * 2)
-subtitle.move_to(ORIGIN)  # 2 units apart - safe spacing!
-
-# ❌ BAD #4: Exceeded font size - OVERFLOWS OFF-SCREEN!
-huge_text = Text("Text", font_size=72)  # FATAL! Exceeds {max_font_title}px limit - will overflow!
-
-# ✅ CORRECT VERSION:
-text = Text("Text", font_size={max_font_title})
-text.scale_to_fit_width(config.frame_width * 0.85)  # Safe and visible!
-
-# ❌ BAD #5: Long text not split - GOES OFF-SCREEN!
-long_text = Text("This is a very long sentence that will definitely overflow", font_size=36)
-# FATAL! Long text without splitting or scaling - invisible!
-
-# ✅ CORRECT VERSION:
-line1 = Text("This is a very long sentence", font_size=36)
-line1.scale_to_fit_width(config.frame_width * 0.85)
-line1.move_to(UP * 1.5)
-line2 = Text("that will definitely overflow", font_size=36)
-line2.scale_to_fit_width(config.frame_width * 0.85)
-line2.move_to(ORIGIN)  # Split into multiple lines, both scaled!
-
-# ❌ BAD #6: Horizontal overflow - GOES OFF LEFT/RIGHT EDGE!
-text.move_to(LEFT * 8)  # FATAL! Too far left - invisible!
-text.move_to(RIGHT * 8)  # FATAL! Too far right - invisible!
-
-# ✅ CORRECT VERSION:
-text.move_to(LEFT * 3)  # Safe horizontal position
-text.move_to(RIGHT * 3)  # Safe horizontal position
-```
-
-**🚨 REMEMBER: Every mistake above makes elements INVISIBLE to viewers!**
-**✅ ALWAYS use .scale_to_fit_width() and SAFE positions!**
-
-🎬 PROFESSIONAL ANIMATION REQUIREMENTS:
-═══════════════════════════════════════════════════════════════
-✨ MANDATORY TECHNIQUES (Use 5-8 per segment for maximum engagement):
-  1. ENTRY ANIMATIONS:
-     - Write(), DrawBorderThenFill(), GrowFromCenter() for text
-     - Create(), FadeIn(shift=DOWN*0.5), Succession() for shapes
-     - SpinInFromNothing(), GrowFromEdge() for dynamic reveals
-     - NO plain text.move_to() without animation!
-  
-  2. EMPHASIS EFFECTS (Use on key points!):
-     - Circumscribe(color=YELLOW, buff=0.2)
-     - Flash(color=YELLOW, flash_radius=0.5)
-     - Indicate(scale_factor=1.2-1.3)
-     - Wiggle() for playful emphasis
-     - ApplyWave() for attention-grabbing effects
-  
-  3. INTERACTIVE TRANSFORMATIONS (CRITICAL for engagement!):
-     - Transform(obj1, obj2) for morphing between shapes
-     - ReplacementTransform() for smooth replacements
-     - TransformMatchingShapes() for complex transitions
-     - Rotate(), Scale(), Shift() with .animate for fluid motion
-     - These create the "interactive feel" users want!
-  
-  4. PROFESSIONAL STYLING:
-     - Use .set_color_by_gradient(COLOR1, COLOR2) for titles
-     - Add .set_stroke(WHITE, width=2-3) for text outlines
-     - Use .set_fill(COLOR, opacity=0.7-0.9) for shapes
-     - SurroundingRectangle for boxing key content
-     - BackgroundRectangle for text readability
-  
-  5. SMOOTH TRANSITIONS:
-     - Always use rate_func=smooth
-     - run_time between 1.2-1.8 seconds (not too fast!)
-     - Use .animate.shift().scale() for movements
-     - AnimationGroup with lag_ratio=0.2-0.3 for sequences
-     - Succession() for cascading reveals
-  
-  6. TIMING & PACING (CRITICAL for audio-video sync!):
-     - Add self.wait(0.3-0.5) between major sections
-     - Use different speeds: quick emphasis (0.8s), standard (1.2s), dramatic (1.8s)
-     - Total animation time should match segment duration
-     - Spread animations evenly - don't cluster at start/end
-     - Never rush - let animations breathe!
-
-🎨 VISUAL EXCELLENCE CHECKLIST:
-  ✅ Use gradients on titles (set_color_by_gradient)
-  ✅ Add emphasis to key points (Circumscribe/Flash)
-  ✅ Smooth entry animations (Write, DrawBorderThenFill)
-  ✅ Professional colors (not plain white/black)
-  ✅ Sequenced reveals (lag_ratio for lists)
-  ✅ Strategic wait times (0.3-0.5s pauses)
-  ✅ Interactive transformations (Transform, ReplacementTransform)
-  ✅ Dynamic movements (Rotate, Scale with .animate)
-  ✅ Clean exits (FadeOut with shift)
-  ✅ Perfect audio-video sync (visuals match narration)
-  ✅ 5-8 different animation types per segment
-
-❌ AVOID (These make videos look amateur):
-  ❌ Only FadeIn/FadeOut (boring!)
-  ❌ No emphasis on key points
-  ❌ Rushed animations (run_time < 0.8s)
-  ❌ Plain white text only
-  ❌ No color variety
-  ❌ No transformations or morphing
-  ❌ Static objects (everything should animate!)
-  ❌ Visuals don't match narration content
-  ❌ Jerky movements (missing rate_func=smooth)
-
-Technical Requirements:
-- Class name: GeneratedAnimation{segment_number}
-- Duration exactly {segment.duration} seconds
-- EVERY text object MUST have .scale_to_fit_width({max_text_width})
-- Minimum 1.5 units vertical spacing between text objects
-- Maximum {max_font_title}px for titles, {max_font_body}px for body
-- Use 3-5 different animation techniques minimum
-
-Output format:
-from manim import *
-
-{aspect_ratio_config}
-
-class GeneratedAnimation{segment_number}(Scene):
-    def construct(self):
-        # Your code - REMEMBER: No overlaps, proper spacing, scale_to_fit_width() for ALL text!
-        self.wait({segment.duration})
-"""
+        prompt = format_manim_execution_prompt(
+            index=segment_number - 1,
+            duration=segment.duration,
+            aspect_ratio=self.config.aspect_ratio,
+            narration=segment.text,
+            scene_direction=direction,
+            aspect_ratio_config=aspect_ratio_config,
+            animation_reference=getattr(self, 'animation_reference', ''),
+            allowed_attributes=getattr(self, 'allowed_attributes', ''),
+            allowed_colors=getattr(self, 'allowed_colors', ''),
+        )
         
         max_retries = 3
         for attempt in range(max_retries):
@@ -1392,45 +1162,12 @@ class GeneratedAnimation{segment_number}(Scene):
         if not self.groq_client:
             return broken_script
         
-        prompt = f"""You are a STRICT code repair engine.
-
-The script below FAILED at runtime.
-Your job is to FIX ERRORS ONLY.
-
-ABSOLUTE RULES:
-- DO NOT change visuals
-- DO NOT change layout
-- DO NOT change positions
-- DO NOT change animation order
-- DO NOT change timing or duration
-- DO NOT add or remove objects
-- DO NOT add new animations
-- DO NOT remove scale_to_fit_width calls
-- DO NOT introduce creativity
-
-ALLOWED FIXES ONLY:
-- Syntax errors
-- Missing imports
-- Incorrect Manim API usage
-- Attribute or method name errors
-- Runtime exceptions
-
-You MUST preserve:
-- Aspect ratio behavior
-- Object count
-- Object positions
-- Total duration EXACTLY
-
-Return the FULL corrected Python script.
-Return ONLY raw code.
-No explanations.
-
-ERROR:
-{error_context}
-
-SCRIPT:
-{broken_script}
-"""
+        prompt = format_error_correction_minimal_prompt(
+            index=0,  # Groq correction doesn't track segment index
+            duration=segment.duration if segment else 10.0,
+            error=error_context,
+            script=broken_script,
+        )
         
         try:
             chat_completion = self.groq_client.chat.completions.create(
@@ -1595,14 +1332,14 @@ SCRIPT:
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, class_name,  # Use correct class name
-                "-qm",                        # HIGH quality: 1080p60 (professional output)
+                "-qh",                        # HIGH quality: 1080p60 (professional output)
                 "--format", "mp4",
                 "--disable_caching",          # Disable caching to save RAM
                 "--flush_cache",              # Clear cache after render
                 "--renderer=cairo",           # Cairo renderer for better quality
             ]
             
-            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (480p15 -ql quality - E2.Micro optimized)")
+            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (1080p60 -qh quality - professional output)")
             
             # Stream output with progress bar
             process = subprocess.Popen(
@@ -1680,19 +1417,19 @@ SCRIPT:
             full_output = '\n'.join(output_lines) if output_lines else "No output captured"
             return None, f"❌ Manim failed with code {process.returncode}:\n{full_output}"
 
-        # Expected output file path - 480p15 quality (-ql flag) outputs to 480p15 folder
+        # Expected output file path - 1080p60 quality (-qh flag) outputs to 1080p60 folder
         if segment_index is not None:
             # Manim outputs video with the class name as filename
             # Expected: Segment000.mp4, Segment001.mp4, etc.
             class_name = f"Segment{segment_index:03d}"
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / f"{class_name}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / f"{class_name}.mp4"
             
             if expected_path.exists():
                 logger.info(f"✅ Found video: {expected_path}")
                 return str(expected_path), None
             
             # Fallback 1: Check if it was saved as Scene.mp4 (shouldn't happen with correct class name)
-            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "480p15" / "Scene.mp4"
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / "Scene.mp4"
             if scene_path.exists():
                 logger.info(f"✅ Found as Scene.mp4, renaming to {class_name}.mp4")
                 scene_path.rename(expected_path)
@@ -1993,6 +1730,10 @@ SCRIPT:
             segments = self.generate_narration_segments(topic, duration)
             logger.info(f"Generated {len(segments)} narration segments")
             logger.info(segments)
+
+            # Step 1.5: Generate scene directions (Director layer)
+            segments = self.generate_scene_directions(segments)
+            logger.info(f"Generated scene directions for {len(segments)} segments")
             
             # Step 2: Generate ALL audio files
             segments = self.generate_all_audio_segments(segments)
@@ -2851,85 +2592,40 @@ def _clean_script_for_execution(script_content: str, index: int) -> str:
 def _fix_script_errors_with_openrouter(script_content: str, error: str, index: int, openrouter_key_manager, aspect_ratio: str = "16:9", segment_data: dict = None) -> str:
     """
     STAGE 4: Script Correction with OpenRouter (Structural Repair Only)
-    
-    Fix script errors using OpenRouter AI with automatic key rotation.
+    Uses prompt registry for consistent error correction.
     """
     try:
         model_name = "qwen/qwen3-coder:free"
-        
-        # Generate aspect ratio config for reference
-        aspect_ratio_configs = {
-            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
-            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
-            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
-            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
-        }
-        config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
-        aspect_ratio_config = f"""# Aspect Ratio Configuration: {aspect_ratio}
-config.frame_width = {config['frame_width']}
-config.frame_height = {config['frame_height']}
-config.pixel_width = {config['pixel_width']}
-config.pixel_height = {config['pixel_height']}
-"""
         
         # Extract locked constraints
         locked_constraints = ""
         if segment_data:
             narration = segment_data.get('narration', '')
             duration = segment_data.get('duration', 10.0)
-            locked_constraints = f"""
-⚠️ STAGE 4 CONSTRAINTS (ABSOLUTE - CANNOT VIOLATE):
-1. Audio duration is LOCKED at {duration:.2f}s - total animation time MUST equal this
-2. Narration text is READ-ONLY: "{narration}"
-3. You can ONLY fix technical errors (syntax, Manim API, layout, overlap)
-4. You CANNOT change visual concepts, timing semantics, or animation intent
-5. Fix the error while preserving the original animation structure
+            locked_constraints = f"""STAGE 4 CONSTRAINTS (ABSOLUTE):
+1. Audio duration LOCKED at {duration:.2f}s
+2. Narration READ-ONLY: "{narration}"
+3. Fix ONLY technical errors
 """
         
-        correction_prompt = f"""You are fixing a broken Manim script.
-
-🚨 CRITICAL: PREVENT OFF-SCREEN ELEMENTS!
-
-Your task:
-- Fix runtime, syntax, or Manim API errors ONLY
-- Do NOT change layout, pacing, or animation meaning
-- Do NOT add or remove scene elements
-- Do NOT change aspect ratio logic
-- **MANDATORY: Preserve ALL scale_to_fit_width() calls**
-- **MANDATORY: Keep positions within safe bounds**
-
-⛔ STRICTLY FORBIDDEN CHANGES:
-- Removing .scale_to_fit_width() calls (causes off-screen text)
-- Using positions like UP*5, DOWN*5, LEFT*8, RIGHT*8 (goes off-screen)
-- Increasing font sizes beyond limits (causes overflow)
-- Reducing vertical spacing below 1.0 units (causes overlap)
-- Adding FadeOut for all elements at the end (causes blank screen)
-
-✅ REQUIRED VALIDATIONS:
-1. Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
-2. Positions MUST stay within safe bounds: UP*3.5 max, DOWN*3.5 max, LEFT*6 max, RIGHT*6 max
-3. Font sizes MUST NOT exceed limits (title: 56px, body: 42px)
-4. Vertical spacing MUST be >= 1.0 units between text objects
-
-Constraints:
-- Total animation time must remain unchanged
-- Scene structure must remain identical
-- Fix errors minimally and deterministically
-- **DO NOT break visibility - all elements must stay on-screen**
-
-Output ONLY the full corrected Python code.
-No explanations.
-
-ERROR LOG:
-{error}
-
-BROKEN SCRIPT:
-{script_content}
-
-**REMINDER: Verify every Text has .scale_to_fit_width() before submitting!**
-"""
+        # Get frame dimensions for aspect ratio
+        aspect_configs = {
+            "16:9": (16, 9), "9:16": (9, 16),
+            "1:1": (1, 1), "4:3": (4, 3),
+        }
+        fw, fh = aspect_configs.get(aspect_ratio, (16, 9))
         
-        # Use execute_with_rotation for automatic key rotation on rate limits
+        correction_prompt = format_error_correction_prompt(
+            index=index,
+            duration=segment_data.get("duration", 10.0) if segment_data else 10.0,
+            aspect_ratio=aspect_ratio,
+            error=error,
+            script=script_content,
+            frame_width=fw,
+            frame_height=fh,
+            locked_constraints=locked_constraints,
+        )
+        
         def call_openrouter(client):
             response = client.chat.completions.create(
                 model=model_name,
@@ -2952,72 +2648,32 @@ BROKEN SCRIPT:
             end_idx = corrected_script.rfind(end_marker)
             if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                 corrected_script = corrected_script[start_idx:end_idx].strip()
-        logger.info(f"✅ Script {index+1} corrected using OpenRouter")
+        logger.info(f"Script {index+1} corrected using OpenRouter")
         return corrected_script
         
     except Exception as e:
-        logger.warning(f"⚠️ OpenRouter script correction failed: {e}")
+        logger.warning(f"OpenRouter script correction failed: {e}")
+        return script_content
 
 def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "16:9", segment_data: dict = None, model_name: str = "llama-3.1-8b-instant") -> str:
     """
     STAGE 3: Script Correction with Groq (Structural Repair Only).
-    Uses llama-3.1-8b-instant model.
+    Uses prompt registry for consistent error correction.
     """
     try:
         from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
         
-        aspect_ratio_configs = {
-            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
-            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
-            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
-            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
-        }
-        config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
-        
-        locked_constraints = ""
+        duration = 10.0
         if segment_data:
-            narration = segment_data.get('narration', '')
-            duration = segment_data.get('duration', 10.0)
-            locked_constraints = f"""
-STAGE 3 CONSTRAINTS (ABSOLUTE):
-1. Audio duration LOCKED: {duration:.2f}s
-2. Narration READ-ONLY: \"{narration}\"
-3. Fix ONLY technical errors (syntax, Manim API, layout)
-4. CANNOT change visual concepts, timing, animation intent
-"""
+            duration = segment_data.get("duration", 10.0)
         
-        prompt = f"""Fix this Manim script's technical errors.
-
-🚨 CRITICAL: PREVENT OFF-SCREEN ELEMENTS!
-
-⛔ STRICTLY FORBIDDEN:
-- Removing .scale_to_fit_width() calls (causes text to go off-screen)
-- Using extreme positions: UP*5, DOWN*5, LEFT*8, RIGHT*8 (goes off-screen)
-- Font sizes exceeding limits (causes overflow)
-- Spacing < 1.0 units between text (causes overlap/off-screen)
-- Adding FadeOut for all elements at end (causes blank screen)
-
-✅ REQUIRED:
-- Every Text object MUST have .scale_to_fit_width(config.frame_width * 0.85)
-- Positions within safe bounds: UP*3.5 max, DOWN*3.5 max, LEFT*6 max, RIGHT*6 max
-- Font sizes within limits
-- Vertical spacing >= 1.0 units
-
-{locked_constraints}
-
-Error: {error}
-
-Script:
-```python
-{script_content}
-```
-
-Return corrected Python code only. No markdown. No explanations.
-Class name: Segment{index:03d}
-Aspect ratio: {aspect_ratio}
-Config: frame_width={config['frame_width']}, frame_height={config['frame_height']}
-"""
+        prompt = format_error_correction_minimal_prompt(
+            index=index,
+            duration=duration,
+            error=error,
+            script=script_content,
+        )
         
         chat_completion = groq_client.chat.completions.create(
             model=model_name,
@@ -3033,15 +2689,14 @@ Config: frame_width={config['frame_width']}, frame_height={config['frame_height'
             end_idx = corrected_script.rfind(end_marker)
             if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                 corrected_script = corrected_script[start_idx:end_idx].strip()
-        # Remove all existing triple backticks from the corrected script
         corrected_script = re.sub(r"```+", "", corrected_script)
-        logger.info(f"✅ Script {index+1} corrected using Groq")
+        logger.info(f"Script {index+1} corrected using Groq")
         return corrected_script
         
     except Exception as e:
-        logger.warning(f"⚠️ Groq correction failed: {e}")
+        logger.warning(f"Groq correction failed: {e}")
         return script_content
-    
+
 def stitch_segment_worker_no_sync(args):
     """
     Stitches video and audio for a segment using matching index to avoid mismatches.
@@ -3117,8 +2772,9 @@ def recover_missing_video_paths(segments: List[NarrationSegment]) -> int:
             # Try to find the video in standard output location
             possible_paths = [
                 Path(f"output/segment_{i:03d}/Segment{i:03d}.mp4"),
-                Path(f"temp/media/videos/segment_{i:03d}/480p15/Segment{i:03d}.mp4"),
+                Path(f"temp/media/videos/segment_{i:03d}/1080p60/Segment{i:03d}.mp4"),
                 Path(f"temp/media/videos/segment_{i:03d}/720p30/Segment{i:03d}.mp4"),
+                Path(f"temp/media/videos/segment_{i:03d}/480p15/Segment{i:03d}.mp4"),
             ]
             
             for possible_path in possible_paths:
@@ -3483,6 +3139,8 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                 if not quality_segments:
                     logger.warning("❌ Quality pipeline failed, falling back to legacy generation")
                     segments = await self._generate_narration_segments_with_gemini(topic, duration)
+                    # Director layer: generate scene directions
+                    segments = self.generate_scene_directions(segments)
                 else:
                     # Convert quality segments to regular NarrationSegment format
                     segments = []
@@ -3498,10 +3156,56 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                         seg._quality_spec = qs.scene_spec
                         segments.append(seg)
                     
-                    logger.info(f"✅ Generated {len(segments)} quality segments with scene specs")
+                    # ── VISUAL CONTRACT for quality segments ──
+                    # Run concept visualizer on quality segments too — the contract
+                    # ensures the quality pipeline doesn't downgrade simulation into diagrams
+                    logger.info("🔒 Creating visual contracts for quality segments...")
+                    q_segments_data = []
+                    for i, seg in enumerate(segments):
+                        q_segments_data.append({
+                            "segment_number": i + 1,
+                            "duration": seg.duration,
+                            "idea": seg.visual_description[:80],
+                            "narration": seg.text,
+                            "visual_intent": seg.visual_description,
+                            "layout_strategy": "process_flow",
+                        })
+                    
+                    q_visual_models = generate_visual_models_batch(q_segments_data)
+                    for i, vm in enumerate(q_visual_models):
+                        if i < len(segments):
+                            contract = contract_from_visualizer(vm)
+                            segments[i].visual_contract = serialize_contract(contract)
+                            logger.info(
+                                f"    QSeg {i+1}: depiction={contract.get('depiction_mode', '?')}, "
+                                f"model={contract.get('visual_model', '?')}"
+                            )
+                    
+                    # Validate quality specs against visual contracts
+                    for i, seg in enumerate(segments):
+                        spec = getattr(seg, '_quality_spec', None)
+                        contract_json = getattr(seg, 'visual_contract', None)
+                        if spec and contract_json:
+                            try:
+                                contract = deserialize_contract(contract_json)
+                                spec_dict = spec.to_dict() if hasattr(spec, 'to_dict') else {}
+                                passed, issues = validate_quality_spec_against_contract(spec_dict, contract)
+                                if not passed:
+                                    issues_str = ", ".join(issues)
+                                    logger.warning(
+                                        f"    ⚠️ QSeg {i+1} spec vs contract: {issues_str}"
+                                    )
+                                else:
+                                    logger.info(f"    ✓ QSeg {i+1} spec passes contract check")
+                            except Exception as e:
+                                logger.debug(f"    Spec contract check skipped for seg {i+1}: {e}")
+                    
+                    logger.info(f"✅ Generated {len(segments)} quality segments with scene specs + contracts")
             else:
                 # Step 1: Generate all narration segments (LEGACY)
                 segments = await self._generate_narration_segments_with_gemini(topic, duration)
+                # Director layer: generate scene directions
+                segments = self.generate_scene_directions(segments)
             
             logger.info(f"🧾 {len(segments)} segments generated.")
 
@@ -3535,16 +3239,20 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                         visual_description=seg.visual_description,
                         audio_path=seg.audio_path,
                         _audio_duration_final=getattr(seg, '_audio_duration_final', seg.duration),
-                        scene_spec=seg._quality_spec
+                        scene_spec=seg._quality_spec,
+                        visual_contract=getattr(seg, 'visual_contract', None),
                     )
                     quality_segs.append(qs)
                 
                 # Generate scripts from specs
                 scripts = generate_quality_scripts_bulk(quality_segs, self.config.aspect_ratio)
                 
-                # Assign scripts to segments
+                # Assign scripts to segments + contract validation gate
                 for i, (seg, script) in enumerate(zip(segments, scripts)):
                     if script:
+                        # Script-level contract validation for quality pipeline
+                        self._validate_script_against_contract(script, seg, i)
+                        
                         # Save script to file
                         script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
                         with open(script_path, 'w', encoding='utf-8') as f:
@@ -3615,121 +3323,13 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             logger.error("❌ Gemini client not initialized - cannot generate narration")
             raise RuntimeError("Gemini client required for STAGE 1: Narration Generation")
         
-        # Determine tone based on video type
-        is_short = getattr(self.config, 'video_type', 'regular') == 'short'
-        
-        if is_short:
-            tone_guide = """ULTRA FRIENDLY & CONVERSATIONAL - Like a friend explaining:
-- Use casual language: "Hey!", "So basically...", "Here's the cool part..."
-- Add personality: "Trust me on this", "You're gonna love this"
-- Use "you" and "we" to create connection
-- Use contractions: "it's", "you're", "that's"
-- Ask engaging questions: "Ever wonder why...?", "Cool, right?"
-"""
-        else:
-            tone_guide = "Clear, professional, and educational with a warm tone"
-        
-        # Calculate expected number of segments (fewer, longer segments = better pacing)
-        expected_segments = max(3, round(duration / 15))  # Aim for ~15s per segment
-        
-        # STAGE 1: Conversational prompt focusing on COMPLETE narration coverage
-        prompt = f"""
-Create a narration script for a {duration}-second educational video about "{topic}".
-
-**PERSONALITY & VOICE:**
-{tone_guide}
-
-**DURATION MATH (CRITICAL - FOLLOW EXACTLY!):**
-- Target total: {duration} seconds
-- Number of segments needed: {expected_segments}
-- Each segment duration: ~{duration // expected_segments} seconds
-- The SUM of all segment durations MUST equal EXACTLY {duration} seconds!
-
-**REQUIREMENTS:**
-1. Create EXACTLY {expected_segments} segments
-2. Each segment: {duration // expected_segments - 2} to {duration // expected_segments + 2} seconds
-3. SUM of all durations MUST = {duration} seconds (NOT LESS!)
-4. Format for {self.config.aspect_ratio} aspect ratio
-5. Thank "Code Tapasya" at the end
-6. Make it feel like a friend explaining, NOT a boring lecture!
-
-**OUTPUT FORMAT (STRICT - FOLLOW EXACTLY):**
-
-SEGMENT [number]: [duration in seconds]
-VISUALS: [Brief animation description - 1-2 sentences max]
-NARRATION: [What will be spoken - friendly and engaging]
-
-**VISUAL DESCRIPTION RULES (CRITICAL — THIS DRIVES THE ENTIRE ANIMATION!):**
-🎬 CINEMATIC DIRECTIVE: You are directing an animated short film, NOT creating slides.
-Every motion MUST advance the narrative. Static screen >0.8s = FAILURE.
-🔥 Solutions A-G: No element idle >2s (continuous momentum), camera guides attention (zoom/pan/focus),
-causal transforms (morph/evolve, not replace), energy peaks every 5-7s (burst of simultaneous animations),
-interaction-first (every beat triggers MOVE/TRANSFORM/emphasis), scaling hierarchy (primary=largest),
-motion variety (NEVER same animation twice consecutively).
-H. SPATIAL SAFETY: Max 4-5 elements per scene. Keep within 90% screen bounds. 5% margins. Compact types for secondary items. No element >40% screen width!
-- The VISUAL line is the BLUEPRINT for the animation. If you write vague visuals, you get vague boring boxes flying around.
-- DESCRIBE EXACTLY WHAT SHOULD APPEAR on screen to illustrate the narration.
-- NAME the specific objects: "a glass card titled 'API Gateway'", "a code block showing the function", "an icon badge with a lock symbol"
-- DESCRIBE the MOTION that tells the story: "Arrow DRAWS from Client to Server to show the request flow", "Progress bar FILLS from 0% to 100% as narration explains loading"
-- DESCRIBE INTERACTIONS: elements must CONNECT, SHIFT TOWARD each other, or REACT — not just sit in place
-- CONNECT visuals to narration words: "When narration says 'three layers', THREE stacked glass cards APPEAR one-by-one from top to bottom"
-- SPECIFY POSITIONS — use the FULL SCREEN: "at LEFT", "at RIGHT", "at top-center", "at bottom" — NEVER cram everything in center!
-- PROGRESSIVE BUILD: elements appear ONE AT A TIME as narration introduces them — never dump everything on screen at once!
-- For {self.config.aspect_ratio}: {"stack vertically, title at top, content in middle, summary at bottom" if self.config.aspect_ratio == "9:16" else "arrange horizontally, use the full width for side-by-side comparisons" if self.config.aspect_ratio == "16:9" else "center elements with balanced spacing"}
-
-**🏗️ LAYOUT PATTERNS — Choose based on what the narration describes:**
-• COMPARISON → Two elements at LEFT and RIGHT with different colors, arrow or "VS" between
-• PROCESS FLOW → 3+ elements arranged LEFT→CENTER→RIGHT with arrows DRAWING between them
-• HIERARCHY → Parent at TOP, children spread at BOTTOM, lines connecting them
-• DEFINITION → Large central card + orbiting detail pills around it
-• CAUSE & EFFECT → Element A at left → bold arrow → Element B at right
-
-**VISUAL DESCRIPTION FORMAT — BE SPECIFIC, NOT GENERIC:**
-
-✅ GOOD VISUALS (stories told through motion):
-- "Glass card titled 'Input' APPEARS at top-left → arrow DRAWS rightward → glass card titled 'Process' GROWS at center → arrow DRAWS → glass card titled 'Output' BOUNCES in at right. Each appears as narration mentions that step."
-- "Code block showing 'for item in list:' TYPES IN line-by-line. As each line appears, a NODE labeled with that variable GROWS beside it. When the loop completes, a CHECKMARK icon badge FLASHES."
-- "Two glass cards labeled 'Before' and 'After' SLIDE IN from opposite sides. A PROGRESS BAR between them FILLS as narration explains the improvement. The 'After' card PULSES with a GLOW when narration says 'faster'."
-- "Icon badge with '⚡' SPINS IN at center for the hook. Then it SHRINKS to top-corner as a BOUNDARY BOX labeled 'How It Works' GROWS to fill the screen. Inside the box, 3 TAG PILLS appear one-by-one as narration lists each benefit."
-
-❌ BAD VISUALS (result in random boxes moving around):
-- "Title bounces in with fun effect" (WHAT title? What does it say? WHY is it bouncing?)
-- "Diagram pops in" (WHAT diagram? What are the parts? What connections?)
-- "Elements appear and animate" (WHICH elements? Doing WHAT? Representing WHAT concept?)
-- "Colorful animation with icons" (This produces generic meaningless motion!)
-
-**NARRATION STYLE GUIDE (CRITICAL!):**
-
-✅ DO:
-- "Hey! So you wanna learn about {topic}? Let's break it down together!"
-- "Okay, here's the thing - most people overcomplicate this. But you and me? We're keeping it simple."
-- "Now THIS is where it gets really cool. Ready?"
-- "I know what you're thinking... 'That sounds complicated.' Nope! Check this out."
-- "Boom! That's literally it. Told you it was simpler than it sounds!"
-- "And hey, thanks for hanging out with me! Big shoutout to Code Tapasya!"
-
-❌ DON'T:
-- "In this video, we will explore..."  (Too formal)
-- "It should be noted that..."  (Too academic)
-- "The following demonstrates..."  (Boring)
-- "Variables are a fundamental concept..."  (Textbook style)
-
-**EXAMPLE (for a 45-second video with 3 segments):**
-
-SEGMENT 1: 15
-VISUALS: Icon badge with "?" SPINS IN at center (hook). Then glass card titled "{topic}" GROWS FROM CENTER below it. Tag pills labeled with 2-3 key terms BOUNCE IN below the card as narration mentions each concept.
-NARRATION: Hey! Ever wondered what {topic} is all about? I get it - sounds fancy, right? But here's a secret... it's actually pretty simple once you see it in action! Let me show you how this works.
-
-SEGMENT 2: 15
-VISUALS: Boundary box labeled "How It Works" SLIDES IN. Inside it, 3 NODES appear one-by-one (left→center→right) as narration explains each step. ARROWS DRAW between nodes to show the flow. When narration says "smart way", the center node PULSES with a golden GLOW.
-NARRATION: So basically, think of it like this - you know how you organize stuff in your room? Same idea here! You're just organizing code in a smart way. Pretty cool when you see it click, right?
-
-SEGMENT 3: 15
-VISUALS: Code block TYPES IN showing a 3-line example. As each line appears, a GREEN CHECKMARK icon badge POPS IN beside it. When all lines are done, the entire code block ZOOMS OUT slightly and a glass card titled "Result" GROWS below it with the output. Final FLASH emphasis on the result.
-NARRATION: Here's the cool part - watch what happens when we do this. Boom! That's literally it. Told you it was simpler than it sounds! Thanks for hanging with me - shoutout to Code Tapasya!
-
-**NOW GENERATE {expected_segments} SEGMENTS for "{topic}" that ADD UP TO EXACTLY {duration} SECONDS:**
-"""
+        # STAGE 1: Use narrative director prompt from registry
+        expected_segments = max(3, round(duration / 15))  # For duration validation later
+        prompt = format_narrative_prompt(
+            topic=topic,
+            duration=duration,
+            aspect_ratio=self.config.aspect_ratio
+        )
         
         # Try generation with retry logic
         for attempt in range(2):
@@ -3751,25 +3351,11 @@ NARRATION: Here's the cool part - watch what happens when we do this. Boom! That
                     logger.error("❌ Gemini returned None response")
                     if attempt == 0:
                         logger.warning("⚠️ Retrying with simpler prompt...")
-                        seg_duration = duration // expected_segments
-                        prompt = f"""Create EXACTLY {expected_segments} segments for a {duration}-second narration about "{topic}".
-
-⛔ FORBIDDEN: More or less than {expected_segments} segments
-✅ REQUIRED: Each segment around {seg_duration} seconds
-✅ REQUIRED: All segment durations MUST add up to EXACTLY {duration} seconds
-
-Output format:
-SEGMENT 1: {seg_duration}
-VISUALS: brief concept
-NARRATION: spoken text
-
-SEGMENT 2: {seg_duration}
-VISUALS: brief concept  
-NARRATION: spoken text
-
-(continue for all {expected_segments} segments, total = {duration}s)
-
-START GENERATING:"""
+                        prompt = format_narrative_retry_prompt(
+                            topic=topic,
+                            duration=duration,
+                            aspect_ratio=self.config.aspect_ratio
+                        )
                         continue
                     raise RuntimeError("Gemini returned None after retry")
                 
@@ -3787,61 +3373,31 @@ START GENERATING:"""
                 
                 logger.info(f"📄 Gemini response received ({len(content)} chars)")
                 
-                # Parse segments with simple VISUALS format
-                segments = []
-                current_time = 0.0
+                # Parse JSON response (narrative director format)
+                segments = self._parse_narrative_json(content, duration)
                 
-                # Match: SEGMENT X: Y\nVISUALS: ...\nNARRATION: ...
-                pattern = re.compile(
-                    r'SEGMENT\s+(\d+):\s*(\d+(?:\.\d+)?)\s*(?:seconds?)?\s*\n'
-                    r'\s*VISUALS?:\s*(.*?)\n'
-                    r'\s*NARRATION:\s*(.*?)(?=\n\s*SEGMENT\s+\d+:|$)',
-                    re.DOTALL | re.IGNORECASE
-                )
+                if not segments:
+                    # Fallback: try legacy SEGMENT: format
+                    logger.warning("⚠️ JSON parse failed, trying legacy format...")
+                    segments = self._parse_legacy_segments(content)
                 
-                matches = list(pattern.finditer(content))
-                logger.info(f"🔍 Found {len(matches)} segments")
+                logger.info(f"🔍 Found {len(segments)} segments")
                 
-                if len(matches) == 0:
+                if not segments:
                     logger.warning(f"⚠️ No segments parsed from response:\n{content[:500]}")
                     if attempt == 0:
                         logger.warning("⚠️ Retrying with clearer prompt...")
+                        prompt = format_narrative_retry_prompt(
+                            topic=topic,
+                            duration=duration,
+                            aspect_ratio=self.config.aspect_ratio
+                        )
                         continue
                     else:
-                        # Use fallback
                         logger.error("❌ Parsing failed after retry, using fallback")
                         return self._generate_fallback_segments(topic, duration)
                 
-                # Process matches and build segments
-                total_duration = 0.0
-                segment_count = 0
-                
-                for match in matches:
-                    segment_num = int(match.group(1))
-                    seg_duration = float(match.group(2))
-                    visuals = match.group(3).strip()
-                    narration = match.group(4).strip()
-                    
-                    # Clean emotion tags from narration
-                    narration = re.sub(r'\[.*?\]', '', narration).strip()
-                    
-                    # Validate segment duration (allow longer segments for better pacing)
-                    if seg_duration < 10 or seg_duration > 20:
-                        logger.warning(f"⚠️ Segment {segment_num} duration {seg_duration}s outside 10-20s range")
-                    
-                    segment = NarrationSegment(
-                        text=narration,
-                        start_time=current_time,
-                        end_time=current_time + seg_duration,
-                        duration=seg_duration,
-                        visual_description=visuals
-                    )
-                    segments.append(segment)
-                    current_time += seg_duration
-                    total_duration += seg_duration
-                    segment_count += 1
-                    
-                    logger.info(f"📋 Segment {segment_num}: {seg_duration}s | {narration[:50]}...")
+                total_duration = sum(s.duration for s in segments)
                 
                 # Validate total duration - REJECT if significantly over
                 if total_duration > duration + 5:
@@ -3849,17 +3405,11 @@ START GENERATING:"""
                     if attempt == 0:
                         logger.warning("⚠️ Retrying with stricter constraints...")
                         # Override prompt to be even more strict
-                        prompt = f"""STRICT CONSTRAINT: Create EXACTLY {expected_segments} segments for {duration}-second video about "{topic}".
-
-⛔ FORBIDDEN: Total > {duration} seconds
-⛔ FORBIDDEN: More than {expected_segments} segments
-
-REQUIRED FORMAT (each segment 12-14s):
-SEGMENT X: Y
-VISUALS: concept
-NARRATION: text
-
-YOU HAVE {expected_segments} SEGMENTS. TOTAL MUST = {duration}s. Generate NOW:"""
+                        prompt = format_narrative_retry_prompt(
+                            topic=topic,
+                            duration=duration,
+                            aspect_ratio=self.config.aspect_ratio
+                        )
                         continue
                     else:
                         logger.error("❌ Duration exceeded even after retry, truncating...")
@@ -4242,416 +3792,42 @@ YOU HAVE {expected_segments} SEGMENTS. TOTAL MUST = {duration}s. Generate NOW:""
         samples: str, allowed_attributes: str, 
         animation_reference: str, allowed_colors: str
     ) -> str:
-        """Build a comprehensive prompt for individual script generation."""
-        
+        """LAYER 3 — Build individual script prompt using registry."""
         aspect_ratio_config = self._get_aspect_ratio_config()
+        direction = getattr(segment, 'scene_direction', '') or f"Visual intent: {segment.visual_description}"
         
-        # Add personality hint for shorts
-        is_short = getattr(self.config, 'video_type', 'regular') == 'short'
+        # Inject visual_contract as MANDATORY context
+        if getattr(segment, 'visual_contract', None):
+            try:
+                contract = deserialize_contract(segment.visual_contract)
+                dep_mode = contract.get("depiction_mode", "simulation")
+                vis_model = contract.get("visual_model", "")
+                entities = contract.get("entities", [])
+                behaviors = contract.get("behaviors", [])
+                primitives = contract.get("animation_primitives", [])
+                direction += f"""
+
+[VISUAL CONTRACT — MANDATORY]
+  depiction_mode: {dep_mode}
+  visual_model: {vis_model}
+  entities: {', '.join(entities[:6])}
+  behaviors: {', '.join(behaviors[:6])}
+  animation_primitives: {', '.join(primitives[:6])}
+  RULE: ALL visual elements MUST come from these entities. Do NOT invent labeled boxes or diagram containers."""
+            except Exception:
+                pass
         
-        if is_short:
-            personality_section = """
-============================================================
-🎭 PERSONALITY & VIBE (CRITICAL FOR SHORTS!)
-============================================================
-
-This is a FUN, FRIENDLY YouTube Short - NOT a boring lecture!
-Your animations should feel:
-- PLAYFUL: Use bouncy rate_func (there_and_back), wiggles, spins
-- ENERGETIC: Quick entrances, punchy emphasis, satisfying reveals
-- INTERACTIVE: Like pointing at things while explaining to a friend
-- CELEBRATORY: Checkmarks pop, success flashes, completion pulses
-
-Animation personality techniques:
-- rate_func=there_and_back for bouncy text
-- rate_func=rush_into for punchy emphasis
-- Wiggle() and Circumscribe() to highlight key concepts
-- SpinInFromNothing() for fun reveals
-- Flash() and Indicate() for "look at this!" moments
-- ApplyMethod(obj.scale, 1.1) then back for attention pulses
-- GrowFromEdge(obj, LEFT) for sequential reveals
-- DrawBorderThenFill() for premium glass-card feel
-
-🏗️ CREATIVE LAYOUT RECIPES (Pick based on narration content!):
-
-COMPARISON (narration says "vs", "unlike", "compared to"):
-→ Two RoundedRectangles side-by-side at LEFT*4 and RIGHT*4
-→ Different colors (BLUE vs RED), arrows or "VS" badge between them
-→ Each appears when narration introduces that concept
-
-PROCESS FLOW (narration says "first", "then", "finally", "steps"):
-→ 3 elements arranged LEFT→CENTER→RIGHT
-→ Arrows DRAW between them as narration progresses
-→ Each step GrowFromCenter when narration mentions it
-
-HIERARCHY (narration says "types of", "categories", "includes"):
-→ Parent at UP*2, children spread at DOWN*1 (LEFT*3, ORIGIN, RIGHT*3)
-→ Lines connect parent to each child
-→ Children appear one-by-one as narration lists them
-
-DEFINITION (narration says "what is", "means", "basically"):
-→ Large central glass card with the term
-→ Tag pills orbit around it showing key attributes
-→ Icon badge on top for visual metaphor
-
-THINK: "Would a friend showing this on their phone do it this way?"
-If it feels like a PowerPoint presentation - YOU'RE DOING IT WRONG!
-"""
-        else:
-            personality_section = ""
-        
-        prompt = f"""🎯 PRIMARY OBJECTIVE
-
-You are an ELITE Manim animation engineer and cinematic motion designer.
-
-Your task is to generate a FULLY FUNCTIONAL, ERROR-FREE Manim script
-that produces a visually FASCINATING, DYNAMIC, and CONTINUOUSLY ENGAGING video.
-
-THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.
-Every element on screen must represent a concept from the narration. If the
-narration mentions "3 types", show 3 labeled items. If it describes a flow,
-show arrows connecting labeled boxes. Random shapes moving around = REJECTED.
-
-The video MUST feel alive for the ENTIRE duration.
-Blank screens, dead time, or static visuals are STRICTLY FORBIDDEN.
-
-🎬 CINEMATIC DIRECTIVE: You are directing an animated SHORT FILM, NOT making slides.
-- Every motion MUST advance the narrative — no decorative animation
-- Elements INTERACT: arrows grow between them, they shift to form relationships
-- Diagrams build PROGRESSIVELY as narration unfolds — never dump everything at once
-- Story through motion: spatial arrangement IS the explanation
-- Target: 1.5+ visual events per second, max 0.8s between any two events
-🔥 ENGAGEMENT MANDATES (A-G):
-- A: No element idle >2s after entry — pulse, drift, transform to maintain continuous momentum
-- B: Camera guides attention — zoom-in for focus, zoom-out for context, lateral shifts for flow
-- C: Causal logic — morph/transform elements, don't just replace. Show evolution!
-- D: Energy peaks every 5-7s — burst of 2-3 simultaneous animations
-- E: Every narration beat triggers MOVE, TRANSFORM, or emphasis — not passive appearance
-- F: Primary concept = LARGEST element; supporting = proportionally smaller
-- G: NEVER same animation type consecutively — alternate grow, slide, draw, pulse, shift
-- H: SPATIAL SAFETY — max 4-5 elements per scene, ALL within 90% screen bounds, 5% margin all edges, compact types for 5+ elements, no element >40% screen width
-{personality_section}
-The animation MUST match the audio duration EXACTLY:
-{segment.duration:.2f} seconds.
-
-============================================================
-MANDATORY SCRIPT STRUCTURE (NON-NEGOTIABLE)
-============================================================
-
-1. The script MUST start with:
-from manim import *
-import random
-
-2. The script MUST include the aspect ratio configuration EXACTLY as provided:
-{aspect_ratio_config}
-
-3. The Scene class name MUST be:
-class Segment{index:03d}(Scene):
-
-4. You MUST implement:
-def construct(self):
-
-============================================================
-CONTENT INPUT (AUTHORITATIVE — DO NOT MODIFY)
-============================================================
-
-Narration (spoken audio, DO NOT alter wording):
-"{segment.text}"
-
-Visual intent (conceptual meaning, NOT implementation):
-{segment.visual_description}
-
-============================================================
-🧠 VISUAL–NARRATION BINDING (THE MOST IMPORTANT RULE!)
-============================================================
-
-Your animation is NOT a screensaver or decoration. It is a VISUAL EXPLANATION
-of the narration. The viewer should be able to understand the topic JUST by
-watching the animation — even with sound off.
-
-🎥 THINK IN CINEMATIC SHOTS:
-- ESTABLISHING SHOT (first 25%): Main concept appears dramatically (GrowFromCenter)
-- MEDIUM SHOT (25-50%): Related elements enter, connections DRAW between them
-- CLOSE-UP (50-75%): Key element gets focused attention (scale pulse, circumscribe)
-- REVEAL SHOT (75-100%): Full diagram visible, final emphasis on takeaway
-
-STEP 1: Read the narration text above. List the key concepts mentioned.
-STEP 2: For EACH concept, create a labeled visual element (RoundedRectangle
-  with Text label, or a meaningful titled shape).
-STEP 3: Animate each element APPEARING when the narration mentions it.
-  - First 25% of duration → first concept appears with title (ESTABLISHING SHOT)
-  - 25-50% → second concept appears, ARROW DRAWS showing relationship (MEDIUM SHOT)
-  - 50-75% → emphasis PULSE on key element, interaction between elements (CLOSE-UP)
-  - 75-100% → summary view, gentle emphasis, no blank screen (REVEAL SHOT)
-
-🔄 MANDATORY INTERACTIONS:
-- At least ONE arrow must DRAW between two elements (show connections!)
-- At least ONE element must receive a PULSE/CIRCUMSCRIBE emphasis synced to narration
-- Elements should SHIFT toward each other when narration describes relationships
-
-WHAT TO SHOW (based on narration content):
-• Named concepts → labeled RoundedRectangle or titled group
-• Comparisons → two elements side-by-side at LEFT*4 and RIGHT*4 with different colors + "VS" or arrow between
-• Processes/flows → 3+ elements LEFT→CENTER→RIGHT + arrows DRAWING between them as narration progresses
-• Lists/categories → parent at TOP + children spread at BOTTOM as narration lists each item
-• Definitions → large central glass card + orbiting tag_pills for key attributes
-• Cause/effect → element A at left → ARROW → element B at right (arrow draws when narration says the connection)
-• Code concepts → Text objects showing pseudo-code with line-by-line Write() animation + labeled annotations beside the code
-• Quantities → EXACTLY as many elements as narration mentions ("three types" = THREE labeled items)
-
-WHAT NEVER TO SHOW:
-❌ Unlabeled circles/rectangles floating around
-❌ Generic shapes with no connection to the narration
-❌ Text that just says the narration words (that's a subtitle, not a visual)
-❌ Single static screen for the entire duration
-
-============================================================
-📐 POSITIONING — USE THE FULL SCREEN! (CRITICAL!)
-============================================================
-
-DO NOT cram everything in the center. Spread across the full frame.
-
-HORIZONTAL POSITIONS (16:9 — frame is 16 units wide):
-  • Far left: LEFT * 5.5        • Left: LEFT * 4
-  • Center-left: LEFT * 2       • Center: ORIGIN
-  • Center-right: RIGHT * 2     • Right: RIGHT * 4
-  • Far right: RIGHT * 5.5
-
-VERTICAL POSITIONS (frame is 9 units tall):
-  • Top: UP * 3 to UP * 3.5     • Upper: UP * 1.5
-  • Center: ORIGIN               • Lower: DOWN * 1.5
-  • Bottom: DOWN * 3 to DOWN * 3.5
-
-RULE: Each segment MUST use at least 2 different horizontal zones
-AND 2 different vertical zones.
-
-COMMON LAYOUTS:
-• Comparisons: LEFT * 4 vs RIGHT * 4 for side-by-side
-• Flows: LEFT * 5.5 → LEFT * 1.5 → RIGHT * 2.5 → RIGHT * 6
-• Hierarchy: Top (UP*2.5) parent → Bottom (DOWN*0.5) children spread LEFT*4/ORIGIN/RIGHT*4
-• Title + content: Title at UP*3, concept cards in center/bottom area
-
-ELEMENT SIZES:
-• RoundedRectangle cards: width=3-6, height=1.5-3 (not smaller!)
-• Text font_size: titles 38-48, body 22-30
-• Always .scale_to_fit_width() on all text
-
-============================================================
-⏱️ TEMPORAL DOMINANCE RULES (CRITICAL - READ CAREFULLY!)
-============================================================
-
-🚨 THE #1 PROBLEM: Animations that RACE ahead of narration!
-
-Your animations must BREATHE. They must feel HUMAN-PACED.
-Imagine someone is SPEAKING over this animation - match THEIR pace!
-
-GOLDEN RULE: Each animation should take 2-4 seconds minimum.
-If the viewer can't read/understand it, it's TOO FAST.
-
-❌ FORBIDDEN PACING (INSTANT REJECTION):
-- run_time=0.5 for important content (TOO FAST!)
-- All animations blasting in the first 30%
-- FadeOut everything → long static wait
-- Multiple objects appearing in rapid succession
-- Animation "race" where everything competes for attention
-
-✅ REQUIRED PACING (MANDATORY):
-- Title/hook: 2-3 seconds to appear and settle
-- Each concept: 3-5 seconds of screen time minimum
-- Transitions: 1-2 seconds of breathing room
-- Emphasis: Hold for 2+ seconds so viewer can absorb
-- Final: Gentle 2-3 second settle, NOT blank screen
-
-TIMING MATH (USE THIS!):
-For a {segment.duration:.1f}s segment:
-- Entry animations: {segment.duration * 0.2:.1f}s (first 20%)
-- Core content: {segment.duration * 0.5:.1f}s (next 50%)  
-- Emphasis/reinforcement: {segment.duration * 0.2:.1f}s (next 20%)
-- Gentle outro: {segment.duration * 0.1:.1f}s (final 10%)
-
-============================================================
-🎬 PACING BLUEPRINT (THINK: TEACHING, NOT RACING)
-============================================================
-
-Imagine you're showing this to a FRIEND who's LEARNING.
-You wouldn't rush through explanations - you'd let each point LAND.
-
-STRUCTURE YOUR ANIMATION LIKE THIS:
-
-PHASE 1 (0-20%): HOOK & SETUP
-- Title appears SLOWLY (run_time=2.0+)
-- Let it breathe for 1-2 seconds
-- Viewer thinks: "Oh, we're learning about X"
-
-PHASE 2 (20-70%): CORE EXPLANATION  
-- Reveal concepts ONE AT A TIME
-- Each element gets 3-5 seconds of attention
-- Use self.wait(1.0) between major elements
-- Viewer thinks: "Okay, I see how this works"
-
-PHASE 3 (70-90%): REINFORCEMENT
-- Emphasize key points (Circumscribe, Indicate)
-- Show relationships or connections
-- Viewer thinks: "Ah, that makes sense!"
-
-PHASE 4 (90-100%): GENTLE LANDING
-- Subtle final emphasis or pulse
-- Keep elements visible (don't fade to black!)
-- Viewer thinks: "Got it!"
-
-============================================================
-🎨 ANIMATION QUALITY REQUIREMENTS (HIGH BAR)
-============================================================
-
-You MUST use 8–12 DISTINCT animation techniques, including:
-
-ENTRANCES:
-- Write()
-- DrawBorderThenFill()
-- GrowFromCenter()
-- SpinInFromNothing()
-
-EMPHASIS:
-- Circumscribe()
-- Flash()
-- Indicate()
-- Wiggle()
-
-MOTION:
-- .animate.shift()
-- .animate.scale()
-- .animate.rotate()
-
-TRANSFORMS:
-- Transform()
-- ReplacementTransform()
-
-GROUPING & FLOW:
-- AnimationGroup(lag_ratio=0.2–0.4)
-- rate_func=smooth
-
-============================================================
-🚨 CRITICAL TEXT SCALING RULES (NO EXCEPTIONS)
-============================================================
-
-EVERY Text / MarkupText / Tex object MUST:
-
-- Call .scale_to_fit_width() IMMEDIATELY after creation
-- Be scaled BEFORE positioning
-- NEVER exceed frame width
-
-Scaling rules:
-- For 16:9 → config.frame_width * 0.85
-- For 9:16 → config.frame_width * 0.65
-
-Example (MANDATORY PATTERN):
-
-title = Text("Title", font_size=48)
-title.scale_to_fit_width(config.frame_width * 0.85)
-title.to_edge(UP)
-
-============================================================
-📐 LAYOUT & VISUAL SAFETY RULES
-============================================================
-
-- Minimum vertical spacing between text objects: 1.5 units
-- Use SAFE ZONES only:
-  - TOP    : UP * 2.5 to UP * 3.0
-  - MIDDLE : ORIGIN ± 0.5
-  - BOTTOM : DOWN * 2.5
-
-- NEVER overlap zones
-- NEVER crowd text
-- Prefer transforming existing objects over removing them
-
-============================================================
-🎥 VISUAL PERSISTENCE RULE (ANTI-DULLNESS)
-============================================================
-
-- DO NOT FadeOut all objects before the end
-- At least ONE major visual element MUST remain visible until the last seconds
-- Use subtle motion for persistence:
-  - slow scale pulses
-  - small shifts
-  - gentle rotations
-  - emphasis flashes
-
-============================================================
-⚙️ PERFORMANCE & STYLE RULES
-============================================================
-
-- Prefer precomputed animations (≈90%)
-- Updaters allowed ONLY for special moments (<30%)
-- No excessive updaters
-- NO plain FadeIn/FadeOut-only scripts
-- Everything must feel intentional and cinematic
-
-============================================================
-📚 STYLE REFERENCES
-============================================================
-
-
-Animation techniques reference:
-{animation_reference}
-
-Allowed objects and attributes:
-{allowed_attributes}
-
-Allowed colors ONLY:
-{allowed_colors}
-
-============================================================
-⏱️ DURATION ENFORCEMENT (SLOW AND DELIBERATE!)
-============================================================
-
-TOTAL DURATION: {segment.duration:.2f} seconds
-
-You MUST fill this ENTIRE duration with MEANINGFUL content.
-The animation should feel like it's TEACHING, not RUSHING.
-
-MINIMUM RUN_TIME RULES:
-- Title/main text: run_time=2.0 minimum
-- Secondary animations: run_time=1.5 minimum  
-- Emphasis effects: run_time=1.0 minimum
-- Wait between sections: self.wait(1.0) or more
-
-TIMING CALCULATION EXAMPLE for {segment.duration:.1f}s:
-```python
-# DO THIS - slow and deliberate:
-self.play(Write(title), run_time=2.5)  # 2.5s
-self.wait(1.0)                          # +1.0s = 3.5s
-self.play(FadeIn(content), run_time=2.0)# +2.0s = 5.5s
-self.play(Indicate(key_point), run_time=1.5) # +1.5s = 7.0s
-self.wait(1.5)                          # +1.5s = 8.5s
-# ... continue until reaching {segment.duration:.1f}s
-```
-
-```python
-# DON'T DO THIS - racing:
-self.play(Write(title), run_time=0.5)   # Too fast!
-self.play(FadeIn(content), run_time=0.3)# Racing!  
-self.wait(8.0)                          # Boring long wait!
-```
-
-REMEMBER: The viewer is LEARNING. Give them TIME to absorb each element!
-
-============================================================
-✅ OUTPUT FORMAT (STRICT)
-============================================================
-
-Return ONLY raw Python code.
-NO markdown.
-NO explanations.
-NO text outside the code.
-
-The output MUST start exactly with:
-
-from manim import *
-import random
-
-Now generate the COMPLETE, PROFESSIONAL, CINEMATIC Manim script.
-"""
-        return prompt
+        return format_manim_execution_prompt(
+            index=index,
+            duration=segment.duration,
+            aspect_ratio=self.config.aspect_ratio,
+            narration=segment.text,
+            scene_direction=direction,
+            aspect_ratio_config=aspect_ratio_config,
+            animation_reference=animation_reference,
+            allowed_attributes=allowed_attributes,
+            allowed_colors=allowed_colors,
+        )
 
     async def _generate_scripts_in_bulk(self, segments: List[NarrationSegment]) -> List[NarrationSegment]:
         """
@@ -4700,17 +3876,29 @@ Now generate the COMPLETE, PROFESSIONAL, CINEMATIC Manim script.
         
         logger.debug(f"📥 Bulk response preview (first 500 chars): {content[:500]}")
         
-        # Split by ===SCRIPT START=== separator
-        scripts = re.split(r'===SCRIPT START===', content)
+        # Split by various ===SCRIPT...=== separator patterns the LLM may produce
+        # Handles: ===SCRIPT START===, ===SCRIPT_1===, ===SCRIPT 1===, ===SEGMENT_0===, etc.
+        scripts = re.split(r'===\s*(?:SCRIPT|SEGMENT)[\s_]*(?:START|\d+)?\s*===', content)
         scripts = [s.strip() for s in scripts if s.strip()]
         
         logger.info(f"📊 Split result: {len(scripts)} scripts from {len(content)} chars")
+        
+        # Fallback: if split didn't work, try splitting on 'from manim import' boundaries
+        if len(scripts) < len(segments):
+            logger.warning(f"⚠️ Separator split got {len(scripts)}/{len(segments)}, trying 'from manim' boundary split...")
+            parts = re.split(r'(?=from manim import)', content)
+            parts = [p.strip() for p in parts if p.strip() and 'class Segment' in p]
+            if len(parts) >= len(segments):
+                scripts = parts
+                logger.info(f"📊 Boundary split recovered {len(scripts)} scripts")
         
         if len(scripts) < len(segments):
             raise ValueError(f"Only {len(scripts)}/{len(segments)} scripts generated")
         
         for i, segment in enumerate(segments):
             cleaned_script = self._clean_script_response(scripts[i], i, segment.duration)
+            # Script-level contract gate
+            cleaned_script = self._validate_script_against_contract(cleaned_script, segment, i)
             script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
             script_path.write_text(cleaned_script, encoding="utf-8")
             segment.script_path = str(script_path)
@@ -4750,730 +3938,133 @@ Now generate the COMPLETE, PROFESSIONAL, CINEMATIC Manim script.
                 raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
             
             cleaned_script = self._clean_script_response(raw_text, i, segment.duration)
+            # Script-level contract gate
+            cleaned_script = self._validate_script_against_contract(cleaned_script, segment, i)
             script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
             script_path.write_text(cleaned_script, encoding="utf-8")
             segment.script_path = str(script_path)
         
         return segments
     
-    def _build_bulk_script_prompt(self, segments: List[NarrationSegment]) -> str:
-        """Build prompt for bulk script generation."""
-        try:
-            with open('./generator/video_generator/prompt/sample.txt', 'r') as f:
-                samples = f.read()
-        except:
-            samples = self.samples
+    def _build_bulk_script_prompt(self, segments: list) -> str:
+        """LAYER 3 — Build bulk script prompt using registry.
         
-        try:
-            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r') as f:
-                allowed_attributes = f.read()
-        except:
-            allowed_attributes = self.allowed_attributes
-        
-        animation_reference = self.animation_reference
-        allowed_colors = self.allowed_colors
+        Includes visual_contract context per segment to ensure the Manim code
+        generator stays faithful to the frozen visual model.
+        """
         aspect_ratio_config = self._get_aspect_ratio_config()
         
-        # Build segment list in required format
-        all_segments_prompt = "\n".join([
-            f"""**Segment {i+1}:**
-- Class Name: Segment{i:03d}
-- Audio Duration: {seg.duration:.2f} seconds
-- Visual Narration: {seg.visual_description}
-- Spoken Text: "{seg.text}"""
-            for i, seg in enumerate(segments)
-        ])
-        
-        return f"""**🎯 PRIMARY OBJECTIVE**
-
-You are an expert Manim animation developer. For each provided **segment**, you must generate a **fully functional Manim script** that is clean, logically structured, visually engaging, and completely error-free.
-
-**THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.**
-
-🎬 **CINEMATIC DIRECTIVE**: You are DIRECTING an animated short film, NOT making slides.
-- Every motion MUST advance the narrative — elements INTERACT, CONNECT, and REACT
-- Diagrams build PROGRESSIVELY as narration unfolds — never show everything at once
-- Arrows GROW between elements when narration describes connections
-- Elements REPOSITION (shift toward each other) when narration describes relationships
-- Scale PULSES and CIRCUMSCRIBE highlights sync with KEY narration phrases
-- Target event density: 1.5+ visual events per second, max 0.8s static gap
-- The spatial arrangement IS the explanation (left→right = sequence, top→bottom = hierarchy)
-- **Solutions A-G (MANDATORY):**
-  - A: No element idle >2s — continuous momentum via pulse, drift, or micro-transform
-  - B: Camera guides attention — zoom/pan/focus, at least 3 camera moments per scene
-  - C: Causal logic — morph/transform elements, don't replace. Show evolution!
-  - D: Energy peaks every 5-7s — burst of 2-3 simultaneous animations
-  - E: Every narration beat triggers MOVE/TRANSFORM/emphasis — not passive appearance
-  - F: Primary concept = LARGEST element; supporting details = proportionally smaller
-  - G: NEVER use same animation type twice consecutively
-  - H: SPATIAL SAFETY — max 4-5 elements per scene, ALL within 90% screen bounds, 5% margin on all edges, use compact types (tag_pill, icon_badge) for secondary items, no element >40% screen width
-
----
-
-### 🧠 **CRITICAL: VISUAL–NARRATION CORRESPONDENCE (READ THIS FIRST!)**
-
-**THE #1 QUALITY PROBLEM: Animations that show random shapes moving around
-instead of illustrating what the narration is actually saying.**
-
-Your animation MUST be a VISUAL EXPLANATION of the spoken narration:
-
-**RULE: Every visual element on screen must represent a concept from the narration.**
-
-1. **READ the "Spoken Text" carefully** — identify every KEY CONCEPT being explained
-2. **CREATE labeled visual elements** (titled Rectangles, Text, diagrams) that REPRESENT those concepts by name
-3. **ANIMATE them appearing** when the narration mentions them (e.g., first 20% of duration = first concept)
-4. **SHOW RELATIONSHIPS** — if narration says "A connects to B", draw an arrow from A to B
-5. **SHOW QUANTITIES** — if narration says "three types", show exactly 3 labeled items
-6. **SHOW PROCESSES** — if narration describes steps, show them appearing sequentially with arrows
-
-**🏗️ LAYOUT RECIPES — Pick based on narration content:**
-
-**COMPARISON** (narration says "vs", "unlike", "compared to"):
-→ Two RoundedRectangles side-by-side at LEFT*4 and RIGHT*4, different colors
-→ "VS" badge or arrow between them
-→ Each appears when narration introduces that concept
-
-**PROCESS FLOW** (narration says "first", "then", "finally"):
-→ 3 elements arranged LEFT*4→ORIGIN→RIGHT*4 with arrows DRAWING between
-→ Each step GrowFromCenter/SlideIn when narration mentions it
-
-**HIERARCHY** (narration says "types of", "categories"):
-→ Parent at UP*2, children at DOWN*1 spread LEFT*3/ORIGIN/RIGHT*3
-→ Lines connecting parent to each child
-
-**DEFINITION** (narration says "what is", "means"):
-→ Large central RoundedRectangle with term label
-→ Tag pills orbiting for key attributes
-
-**Example — Narration: "An API gateway routes requests to the right microservice."**
-```python
-# ✅ GOOD: Visual elements represent narration concepts with LABELS
-gateway = RoundedRectangle(corner_radius=0.2, width=3, height=1.2, color=BLUE, fill_opacity=0.2)
-gw_label = Text("API Gateway", font_size=28, color=WHITE)
-gw_label.scale_to_fit_width(config.frame_width * 0.4)
-gw_group = VGroup(gateway, gw_label).arrange(DOWN, buff=0.1).move_to(UP * 1)
-self.play(GrowFromCenter(gw_group), run_time=2.0)  # Appears as narration introduces it
-
-# Arrow + service appear when narration says "routes to microservice"
-service = RoundedRectangle(corner_radius=0.1, width=2.5, height=1, color=TEAL, fill_opacity=0.2)
-s_label = Text("Microservice", font_size=24, color=WHITE)
-s_label.scale_to_fit_width(config.frame_width * 0.35)
-s_group = VGroup(service, s_label).arrange(DOWN, buff=0.05).move_to(DOWN * 2)
-route_arrow = Arrow(gw_group.get_bottom(), s_group.get_top(), color=YELLOW)
-self.play(GrowFromCenter(s_group), GrowArrow(route_arrow), run_time=2.5)
-```
-
-```python
-# ❌ BAD: Generic shapes with no labels, no connection to narration
-circle1 = Circle(color=BLUE)
-circle2 = Circle(color=RED)
-self.play(FadeIn(circle1), FadeIn(circle2))  # What do these represent??
-self.play(circle1.animate.shift(RIGHT))  # Why is it moving??
-```
-
----
-
-### 🚫 **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
-
-**⛔ ABSOLUTE RULE: NO ELEMENTS CAN GO OFF-SCREEN - THEY BECOME INVISIBLE!**
-
-**🚨 THIS IS THE #1 CAUSE OF VIDEO FAILURES - READ CAREFULLY:**
-
-Every text, shape, and object MUST be visible within the frame at ALL times.
-
-**MANDATORY REQUIREMENTS (WILL BE REJECTED IF VIOLATED):**
-
-1. **⚠️ EVERY Text object MUST have .scale_to_fit_width() - NO EXCEPTIONS!**
-   ```python
-   # ✅ CORRECT - ALWAYS DO THIS:
-   title = Text("Some text", font_size=48)
-   title.scale_to_fit_width(config.frame_width * 0.85)  # MANDATORY!
-   
-   # ❌ WRONG - WILL GO OFF-SCREEN:
-   title = Text("Some text", font_size=48)  # Missing scale_to_fit_width!
-   ```
-
-2. **⛔ FORBIDDEN POSITIONS - NEVER USE THESE (ELEMENTS WILL GO OFF-SCREEN):**
-   - ❌ UP * 4 or higher (too high, goes off-screen)
-   - ❌ DOWN * 4 or lower (too low, goes off-screen)
-   - ❌ LEFT * 7 or beyond (too far left, goes off-screen)
-   - ❌ RIGHT * 7 or beyond (too far right, goes off-screen)
-
-3. **✅ SAFE POSITIONS ONLY - USE THESE:**
-   - ✅ UP * 2.5, UP * 1.5, UP * 0.5 (safe top area)
-   - ✅ ORIGIN, UP * 0.5, DOWN * 0.5 (safe center)
-   - ✅ DOWN * 1.5, DOWN * 2.5 (safe bottom area)
-   - ✅ LEFT * 3, RIGHT * 3 (safe horizontal)
-
-4. **📏 SIZE LIMITS (PREVENT OVERFLOW):**
-   - Maximum font_size for titles: {48 if self.config.aspect_ratio == "9:16" else 56}px
-   - Maximum font_size for body: {36 if self.config.aspect_ratio == "9:16" else 42}px
-   - ALL text MUST call .scale_to_fit_width(config.frame_width * 0.85)
-
-5. **📐 SPACING RULES (PREVENT OVERLAP/OFF-SCREEN):**
-   - Minimum 1.5 units vertical spacing between text objects
-   - Keep 1 unit margin from all screen edges
-   - Test: If you stack 3 text objects, use UP*2, ORIGIN, DOWN*2
-
-**⛔ REJECTION CRITERIA - YOUR SCRIPT WILL BE REJECTED IF:**
-- ANY text object missing .scale_to_fit_width()
-- Using positions like UP*4, DOWN*4, LEFT*8, RIGHT*8
-- Font sizes exceeding limits
-- Text objects overlapping or too close (<1.5 units apart)
-
-**✅ VERIFICATION CHECKLIST BEFORE SUBMITTING:**
-□ Every Text() has .scale_to_fit_width(config.frame_width * 0.85)
-□ All positions use SAFE values only (UP*2.5 max, DOWN*2.5 max)
-□ Font sizes within limits
-□ Vertical spacing >= 1.5 units between objects
-□ 1 unit margin from all edges
-
----
-
-### ⏱️ **CRITICAL #1: PERFECT TIMING SYNCHRONIZATION - NO BLANK SCREENS!**
-
-**THIS IS THE MOST IMPORTANT REQUIREMENT - READ CAREFULLY:**
-
-Each segment has an **EXACT audio duration** that you MUST match precisely.
-
-**🚨 CRITICAL RULE: Animations must fill the ENTIRE duration - NO long waits at the end!**
-
-**❌ WRONG - Don't do this:**
-```python
-# For 15 second segment
-self.play(FadeIn(title), run_time=1)
-self.play(FadeOut(title), run_time=1)
-self.wait(13)  # ❌ BLANK SCREEN FOR 13 SECONDS!
-```
-
-**✅ CORRECT - Do this:**
-```python
-# For 15 second segment - distribute animations across full time
-self.play(Write(title), run_time=3.0)       # 3s
-self.play(title.animate.shift(UP*2), run_time=2.0)  # 2s
-content = Text("Content")
-self.play(GrowFromCenter(content), run_time=2.5)    # 2.5s
-self.play(Indicate(content), run_time=2.0)          # 2s
-self.play(content.animate.scale(1.2), run_time=1.5) # 1.5s
-self.play(FadeOut(content), FadeOut(title), run_time=3.0)  # 3s
-self.wait(1.0)  # Only 1s wait - acceptable
-# Total = 15s
-```
-
-**TIMING STRATEGY:**
-
-1. **Calculate animation budget:**
-   - Entry animations: 20-30% of total duration
-   - Middle content: 40-50% of total duration  
-   - Exit animations: 20-30% of total duration
-
-2. **Use LONGER run_times:**
-   - Instead of run_time=0.8, use run_time=2.0 or 3.0
-   - Slow animations look more professional
-   - Fills time naturally without waiting
-
-3. **Add MORE animations:**
-   - Don't just fade in/out - add movement, scaling, emphasis
-   - Use Indicate(), Circumscribe(), Flash() to fill time
-   - Shift objects around the screen
-   - Rotate, scale, transform
-
-4. **Maximum wait time: 1 second**
-   - If you need > 1s wait, your animations are too fast
-   - Increase run_times or add more animations
-
-5. **Final timing (use self.wait() if needed):**
-   ```python
-   # Option 1: Use self.wait() to fill remaining time
-   total_animation_time = sum_of_all_run_times
-   remaining = audio_duration - total_animation_time
-   if remaining > 0:
-       self.wait(remaining)
-   
-   # Option 2: Distribute animations to fill entire duration
-   # Increase run_times so animations naturally fill the time
-   ```
-
----
-
-### ✅ MANDATORY REQUIREMENTS FOR EACH SCRIPT
-
-Each Manim animation script must:
-
-1. **Begin with exactly:**
-
-   ```
-   ===SCRIPT START===
-   ```
-
-2. **Start the code with:**
-
-   ```python
-   from manim import *
-   import random
-   ```
-
-3. **Include aspect ratio configuration immediately after imports:**
-   ```python
-{aspect_ratio_config}
-   ```   
-
-4. **Define a class in the format:**
-
-   ```python
-   class SegmentXXX(Scene):
-   ```
-
-5. **Implement a `construct(self)` method containing all animation logic.**
-
-6. **Use only predefined objects and their strictly allowed attributes.**
-   ❌ Do NOT use unsupported attributes or extra options.
-
-7. **Use only approved Manim color constants.**
-   ❌ Do NOT define custom colors or use hex codes.
-
-8. **Do not use any unsupported markup or formatting classes.**
-   ❌ No `MarkupText`, `<span>`, `<code>`, or HTML-style tags. Do not use MARKUPTEXT at any cost
-   ✅ Use only basic `Text`, `MathTex`, `Rectangle`, `Circle`, etc., as listed in the allowed objects section.
-
-9. **Ensure the total animation time (sum of run_times + waits) matches the given segment's exact audio duration (±0.1s).**
-   ➕ Use `self.wait()` to fill in any remaining time.
-
-10. Remember that Mobject.align_to() takes from 2 to 3 positional arguments.
-
-11. **Ensure you don't use Camera, Code object at any cost.**
-
-12. **Do not use any images like .png, .jpeg, .svg or any sort of image formats, if needed create the images with vectors.**
-
-13. **Only use from manim import *, nothing else, and use only if needed.**
-
-14. **ASPECT RATIO: This video is in {self.config.aspect_ratio} format.**
-   - Design layouts appropriate for this aspect ratio
-   - Position objects considering the screen dimensions
-   - For 9:16 (vertical): Stack elements vertically, use full height
-   - For 16:9 (horizontal): Use width, arrange side-by-side when possible
-   - For 1:1 (square): Center elements, balanced composition
-
----
-
-### 🎬 ANIMATION VARIETY RULES (ABSOLUTELY MANDATORY - WILL BE REJECTED IF NOT FOLLOWED)
-
-**⚠️ CRITICAL WARNING: FadeIn/FadeOut ONLY animations will be REJECTED!**
-
-You MUST use diverse, dynamic animations. Each segment MUST include:
-1. ✅ At least ONE Write() or GrowFromCenter() for entry
-2. ✅ At least ONE movement animation (.animate.shift() or .animate.scale())
-3. ✅ At least ONE emphasis animation (Circumscribe, Indicate, or Flash)
-4. ✅ At least ONE creative exit (Uncreate, ShrinkToCenter, or FadeOut with shift)
-
-**STRICTLY FORBIDDEN:**
-❌ Using ONLY FadeIn() and FadeOut() for all animations
-❌ Static objects that just appear and disappear
-❌ No movement or transformation between entry and exit
-❌ Boring, repetitive patterns
-
----
-
-### ⚡ MANDATORY CHECKLIST FOR EACH SEGMENT:
-
-Before submitting your script, verify:
-- [ ] Uses Write() or GrowFromCenter() for at least ONE entry
-- [ ] Includes .animate.shift() or .animate.scale() for movement
-- [ ] Has Circumscribe(), Indicate(), or Flash() for emphasis
-- [ ] Uses Uncreate(), ShrinkToCenter(), or FadeOut(shift=) for exits
-- [ ] Objects MOVE and TRANSFORM, not just appear/disappear
-- [ ] Animation variety - not repetitive
-- [ ] Total timing matches audio duration
-- [ ] NEVER use MarkupText
-- [ ] All text scaled with scale_to_fit_width()
-
-**IF YOUR SCRIPT ONLY USES FadeIn/FadeOut, IT WILL BE REJECTED!**
-
----
-
-### ✅ USE THESE EXAMPLES AS STYLE REFERENCE
-
-Use the following sample programs as reference for:
-
-* Layout clarity
-* Timing discipline
-* Use of animations
-* Clean code formatting
-* Accurate wait calculations
-
-
-
----
-
-### 📚 COMPREHENSIVE ANIMATION REFERENCE & TECHNIQUES
-
-**You have access to ALL of these powerful animation methods. USE THEM to create astonishing videos!**
-
-This is your complete animation toolkit. Study these techniques and apply them creatively:
-
-```
-{animation_reference}
-```
-
-**Key Takeaways from Reference:**
-- ✅ Use Write(), GrowFromCenter(), DrawBorderThenFill() for dynamic entries
-- ✅ Add movement with .animate.shift(), .animate.scale(), .animate.rotate()
-- ✅ Emphasize with Circumscribe(), Indicate(), Flash(), Wiggle()
-- ✅ Use AnimationGroup with lag_ratio for sequential effects
-- ✅ Apply rate_func for smooth, rush_into, rush_from motion
-- ✅ Position with .next_to(), .to_edge(), .arrange() for perfect alignment
-- ✅ Transform objects with Transform(), ReplacementTransform()
-
----
-
-### 🎨 ALLOWED OBJECTS AND ATTRIBUTES (STRICT)
-
-Use **only** the following Manim objects, and only with the attributes explicitly listed below.
-❌ Do **not** add extra options or attributes not shown.
-
-```
-{allowed_attributes}
-```
-
----
-
-### 🎨 ALLOWED COLORS
-
-You must **only** use the following Manim color constants (case-sensitive).
-Do not use hex, RGB, or custom colors.
-
-❌ DO NOT USE: BROWN, TAN, BEIGE (these colors don't exist in Manim)
-
-```
-{allowed_colors}
-```
-
----
-
-### 📦 REQUIRED IMPORTS
-
-**EVERY script MUST start with these imports:**
-
-```python
-from manim import *
-import random  # Required if using random values
-```
-
-❌ Never use random.uniform() or random.choice() without importing random first!
-
----
-
-### 📦 SEGMENTS TO IMPLEMENT
-
-Below is the list of segments. Each segment contains:
-
-* A segment number (e.g., Segment001)
-* A visual narration description
-* The **exact audio duration** in seconds
-
-You must generate one clean and complete script for **each** segment:
-
-```
-{all_segments_prompt}
-```
-
----
-
-### 🔁 OUTPUT FORMAT (PER SEGMENT)
-
-For each segment, return your response in **this exact format**:
-
-```
-===SCRIPT START===
-from manim import *
-
-class SegmentXXX(Scene):
-    def construct(self):
-        # Your code here
-```
-
-Repeat this for every segment. Do **not** add explanations, commentary, or markdown.
-
----
-
-### ❌ ERRORS TO AVOID
-
-* ❌ No use of unsupported classes (`MarkupText`, etc.)
-* ❌ No undefined attributes or typos in method names
-* ❌ No timing mismatches between animation and audio
-* ❌ No markdown formatting in the output
-* ❌ No long wait() times at the end
-* ❌ No static FadeIn/FadeOut only animations
-
----
-
-### ✅ YOUR TASK
-
-Generate **one complete, accurate Manim script per segment**, strictly following all rules above.
-The output must be professional, polished, and directly executable in Manim with no errors.
-
-You are acting as a **senior Manim Community developer**. Your script quality must reflect that expertise.
+        all_segments_with_direction = ""
+        for i, seg in enumerate(segments):
+            direction = getattr(seg, 'scene_direction', '') or f"Visual intent: {seg.visual_description}"
+            
+            # Inject visual_contract as MANDATORY context
+            contract_context = ""
+            if getattr(seg, 'visual_contract', None):
+                try:
+                    contract = deserialize_contract(seg.visual_contract)
+                    dep_mode = contract.get("depiction_mode", "simulation")
+                    vis_model = contract.get("visual_model", "")
+                    entities = contract.get("entities", [])
+                    behaviors = contract.get("behaviors", [])
+                    primitives = contract.get("animation_primitives", [])
+                    contract_context = f"""
+[VISUAL CONTRACT — MANDATORY]
+  depiction_mode: {dep_mode}
+  visual_model: {vis_model}
+  entities: {', '.join(entities[:6])}
+  behaviors: {', '.join(behaviors[:6])}
+  animation_primitives: {', '.join(primitives[:6])}
+  RULE: ALL visual elements MUST come from these entities. Do NOT invent labeled boxes or diagram containers."""
+                except Exception:
+                    pass
+            
+            all_segments_with_direction += f"""
+--- Segment {i+1} ---
+Class: Segment{i:03d}
+Duration: {seg.duration:.2f}s
+Narration: \"{seg.text}\"
+Scene Direction: {direction}
+{contract_context}
 """
-    
+        
+        return format_manim_execution_batch_prompt(
+            num_segments=len(segments),
+            all_segments_with_direction=all_segments_with_direction,
+            aspect_ratio=self.config.aspect_ratio,
+            aspect_ratio_config=aspect_ratio_config,
+            allowed_colors=getattr(self, 'allowed_colors', ''),
+        )
+
     def _build_single_script_prompt(self, index: int, segment: NarrationSegment) -> str:
-        """Build prompt for single segment script generation."""
-        aspect_ratio_config = self._get_aspect_ratio_config()
-        aspect_ratio = self.config.aspect_ratio
+        """LAYER 3 — Build single segment prompt using registry.
         
-        return f"""🎯 PRIMARY OBJECTIVE
-You are a world-class Manim animation generation engine. Your task is to generate ONE complete, production-ready Manim script for a SINGLE video segment. The output will be executed automatically in a pipeline. Any deviation from rules will cause hard failure.
+        Includes visual_contract context to ensure the Manim code generator
+        stays faithful to the frozen visual model.
+        """
+        aspect_ratio_config = self._get_aspect_ratio_config()
+        direction = getattr(segment, 'scene_direction', '') or f"Visual intent: {segment.visual_description}"
+        
+        # Inject visual_contract as MANDATORY context appended to direction
+        if getattr(segment, 'visual_contract', None):
+            try:
+                contract = deserialize_contract(segment.visual_contract)
+                dep_mode = contract.get("depiction_mode", "simulation")
+                vis_model = contract.get("visual_model", "")
+                entities = contract.get("entities", [])
+                behaviors = contract.get("behaviors", [])
+                primitives = contract.get("animation_primitives", [])
+                direction += f"""
 
-**THE ANIMATION MUST VISUALLY ILLUSTRATE THE NARRATION — NOT JUST DECORATE IT.**
-Every visual element must represent a concept from the narration. Labels must name
-concepts. Animations must tell the same story the narration tells. Random shapes
-floating around without meaning = HARD REJECTION.
+[VISUAL CONTRACT — MANDATORY]
+  depiction_mode: {dep_mode}
+  visual_model: {vis_model}
+  entities: {', '.join(entities[:6])}
+  behaviors: {', '.join(behaviors[:6])}
+  animation_primitives: {', '.join(primitives[:6])}
+  RULE: ALL visual elements MUST come from these entities. Do NOT invent labeled boxes or diagram containers."""
+            except Exception:
+                pass
+        
+        return format_manim_execution_prompt(
+            index=index,
+            duration=segment.duration,
+            aspect_ratio=self.config.aspect_ratio,
+            narration=segment.text,
+            scene_direction=direction,
+            aspect_ratio_config=aspect_ratio_config,
+            animation_reference=getattr(self, 'animation_reference', ''),
+            allowed_attributes=getattr(self, 'allowed_attributes', ''),
+            allowed_colors=getattr(self, 'allowed_colors', ''),
+        )
 
----
-
-🧠 **VISUAL–NARRATION CORRESPONDENCE (THE MOST IMPORTANT RULE)**
-
-Read the narration below. Identify every concept, comparison, or process described.
-For each concept: create a LABELED visual element (RoundedRectangle with Text, or titled group).
-Animate each element APPEARING when the narration mentions it.
-Show relationships with arrows, comparisons with side-by-side placement, processes with sequential reveals.
-
-**MAPPING NARRATION TO VISUALS:**
-- Narration introduces concept X → labeled element for X GROWS FROM CENTER
-- Narration says "connects to" → ARROW draws between the two elements
-- Narration says "three types" → THREE labeled items appear one-by-one
-- Narration says "faster/better" → PROGRESS BAR fills or element SCALES UP
-- Narration compares A vs B → two elements side-by-side at LEFT*4 and RIGHT*4 with contrasting colors
-- Narration concludes → key element gets EMPHASIS (Circumscribe/Flash), NOT fade out
-
-**🏗️ LAYOUT RECIPES — Pick based on narration content:**
-
-COMPARISON (narration says "vs", "unlike", "compared to"):
-→ Two RoundedRectangles at LEFT*4 and RIGHT*4, contrasting colors
-→ "VS" badge or connecting arrow between them
-
-PROCESS FLOW (narration says "first", "then", "finally"):
-→ 3+ elements LEFT*4→ORIGIN→RIGHT*4 with arrows DRAWING between
-→ Each step appears when narration names it
-
-HIERARCHY (narration says "types of", "categories"):
-→ Parent at UP*2, children spread at DOWN*1 (LEFT*3, ORIGIN, RIGHT*3)
-→ Lines from parent to children, children appear as narration lists them
-
-DEFINITION (narration says "what is", "means", "basically"):
-→ Large central RoundedRectangle + orbiting tag_pills for attributes
-→ Icon badge above for visual metaphor
-
----
-
-� **CRITICAL #0: PREVENT OFF-SCREEN ELEMENTS (MOST IMPORTANT!)**
-
-**⛔ ABSOLUTE RULE: NO ELEMENTS CAN GO OFF-SCREEN - THEY BECOME INVISIBLE!**
-
-**🚨 THIS IS THE #1 CAUSE OF VIDEO FAILURES - FOLLOW THESE EXACTLY:**
-
-**MANDATORY REQUIREMENTS (WILL BE REJECTED IF VIOLATED):**
-
-1. **⚠️ EVERY Text object MUST have .scale_to_fit_width() - NO EXCEPTIONS!**
-   ```python
-   # ✅ CORRECT - ALWAYS DO THIS:
-   title = Text("Some text", font_size=48)
-   title.scale_to_fit_width(config.frame_width * 0.85)  # MANDATORY!
-   
-   # ❌ WRONG - WILL GO OFF-SCREEN:
-   title = Text("Some text", font_size=48)  # Missing scale_to_fit_width!
-   ```
-
-2. **⛔ FORBIDDEN POSITIONS - NEVER USE (GOES OFF-SCREEN):**
-   - ❌ UP * 3.5 or higher (too high, invisible)
-   - ❌ DOWN * 3.5 or lower (too low, invisible)
-   - ❌ LEFT * 7 or beyond (too far left, invisible)
-   - ❌ RIGHT * 7 or beyond (too far right, invisible)
-
-3. **✅ SAFE POSITIONS ONLY:**
-   - ✅ UP * 2.5, UP * 2, UP * 1.5, UP * 1 (SAFE)
-   - ✅ ORIGIN, UP * 0.5, DOWN * 0.5 (SAFE)
-   - ✅ DOWN * 1, DOWN * 1.5, DOWN * 2, DOWN * 2.5 (SAFE)
-   - ✅ LEFT * 3, RIGHT * 3 (SAFE horizontal)
-
-4. **📏 SIZE LIMITS:**
-   - Maximum font_size: {48 if aspect_ratio == "9:16" else 56}px
-   - ALL text MUST call .scale_to_fit_width(config.frame_width * 0.85)
-
-5. **📐 SPACING RULES:**
-   - Minimum 1.5 units vertical spacing between text objects
-   - Keep 1 unit margin from all edges
-
-**✅ CHECKLIST BEFORE SUBMITTING:**
-□ Every Text() has .scale_to_fit_width(config.frame_width * 0.85)
-□ All positions use SAFE values (UP*2.5 max, DOWN*2.5 max)
-□ Font sizes within limits
-□ Vertical spacing >= 1.5 units
-
----
-
-�🔒 IMMUTABLE INPUTS (READ-ONLY)
-• Narration text: {segment.text}
-• Exact audio duration (seconds): {segment.duration:.2f}
-• Aspect ratio: {aspect_ratio}
-
-You are NOT allowed to:
-❌ Change narration text
-❌ Change visual description meaning
-❌ Change total duration
-❌ Add unrelated visuals
-
----
-
-📐 ABSOLUTE ASPECT RATIO CONTRACT (NON-NEGOTIABLE)
-
-Aspect ratio is {aspect_ratio}. All layout MUST obey this.
-
-GLOBAL SAFE RULES (ALL RATIOS):
-• Never place objects outside frame
-• Never overlap text objects
-• Never rely on default scaling
-• Always prefer vertical stacking over crowding
-
-TEXT WIDTH CONSTRAINT (MANDATORY):
-• EVERY Text / MarkupText / Tex MUST immediately call:
-text.scale_to_fit_width(config.frame_width * WIDTH_FACTOR)
-
-WIDTH_FACTOR:
-• 16:9  → 0.85
-• 9:16  → 0.65   (CRITICAL – narrow screen)
-• 1:1   → 0.75
-• 4:3   → 0.80
-• 21:9  → 0.90
-
----
-
-📍 POSITION ZONES (STRICT – DO NOT INVENT NEW POSITIONS)
-
-For 9:16:
-• TOP:    UP * 6 → UP * 4
-• MIDDLE: UP * 1 → DOWN * 1
-• BOTTOM: DOWN * 4 → DOWN * 6
-
-For 16:9:
-• TOP:    UP * 3 → UP * 2
-• MIDDLE: UP * 0.5 → DOWN * 0.5
-• BOTTOM: DOWN * 2 → DOWN * 3
-
-Rules:
-• Max 1 text object per zone
-• Minimum vertical spacing = 1.5 units
-• Long text MUST be split into multiple stacked Text objects
-
----
-
-🎬 TIMING & AUDIO SYNCHRONIZATION (ABSOLUTE)
-• Total animation time MUST equal {segment.duration:.2f} seconds
-• Distribute animations across entire duration
-• NO front-loaded animations
-• NO long blank screen at end
-
-💡 TIMING OPTIONS:
-1. Use self.wait() to fill remaining time:
-   ```python
-   # animations total 10.5s, segment is {segment.duration:.2f}s
-   remaining = {segment.duration:.2f} - 10.5
-   self.wait(remaining)  # Fill the gap
-   ```
-
-2. OR distribute animations to naturally fill duration:
-   ```python
-   # Increase run_times so total equals {segment.duration:.2f}s
-   self.play(Write(title), run_time=4.0)  # Longer animations
-   ```
-
----
-
-🎨 ANIMATION QUALITY REQUIREMENTS
-
-MANDATORY:
-• Use 5–8 different animation techniques
-• Use rate_func=smooth
-• run_time typically 1.0–1.6s (never <0.8s)
-
-ALLOWED TECHNIQUES:
-• Write, DrawBorderThenFill, GrowFromCenter, SpinInFromNothing
-• Indicate, Circumscribe, Flash, Wiggle
-• Transform, ReplacementTransform, TransformMatchingShapes
-• .animate.shift / scale / rotate
-• AnimationGroup(lag_ratio=0.2–0.3)
-
-FORBIDDEN:
-❌ FadeIn/FadeOut-only scripts
-❌ Static text dumps
-❌ Excessive add_updater (>30% of animations)
-
----
-
-🧠 VISUAL–NARRATION BINDING (CRITICAL — READ CAREFULLY)
-
-The narration below is what the viewer HEARS. Your animation is what the viewer SEES.
-They must tell the SAME story. Follow these steps:
-
-STEP 1 — Parse the narration. List every noun/concept mentioned.
-STEP 2 — For every concept, create a LABELED visual element:
-   - Use RoundedRectangle + Text label naming the concept
-   - Use color-coded groups for categories
-   - Use numbered items if narration says "first, second, third"
-STEP 3 — Animate each element APPEARING at the moment the narration mentions it:
-   - First quarter of duration: introduce the topic (title + first concept)
-   - Second quarter: expand with supporting details (2-3 elements)
-   - Third quarter: show relationships/process (arrows, transforms)
-   - Final quarter: conclude/emphasize key takeaway
-
-🎯 WHAT TO SHOW:
-✅ Glass cards / rounded rectangles with TEXT LABELS naming the concept
-✅ Arrows connecting related concepts
-✅ Icons or emoji-like symbols representing ideas (⚡ for speed, 🔒 for security)
-✅ Side-by-side comparisons when narration compares things
-✅ Sequential reveals (one-by-one) when narration lists items
-✅ Progress indicators when narration describes growth/improvement
-
-🚫 WHAT NEVER TO SHOW:
-❌ Unlabeled circles or squares floating around
-❌ Random geometric patterns with no meaning
-❌ Text-only screens (just paragraphs of the narration)
-❌ Generic decorative animations that don't represent narration content
-❌ Elements that exist but are never connected to what is being said
-
----
-
-📄 REQUIRED OUTPUT FORMAT (STRICT)
-
-Return ONLY raw Python code. No markdown. No explanations.
-
-The script MUST start exactly with:
-
-from manim import *
-import random
-
-{aspect_ratio_config}
-
-class Segment{index:03d}(Scene):
-    def construct(self):
-        # animations here
-        self.wait(X)  # X chosen so total time == {segment.duration:.2f}
-
----
-
-🚨 FINAL CHECKLIST (YOU MUST SELF-VERIFY BEFORE OUTPUT)
-✓ All text scaled with scale_to_fit_width
-✓ No overlaps
-✓ Aspect ratio respected
-✓ Duration exact
-✓ Animations spread across time
-✓ No blank screen padding
-✓ Clean exit
-
-Generate the script now.
-"""
+    def _validate_script_against_contract(self, script: str, segment: 'NarrationSegment', index: int) -> str:
+        """Post-generation validation: check script against frozen visual_contract.
+        
+        Logs warnings if the generated Manim code drifts from the contract,
+        but does NOT block (non-fatal gate). Returns the script unchanged.
+        """
+        contract_json = getattr(segment, 'visual_contract', None) if segment else None
+        if not contract_json:
+            return script
+        
+        try:
+            contract = deserialize_contract(contract_json)
+            passed, issues, score = validate_script_simulation(script, contract)
+            if not passed:
+                issues_str = ", ".join(issues)
+                logger.warning(
+                    f"  ⚠️ Segment {index+1} script contract check FAILED (score={score:.2f}): {issues_str}"
+                )
+            else:
+                logger.info(f"  ✓ Segment {index+1} script contract check passed (score={score:.2f})")
+        except Exception as e:
+            logger.debug(f"  Script contract validation skipped for segment {index+1}: {e}")
+        
+        return script
 
     def _clean_script_response(self, raw_content: str, index: int, duration: float) -> str:
-        """Clean and validate script response from Gemini."""
+        """Clean, validate and inject premium background into script response from Gemini."""
         try:
             logger.debug(f"🧹 Cleaning segment {index} (length: {len(raw_content)} chars)")
             
@@ -5510,11 +4101,146 @@ Generate the script now.
                 logger.error(f"❌ Script validation failed for segment {index} - missing core elements")
                 raise ValueError(f"Script validation failed for segment {index}: missing required elements")
             
+            # Inject premium background template into legacy scripts
+            raw_content = self._inject_premium_background(raw_content, index, duration)
+            
             return raw_content
                 
         except Exception as e:
             logger.error(f"❌ Script cleaning failed for segment {index}: {e}")
             raise ValueError(f"Script cleaning failed for segment {index}: {e}")
+
+    def _inject_premium_background(self, script: str, index: int, duration: float) -> str:
+        """Inject premium background (GradientBackground, SubtleGrid, AmbientParticles,
+        progress bar, channel watermark) into legacy LLM-generated Manim scripts.
+        
+        This gives legacy pipeline the same professional look as the quality pipeline.
+        """
+        # Skip if already has premium background
+        if 'GradientBackground' in script or 'SubtleGrid' in script:
+            return script
+        
+        # D4: Per-segment accent color rotation
+        accent_colors = ["BLUE", "TEAL", "PURPLE", "GOLD", "PINK", "GREEN"]
+        accent = accent_colors[index % len(accent_colors)]
+        
+        # --- PRIMITIVES BLOCK: inserted before the Scene class ---
+        primitives_block = f'''
+# === PREMIUM BACKGROUND PRIMITIVES (auto-injected) ===
+
+class GradientBackground(VGroup):
+    """Dark gradient background with subtle color accent."""
+    def __init__(self, accent_color=BLUE, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        base = Rectangle(width=fw + 1, height=fh + 1, fill_opacity=1.0, stroke_width=0)
+        base.set_fill(color=["#0a0a1a", "#0f1629", "#0a0a1a"])
+        self.add(base)
+        glow = Circle(radius=fw * 0.06, fill_opacity=0.015, stroke_width=0, color=accent_color)
+        glow.shift(UP * fh * 0.4 + RIGHT * fw * 0.35)
+        self.add(glow)
+
+
+class AmbientParticles(VGroup):
+    """Floating dots that drift slowly."""
+    def __init__(self, count=6, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        import random as _rng
+        _rng.seed(42)
+        for _ in range(count):
+            r = _rng.uniform(0.03, 0.07)
+            opacity = _rng.uniform(0.12, 0.25)
+            dot = Dot(radius=r, fill_opacity=opacity, color=WHITE, stroke_width=0)
+            x = _rng.uniform(-fw * 0.45, fw * 0.45)
+            y = _rng.uniform(-fh * 0.45, fh * 0.45)
+            dot.move_to([x, y, 0])
+            self.add(dot)
+
+
+class SubtleGrid(VGroup):
+    """Very faint grid lines for visual structure."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        for i in range(-3, 4):
+            x = i * fw / 6
+            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            self.add(line)
+        for i in range(-5, 6):
+            y = i * fh / 10
+            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            self.add(line)
+
+'''
+        
+        # --- BACKGROUND SETUP CODE: inserted right after `def construct(self):` ---
+        bg_setup = f'''
+        # === PREMIUM BACKGROUND (auto-injected) ===
+        _bg = GradientBackground(accent_color={accent})
+        self.add(_bg)
+        _grid = SubtleGrid()
+        self.add(_grid)
+        _particles = AmbientParticles(count=6)
+        self.add(_particles)
+        for _dot in _particles:
+            _dx = random.uniform(-0.02, 0.02)
+            _dy = random.uniform(0.01, 0.03)
+            _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
+        # Progress bar
+        _pb_total_w = config.frame_width * 0.85
+        _pb_bg = Rectangle(width=_pb_total_w, height=0.06, fill_opacity=0.15,
+                           fill_color=WHITE, stroke_width=0)
+        _pb_bg.move_to(np.array([0, -config.frame_height/2 + 0.12, 0]))
+        self.add(_pb_bg)
+        _pb_bar = Rectangle(width=0.01, height=0.06, fill_opacity=0.6,
+                            fill_color={accent}, stroke_width=0)
+        _pb_bar.move_to(_pb_bg.get_center())
+        _pb_bar.align_to(_pb_bg, LEFT)
+        self.add(_pb_bar)
+        _pb_bar._pt = 0
+        _scene_dur = {duration:.1f}
+        def _pb_upd(m, dt):
+            m._pt += dt
+            frac = min(1.0, m._pt / max(0.1, _scene_dur))
+            new_w = max(0.01, _pb_total_w * frac)
+            m.stretch_to_fit_width(new_w)
+            m.align_to(_pb_bg, LEFT)
+        _pb_bar.add_updater(_pb_upd)
+        # Channel watermark
+        _wm = Text("Code Tapasya", font_size=14, color=WHITE,
+                    font="sans-serif", fill_opacity=0.25)
+        _wm.move_to(np.array([config.frame_width/2 - 1.2,
+                              -config.frame_height/2 + 0.35, 0]))
+        self.add(_wm)
+        # Scene intro flash
+        _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
+                               fill_opacity=0.04, fill_color=WHITE, stroke_width=0)
+        self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
+        self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
+        self.remove(_flash_rect)
+'''
+        
+        # Ensure numpy is imported
+        if 'import numpy' not in script and 'numpy' not in script:
+            script = script.replace('from manim import *', 'from manim import *\nimport numpy as np')
+        if 'import random' not in script:
+            script = script.replace('from manim import *', 'from manim import *\nimport random')
+        
+        # Step 1: Inject primitive class definitions before the Scene class
+        class_pattern = re.search(r'^class Segment\d{3}\(Scene\):', script, re.MULTILINE)
+        if class_pattern:
+            insert_pos = class_pattern.start()
+            script = script[:insert_pos] + primitives_block + script[insert_pos:]
+        
+        # Step 2: Inject background setup code after `def construct(self):`
+        construct_pattern = re.search(r'def construct\(self\):\s*\n', script)
+        if construct_pattern:
+            insert_pos = construct_pattern.end()
+            script = script[:insert_pos] + bg_setup + '\n' + script[insert_pos:]
+        
+        logger.info(f"🎨 Injected premium background into legacy segment {index}")
+        return script
 
     def _validate_script_structure(self, script: str, index: int) -> bool:
         """Validate that the script has all required components."""
@@ -5603,6 +4329,8 @@ Generate the script now.
                 
                 # Clean and save script
                 cleaned_script = self._clean_script_response(raw_text, i, segment.duration)
+                # Script-level contract gate
+                cleaned_script = self._validate_script_against_contract(cleaned_script, segment, i)
                 script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
                 script_path.write_text(cleaned_script, encoding="utf-8")
                 segment.script_path = str(script_path)
@@ -6064,6 +4792,7 @@ async def main_optimized():
     
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     groq_api_key = os.getenv("GROQ_API_KEY")
+    logger.info(f"🔑 OPENROUTER_API_KEY:{openrouter_key}")
     
     if not openrouter_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is required.")
@@ -6074,8 +4803,9 @@ async def main_optimized():
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
         aspect_ratio="16:9",
-        use_quality_pipeline=True
+        use_quality_pipeline=True  
     )
+    
     
     try:
         # Use memory-optimized pipeline for large `videos`
@@ -6085,7 +4815,7 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="What is the difference between Deep Learning and Machine Learning?", 
+            topic="Explain about Datafication", 
             duration=60,
         )
 

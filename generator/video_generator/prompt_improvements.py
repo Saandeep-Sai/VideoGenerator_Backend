@@ -1,6 +1,6 @@
 """
-Improved prompt methods for OptimizedVideoGenerationPipeline.
-These replace the verbose original methods with clean, efficient versions.
+DEPRECATED — All prompts now live in prompt_registry.py
+This module is unused and can be safely deleted.
 """
 
 def improved_generate_narration_segments_with_gemini(self, topic: str, duration: int):

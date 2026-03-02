@@ -11,6 +11,7 @@ The LLM generates JSON specs that are validated before code generation.
 
 import json
 import logging
+import difflib
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
@@ -81,203 +82,170 @@ METAPHOR_TAXONOMY = {
 # SCENE SPECIFICATION GENERATION PROMPT
 # =============================================================================
 
-SCENE_SPEC_GENERATION_PROMPT = '''You are a viral YouTube Shorts creator who makes educational content that people can't stop watching. Your videos are so engaging that viewers watch till the end and share them.
+SCENE_SPEC_GENERATION_PROMPT = '''You are directing a cinematic educational YouTube Short.
 
-## � CINEMATIC DIRECTIVE (READ FIRST — This Overrides Everything!)
-You are DIRECTING an animated short film, NOT designing presentation slides.
-Every scene must feel like a STORY UNFOLDING VISUALLY — alive, intentional, and narratively driven.
-Static presentation = FAILURE. A screen where nothing moves for more than 0.8 seconds = FAILURE.
+Your task is NOT to design slides or list animations.
+Your task is to design VISUAL INTENT — how ideas should unfold visually over time.
 
-### 🎥 Story Through Motion
-- Every animation MUST advance the narrative (not just decoration)
-- Elements don't just "appear" — they ENTER with purpose and INTERACT with each other
-- The spatial arrangement IS the explanation: left→right = sequence, top→bottom = hierarchy, side-by-side = comparison
-- Diagrams BUILD progressively as the narration unfolds — never show everything at once
+The VisualDirector system will handle choreography.
+You must decide WHAT should happen and WHY.
 
-### 🎭 Interaction Over Appearance
-- Arrows GROWING between elements when narration says "connects to" or "leads to"
-- Elements REPOSITIONING to form relationships when narration says "works together"
-- Scale PULSING to emphasize the current narrative focus
-- Color TRANSFORMING to show state changes
+---
 
-### 📷 Camera-Aware Composition
-- Think in SHOTS: establishing shot (zoom out to show context), close-up (zoom into key detail), reveal shot (pan to show new relationship)
-- The viewer's EYE should be GUIDED through the scene by motion sequence
-- Entry directions should match the narration flow: left-to-right for processes, top-down for hierarchies
+## PRIMARY PRINCIPLE
 
-## �🎯 YOUR MISSION
-Create a scene specification that will make viewers say "Wow, that was actually useful!" NOT "Ugh, another boring explainer."
+Every scene must visually THINK.
 
-## 🚨 ANTI-BORING CHECKLIST (CRITICAL!)
-Before writing ANYTHING, memorize these rules:
+The viewer should understand the idea even without audio.
 
-❌ NEVER start with "Today we'll learn about..." or "In this video..."
-❌ NEVER say "The concept of X is defined as..."
-❌ NEVER have static visuals (everything MUST move!)
-❌ NEVER use passive voice or textbook language
-❌ NEVER let a scene feel like a lecture
+Motion exists to explain meaning, not decorate narration.
 
-✅ ALWAYS start with a hook (question, surprising fact, or relatable pain)
-✅ ALWAYS use action verbs: BOUNCES, ZOOMS, SLIDES, PULSES, SPINS, FLASHES
-✅ ALWAYS end scenes with a visual "punch" (flash, pulse, zoom out)
-✅ ALWAYS use analogies ("It's like a bouncer at a club...")
-✅ ALWAYS sound like you're texting a friend, not writing an essay
+If visuals stop communicating, redesign the scene.
 
-## 📖 STORYTELLING PATTERN (Every Video Follows This!)
-1. **INTRO (Hook)**: Make them STOP SCROLLING
-   - Ask a provocative question
-   - State a surprising fact
-   - Show a relatable problem
-   
-2. **CONTENT (Problem → Solution)**: 
-   - Show WHY this matters (the problem)
-   - Reveal HOW it works (the solution)
-   - Use a visual metaphor they'll remember
-   
-3. **OUTRO (Payoff)**: 
-   - Quick recap (one sentence)
-   - Memorable sign-off
-   - Leave them feeling smarter
+---
 
-## 🎤 NARRATION STYLE (Sound Like a Friend!)
-Good examples:
-- "Okay wait, have you ever wondered why..."
-- "So basically, think of it like this..."
-- "Here's the thing nobody tells you..."
-- "Boom! That's actually it. Simple, right?"
-- "Pretty cool, huh? Now you know more than most devs!"
+## VISUAL STORY MODEL
 
-Bad examples (NEVER USE):
-- "Today we will explore the concept of..."
-- "X is defined as a mechanism whereby..."
-- "In conclusion, we have learned that..."
+Each scene follows a visual arc:
 
-## 🎬 VISUAL DYNAMICS — CINEMATIC CONCEPT DIAGRAMS (Not generic boxes!)
-Every scene MUST use the FULL SCREEN to create concept DIAGRAMS, NOT just text flying around:
+1. INTRODUCE — establish the main idea clearly.
+2. DEVELOP — relationships or structure appear progressively.
+3. FOCUS — attention shifts to the key insight.
+4. HOLD — viewer understands the completed diagram.
 
-### 🎥 LAYOUT PATTERNS (Pick the best one for each scene's narration!):
+Never reveal the full diagram immediately.
+Build understanding step-by-step.
 
-**Pattern 1 — Side-by-Side Comparison** (for "X vs Y", "before/after", "old vs new"):
-- Two large glass_cards at LEFT and RIGHT with contrasting colors
-- Icon badges above each card showing key difference
-- Used when narration COMPARES two things
+---
 
-**Pattern 2 — Process Flow** (for "first... then... finally", "steps", "pipeline"):
-- 3-4 nodes/cards arranged LEFT→RIGHT with arrows between them
-- Each step appears when narration mentions it
-- Used when narration describes a SEQUENCE
+## SPATIAL GOVERNANCE (MANDATORY)
 
-**Pattern 3 — Hierarchical Tree** (for "types of", "categories", "subtypes"):
-- Parent concept at TOP (glass_card)
-- 2-4 children spread across BOTTOM (LEFT, CENTER, RIGHT)
-- Arrows/lines from parent to each child
-- Used when narration CLASSIFIES things
+Design layouts for mobile viewing.
 
-**Pattern 4 — Central Concept + Details** (for "what is X?"):
-- Main concept as large glass_card at CENTER
-- 3-4 supporting tag_pills/icon_badges ORBITING around it
-- Each detail appears when narration mentions it
-- Used for DEFINITION/EXPLANATION scenes
+Rules:
 
-**Pattern 5 — Cause → Effect** (for "because", "leads to", "results in"):
-- Two elements with bold ARROW between them
-- Left element = cause, right element = effect
-- Arrow DRAWS when narration describes the connection
+- No element may exceed safe frame bounds (90% width/height).
+- Maintain clear margins from edges.
+- Primary concept = largest visual element.
+- Supporting elements scale proportionally smaller.
+- If many elements exist, distribute across space instead of shrinking excessively.
+- Readability is more important than screen coverage.
 
-### 📏 SPATIAL RULES (MANDATORY — use the FULL SCREEN!):
-- NEVER put all elements in the center — spread them out!
-- Use positions: top_left, top_right, center_left, center_right, lower_left, lower_right
-- Each scene MUST use at least 3 different grid positions
-- For 16:9: elements at horizontal extremes (LEFT*5 and RIGHT*5)
-- For 9:16: elements stacked vertically (UP*5 and DOWN*5)
-- Leave NO empty quadrant — fill the screen with meaningful content
+Avoid overcrowding.
 
-### 🎭 ANIMATION STORYTELLING — Semantic Beats → Visual Events (CRITICAL!):
-Every narration phrase maps to a SPECIFIC visual event. This is DIRECTING, not decorating.
+---
 
-**Semantic Beat Mapping Rules:**
-- "introduces X" → element GROWS FROM CENTER (dramatic reveal)
-- "compares X and Y" → two elements SLIDE IN from OPPOSITE sides simultaneously
-- "X leads to Y" → arrow DRAWS from X to Y (cause → effect)
-- "the key thing about X" → element PULSES + CIRCUMSCRIBE highlight (emphasis)
-- "types of X" → parent card ENTERS first, then children GROW from it (hierarchy)
-- "step 1... step 2... step 3" → elements appear LEFT→RIGHT with arrows DRAWING between
-- "X transforms into Y" → element MORPHS or COLOR SHIFTS
-- "the big picture" → all elements SCALE DOWN slightly to reveal full diagram (zoom out)
-- "focus on X" → element SCALES UP while others DIM (camera zoom)
+## LAYOUT SELECTION
 
-**Interaction Events (MANDATORY in CONTENT scenes):**
-- At least ONE arrow must DRAW between elements during the scene
-- At least ONE element must REPOSITION during the scene (shift toward another)
-- At least ONE emphasis event must sync with the narration's key phrase
+Choose ONE layout strategy per scene based on meaning:
 
-- HOLD all elements visible at end — NEVER FadeOut everything
+- Comparison — opposing sides (glass_cards LEFT + RIGHT, icon_badges above each, arrow between)
+- Process — directional flow (nodes/cards LEFT→RIGHT with arrows between steps)
+- Hierarchy — top-down structure (parent glass_card TOP, children spread BOTTOM)
+- Definition — central concept with supporting details (glass_card CENTER, tag_pills/icon_badges around it)
+- Cause/Effect — connection (two elements with arrow between them)
 
-🚫 THE #1 MISTAKE: Generic animations disconnected from narration!
-❌ BAD: "boxes float around while narration talks about APIs" 
-✅ GOOD: "glass_card labeled 'API Gateway' GROWS FROM CENTER at left, then arrow DRAWS rightward to glass_card 'Server' when narration says 'sends request' — showing the data flow spatially"
+Layout must match explanation logic.
 
-### 🎬 ANIMATION VERBS (Use these in visual_sync descriptions!):
-- "GROWS FROM CENTER at [position]" — first introduction (dramatic)
-- "SLIDES IN from left/right to [position]" — sequential step
-- "DRAWS BORDER THEN FILLS at [position]" — important reveal
-- "ARROW DRAWS from X to Y" — connection or data flow
-- "PULSES with golden GLOW" — emphasis on key point
-- "CIRCUMSCRIBE highlight in YELLOW" — "look at this!" moment
-- "TRANSFORMS into" — concept changing or evolving
-- "ZOOMS OUT to reveal all elements" — showing the big picture
+---
 
-## 🎨 AVAILABLE VISUAL PRIMITIVES — Your Cinematic Toolkit
-You have premium visual elements — COMBINE THEM to build concept diagrams:
+## VISUAL INTERACTION PRINCIPLE
 
-| Type | Best For | Use In Layout | Example |
-|------|----------|---------------|---------|
-| `glass_card` | Key concepts, main ideas, definitions | CENTER, LEFT, RIGHT (large) | Frosted glass panel titled "Neural Network" |
-| `code_block` | Code snippets, commands, syntax | CENTER (large) | Dark editor-style block showing `pip install` |
-| `icon_badge` | Key symbols, comparison icons, status | TOP corners, ORBITING center | Glowing badge with ⚡ or 🔒 |
-| `tag_pill` | Labels, categories, keywords, types | BELOW parent cards, scattered | Rounded pill "Machine Learning" |
-| `progress_bar` | Metrics, comparisons, before/after | BOTTOM, under cards for comparison | Animated bar 75% filled in GREEN |
-| `boundary_box` | Grouping 2-3 related elements together | LARGE, enclosing sub-elements | Container labeled "Frontend" with child elements inside |
-| `node` | Entities in flow diagrams, tree children | In chains or tree layouts | Styled circle "Step 1" → "Step 2" |
-| `label` | Short annotations, captions, callouts | NEXT TO other elements | "O(n²)" label near code_block |
-| `arrow` | Connections, data flow, cause→effect | BETWEEN any two elements | Directional arrow from "Input" to "Output" |
+Elements should influence each other.
 
-### 🏗️ ELEMENT COMBINATION RECIPES (Build diagrams, NOT just floating boxes!):
-- **Comparison**: 2× glass_card (LEFT + RIGHT) + 2× icon_badge above each + arrow between = VS layout
-- **Process Flow**: 3× node in a row + 2× arrow between them + tag_pill labels below = pipeline
-- **Definition**: 1× glass_card (CENTER) + 3× tag_pill around it + icon_badge on top = concept map
-- **Hierarchy**: 1× glass_card (TOP) + 3× node (BOTTOM spread) + arrows downward = tree
+Prefer:
+- growth (grow_from_center, draw_border_then_fill)
+- connection (draw_arrow, flow between elements)
+- transformation (morph, color shift, scale change)
+- emphasis shifts (pulse, circumscribe, flash on key insight)
 
-🚨 CRITICAL: Use 4-6 elements per scene — build DIAGRAMS not isolated boxes!
-🚨 PREFER `glass_card` and `icon_badge` over basic `node` — they look 10x better!
-🚨 Use `medium` or `large` sizes — small elements are INVISIBLE on phone screens!
-🚨 ALWAYS include at least 1 `arrow` in CONTENT scenes — show CONNECTIONS!
+Avoid unrelated sequential appearances.
 
-## 📋 TOPIC TO EXPLAIN
+At least one meaningful interaction must occur in every CONTENT scene.
+
+---
+
+## MOTION PHILOSOPHY
+
+Motion should feel continuous but calm.
+
+Use motion to guide attention:
+- introduce (grow_from_center, slide_in)
+- connect (draw_arrow, flow)
+- emphasize (pulse, circumscribe, flash)
+- reveal (zoom_out, fade_in)
+
+Avoid constant aggressive animation.
+
+Moments of stillness are allowed ONLY after understanding is achieved.
+
+HOLD all elements visible at end — NEVER FadeOut everything.
+
+---
+
+## NARRATION STYLE
+
+Conversational, concise, curious.
+35-50 words per scene.
+Sound natural, not academic.
+
+Good: "Okay wait, have you ever wondered why..."
+Good: "So basically, think of it like this..."
+Good: "Boom! That's actually it. Simple, right?"
+
+Bad: "Today we will explore the concept of..."
+Bad: "X is defined as a mechanism whereby..."
+
+---
+
+## AVAILABLE VISUAL PRIMITIVES
+
+| Type | Best For |
+|------|----------|
+| `glass_card` | Key concepts, main ideas, definitions (large, frosted glass panel) |
+| `code_block` | Code snippets, commands, syntax (dark editor style) |
+| `icon_badge` | Key symbols, comparison icons, status (glowing badge) |
+| `tag_pill` | Labels, categories, keywords (rounded pill) |
+| `progress_bar` | Metrics, comparisons, before/after (animated fill bar) |
+| `boundary_box` | Grouping related elements together (container) |
+| `node` | Entities in flow diagrams (styled circle/shape) |
+| `label` | Short annotations, captions, callouts |
+| `arrow` | Connections, data flow, cause→effect |
+
+Prefer `glass_card` and `icon_badge` over basic `node` — they look better.
+Use `medium` or `large` sizes — small elements are invisible on phones.
+Include at least 1 `arrow` in CONTENT scenes to show connections.
+
+---
+
+## TOPIC
 "{topic}"
 
-## ⏱️ TIMING
+## TIMING
 Total: {duration} seconds
-Scenes: EXACTLY {num_scenes} scenes  
+Scenes: EXACTLY {num_scenes} scenes
 Per scene: ~{seconds_per_scene} seconds
 
-## 📐 ASPECT RATIO
+## ASPECT RATIO
 {aspect_ratio}
 
-## 📄 OUTPUT FORMAT (JSON Array)
+## OUTPUT FORMAT (JSON Array)
+
+Return a JSON array. Each scene object:
+
 ```json
 [
   {{
     "scene_id": "scene_001",
-    "type": "INTRO",
+    "type": "INTRO|CONTENT|OUTRO",
     "concept": {{
-      "idea": "Hook - grab attention with a question or surprising fact",
-      "pedagogical_goal": "Make viewer curious and stop scrolling"
+      "idea": "What this scene communicates",
+      "pedagogical_goal": "What the viewer should understand"
     }},
     "visual_metaphor": {{
       "abstract_concept": "the core idea",
       "concrete_representation": "relatable real-world analogy",
-      "metaphor_type": "container|process_flow|relationship|state|transformation|quantity",
+      "metaphor_type": "container|process_flow|relationship|state|transformation|quantity|comparison|hierarchy",
       "visual_elements": [
         {{
           "id": "elem1",
@@ -286,117 +254,43 @@ Per scene: ~{seconds_per_scene} seconds
           "position": "center|top_center|bottom_center|center_left|center_right|upper_center|lower_center|upper_left|upper_right|lower_left|lower_right",
           "size": "medium|large",
           "color": "BLUE|GREEN|RED|YELLOW|ORANGE|PURPLE|GOLD|WHITE|TEAL"
-        }},
-        {{
-          "id": "elem2",
-          "element_type": "icon_badge",
-          "label": "⚡",
-          "position": "upper_right",
-          "size": "medium",
-          "color": "GOLD"
-        }},
-        {{
-          "id": "elem3",
-          "element_type": "tag_pill",
-          "label": "keyword",
-          "position": "lower_center",
-          "size": "medium",
-          "color": "TEAL"
         }}
       ]
     }},
     "transformation": {{
       "type": "intro_hook|explanation|reveal|conclusion",
       "sequence": [
-        {{"action": "grow_from_center", "target": "elem1", "narration_cue": "appears when narration introduces the MAIN concept"}},
-        {{"action": "slide_in_from_left|slide_in_from_right", "target": "elem2", "narration_cue": "slides in when narration mentions the SECOND concept"}},
-        {{"action": "draw_arrow", "target": "arrow1", "narration_cue": "arrow draws when narration says 'connects to' or 'leads to'"}},
-        {{"action": "grow_from_center|bounce", "target": "elem3", "narration_cue": "appears when narration mentions supporting detail"}},
-        {{"action": "pulse|circumscribe|flash", "target": "elem1", "narration_cue": "emphasize when narration makes the KEY POINT"}},
-        {{"action": "pulse|flash", "target": "elem2", "narration_cue": "final emphasis on the secondary element"}}
+        {{"action": "grow_from_center|slide_in_from_left|slide_in_from_right|draw_arrow|draw_border_then_fill|pulse|circumscribe|flash|fade_in|bounce", "target": "elem1", "narration_cue": "what narration phrase triggers this"}}
       ]
     }},
     "narration": {{
-      "text": "35-50 words of casual, engaging narration that sounds like texting a friend. Use contractions! Ask questions! Be enthusiastic!",
+      "text": "35-50 words, conversational tone",
       "semantic_beats": [
-        {{"beat_phrase": "exact 3-6 word phrase from narration text", "visual_sync": "elem1 GROWS FROM CENTER — represents the concept being introduced", "target_elements": ["elem1"]}},
-        {{"beat_phrase": "another key phrase from narration", "visual_sync": "elem2 APPEARS and arrow DRAWS from elem1 to elem2 — shows the relationship", "target_elements": ["elem2"]}},
-        {{"beat_phrase": "concluding phrase", "visual_sync": "elem1 PULSES — reinforces the main takeaway", "target_elements": ["elem1"]}}
+        {{"beat_phrase": "3-6 word phrase from narration", "visual_sync": "what visual event happens and why", "target_elements": ["elem1"]}}
       ]
     }},
     "timing": {{ "cognitive_duration_estimate_seconds": {seconds_per_scene} }}
-  }},
-  {{
-    "scene_id": "scene_002",
-    "type": "CONTENT",
-    "...": "Core explanation with visual metaphor"
-  }},
-  {{
-    "scene_id": "scene_00N",
-    "type": "OUTRO",
-    "concept": {{ "idea": "Quick recap + memorable sign-off", "pedagogical_goal": "Leave them feeling smarter" }},
-    "narration": {{
-      "text": "And boom! That's [topic] in a nutshell. Pretty simple when you break it down, right? Now go impress someone with your new knowledge!",
-      "...": "..."
-    }}
   }}
 ]
 ```
 
-## ✨ QUALITY SELF-CHECK (Grade A Cinematic Standard)
+---
+
+## QUALITY CHECK
+
 Before outputting, verify:
-1. Does the hook make YOU want to keep watching? (If not, rewrite!)
-2. Is every animation SPATIALLY MEANINGFUL? (Does the motion match the narration's meaning — e.g., comparison = side-by-side, process = left→right flow)
-3. Does it sound like a friend explaining? (Read it out loud!)
-4. Is the narration 35-50 words per scene? (Not too short!)
-5. Would YOU share this video? (If not, make it better!)
-6. Do you have 4-6 visual elements per scene? (3 or less = BORING! Include arrows!)
-7. Are you using glass_card or icon_badge? (basic nodes are ugly!)
-8. Are sizes medium or large? (small = invisible on phone!)
-9. **LAYOUT CHECK**: Do elements use at LEAST 3 DIFFERENT positions per scene? (All center = REJECTED!)
-10. **DIAGRAM CHECK**: Does each CONTENT scene have at least 1 arrow or connection? (Isolated boxes = BORING!)
-11. **NARRATION SYNC**: For EACH semantic beat, can you answer: "What SPECIFIC visual element appears/moves WHERE on screen, and HOW does that spatial position + motion represent what the narration is saying?" If the visual_sync is generic, REWRITE to be specific!
-12. **LABEL CHECK**: Does each visual element label describe the concept it represents? ("elem1" with label "" = USELESS. "api_gateway" with label "API Gateway" = MEANINGFUL!)
-13. **NO FADE-OUT-ALL**: The last action in your sequence must NOT fade out all elements! End with emphasis (pulse/flash) on the key takeaway element!
-14. **CINEMATIC INTERACTION**: Does the CONTENT scene have at least 1 MOVE/REPOSITION event? Elements should shift toward each other to show relationships!
-15. **CAMERA AWARENESS**: Is there at least 1 emphasis event that acts as a "close-up" (scale pulse, circumscribe) synced to the KEY phrase?
-16. **ANIMATION VARIETY**: Count unique animation types — you need at least 4 DIFFERENT animation verbs across the scene (not all grow_from_center!)
-17. **PROGRESSIVE BUILD**: Does the diagram build piece-by-piece matching narration, or does everything dump on screen at once? (Dump = REJECTED!)
-18. **CONTINUOUS MOMENTUM** (Solution A): After each element enters, does it receive at least one follow-up event (emphasis, move, transform) within 2 seconds? Static elements after entry = DEAD SCREEN!
-19. **ENERGY PEAKS** (Solution D): Every 5-7 seconds, is there a burst of 2-3 simultaneous animations? Flat constant intensity = BORING! Plan peaks and valleys!
-20. **CAUSAL LOGIC** (Solution C): When narration says "X leads to Y" or "X becomes Y", do elements MORPH/TRANSFORM instead of just being replaced? Show EVOLUTION, not substitution!
-21. **SCALING HIERARCHY** (Solution F): Is the PRIMARY concept element visually LARGER than supporting elements? The main idea should dominate the screen — secondary details should be proportionally smaller!
-22. **MOTION VARIETY** (Solution G): Are any two CONSECUTIVE animations the same type? Alternate between grow, slide, draw, pulse, move — never repeat the same pattern twice in a row!
-23. **SPATIAL SAFETY**: With {num_scenes} segments, will elements FIT on screen? For 4+ elements per scene, use SMALLER sizes and WIDER spacing. No element should exceed 40% of screen width. MARGINS are sacred — keep 5% clear on all edges!
-24. **OVERFLOW PREVENTION**: If a scene has 5+ visual elements, use COMPACT sizes (tag_pill, icon_badge) for secondary items instead of full glass_cards. Crowded = REJECTED!
+1. Does each scene visually communicate its idea without audio?
+2. Are elements spread across at least 3 different positions per scene?
+3. Does each CONTENT scene have at least one connection (arrow) between elements?
+4. Is the diagram built progressively, not revealed all at once?
+5. Does every element label name a concept from the narration?
+6. Is narration 35-50 words per scene, conversational?
+7. Does the primary concept dominate visually?
 
-## 🚨 ANTI-PATTERN CHECK (YOUR SPEC WILL BE REJECTED IF)
-- Elements have empty or generic labels (label must describe what concept the element represents)
-- Transformation sequence is just "appear, appear, appear, pulse, fade_out" (each animation must have a narrative reason AND a specific entry direction/style)
-- semantic_beats have generic visual_sync like "element animates" (must describe WHAT appears WHERE and WHY)
-- Visual elements don't map to concepts mentioned in the narration
-- More than 2 elements share the same position (use different grid positions!)
-- ALL elements are in CENTER position (spread them across the screen!)
-- CONTENT scene has zero arrows (you MUST show connections between concepts!)
-- Last transformation action is "fade_out" for ALL elements (keep elements visible at end!)
-- Every entry animation is the same type (vary between grow_from_center, slide_in_from_left, slide_in_from_right, bounce, draw_border_then_fill)
-- NO element interaction: elements just sit in place without moving toward each other or connecting (CINEMATIC = interaction!)
-- Scene feels like a SLIDESHOW: all elements appear at once, sit still, then disappear (PROGRESSIVE BUILD required!)
-- Zero emphasis events tied to narration key phrases (at least 2 required per scene!)
-- Animation density < 1.5 events/second (if your scene has 15 seconds, you need 20+ animation events across all beats)
-- **ENTRY-THEN-STATIC**: An element enters and has NO follow-up event for 3+ seconds (Solution A — every element must stay active!)
-- **FLAT ENERGY**: All animations are equally spaced with identical intensity — no peaks or valleys (Solution D — plan 2-3 energy bursts per scene!)
-- **PASSIVE CAMERA**: No emphasis event acts as a "close-up" or "zoom" moment — the camera never guides attention (Solution B — at least 2 camera-like events!)
-- **NO CAUSAL LOGIC**: When narration says "transforms into" or "leads to" but elements just appear/disappear instead of morphing (Solution C — use transform/morph actions!)
-- **UNIFORM SIZING**: All elements are the same visual weight — no clear primary vs secondary hierarchy (Solution F — primary concept must be LARGER!)
-- **REPETITIVE MOTION**: Same animation verb used 3+ times consecutively (Solution G — alternate between at least 3 different animation types!)
-- **SCREEN OVERFLOW**: More than 5 large elements (glass_card, boundary_box) in a single scene — use compact types (tag_pill, icon_badge, code_block) for secondary items! Max 3 glass_cards per scene!
-- **EDGE BLEEDING**: Elements positioned without considering margins — everything must stay within 90% of screen bounds with 5% margin on each side!
+---
 
-## 🚀 NOW GENERATE
-Create {num_scenes} engaging scene specifications for "{topic}".
-Remember: Hook them, help them, and leave them wanting more!
-USE THE PREMIUM ELEMENTS (glass_card, icon_badge, tag_pill, code_block)!
+Generate {num_scenes} scenes for "{topic}".
+Focus on visual intent and meaning. VisualDirector handles the rest.
 '''
 
 
@@ -670,6 +564,13 @@ class SceneSpecGenerator:
         "ball": "circle", "dot": "node", "point": "node", "icon": "node",
         "line": "arrow", "connector": "arrow", "link": "arrow",
         "checkpoint": "checkpoint", "check": "checkpoint", "checkmark": "checkpoint",
+        # v0.19.0 expanded element type aliases
+        "star": "star_badge", "star_badge": "star_badge", "badge_star": "star_badge", "achievement": "star_badge",
+        "curved_arrow": "curved_arrow_elem", "curved_arrow_elem": "curved_arrow_elem", "arc_arrow": "curved_arrow_elem",
+        "dashed_line": "dashed_line_elem", "dashed_line_elem": "dashed_line_elem", "dotted_line": "dashed_line_elem",
+        "brace": "brace_annotation", "brace_annotation": "brace_annotation", "annotation": "brace_annotation", "bracket": "brace_annotation",
+        "annulus": "annulus_ring", "annulus_ring": "annulus_ring", "ring": "annulus_ring", "donut": "annulus_ring",
+        "sector": "sector_chart", "sector_chart": "sector_chart", "pie": "sector_chart", "pie_slice": "sector_chart",
     }
     
     # Position aliases - maps simplified position names to valid enum values  
@@ -740,6 +641,15 @@ class SceneSpecGenerator:
         "draw_and_fill": "draw_border_then_fill", "border_fill": "draw_border_then_fill",
         "draw_arrow": "draw_arrow", "arrow": "draw_arrow", "create_arrow": "draw_arrow",
         "circumscribe": "circumscribe", "circle": "circumscribe", "outline": "circumscribe",
+        # v0.19.0 expanded animation aliases
+        "write": "write", "handwrite": "write", "draw_text": "write", "pen": "write",
+        "apply_wave": "apply_wave", "wave": "wave", "ripple": "ripple", "undulate": "apply_wave",
+        "circle_indicate": "circle_indicate", "circle_highlight": "circle_indicate", "ring_highlight": "circle_indicate",
+        "surround": "surround", "surround_highlight": "surround", "box_highlight": "surround",
+        "grow_from_point": "grow_from_point", "grow_from": "grow_from_point", "spawn": "grow_from_point",
+        "fade_transform": "fade_transform", "cross_fade": "fade_transform", "morph_fade": "fade_transform",
+        "show_passing_flash": "show_passing_flash", "trace": "trace", "border_flash": "show_passing_flash",
+        "morph": "morph", "shapeshift": "morph", "evolve": "morph",
     }
     
     def _safe_parse_element_type(self, value: str) -> ElementType:

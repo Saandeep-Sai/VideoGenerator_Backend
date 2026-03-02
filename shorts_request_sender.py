@@ -30,7 +30,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment
-load_dotenv()
+load_dotenv(override=True)
 
 # Setup logging
 logging.basicConfig(

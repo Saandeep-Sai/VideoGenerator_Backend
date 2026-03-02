@@ -1,6 +1,6 @@
 """
-Clean, optimized prompts for video generation.
-These are 70% shorter than original prompts while maintaining quality.
+DEPRECATED — All prompts now live in prompt_registry.py
+This module is unused and can be safely deleted.
 """
 
 OPTIMIZED_NARRATION_PROMPT = """Create a {duration}-second educational video script about "{topic}" for {aspect_ratio} format.

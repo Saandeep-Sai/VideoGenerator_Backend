@@ -62,7 +62,7 @@ def test_ai_topic():
         from dotenv import load_dotenv
         from google import genai
         
-        load_dotenv()
+        load_dotenv(override=True)
         api_key = os.getenv("GEMINI_API_KEY")
         
         if not api_key:

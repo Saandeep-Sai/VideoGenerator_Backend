@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 import requests
 
-load_dotenv()
+load_dotenv(override=True)
 api_key = os.environ.get("GROQ_API_KEY")
 url = "https://api.groq.com/openai/v1/models"
 

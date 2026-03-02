@@ -24,7 +24,7 @@ def check_env_file():
     
     # Check if keys exist
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
     
     if not os.getenv("GEMINI_API_KEY"):
         print("❌ GEMINI_API_KEY not found in .env")

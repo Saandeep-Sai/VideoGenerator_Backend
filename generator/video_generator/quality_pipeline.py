@@ -28,6 +28,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .scene_specification import SceneSpecification, Timing
 from .scene_spec_generator import SceneSpecGenerator, GenerationConfig, SpecificationValidator
 from .manim_code_generator import ManimCodeGenerator, GeneratorConfig, CodeValidator
+from .visual_validation import (
+    validate_quality_spec_against_contract,
+    validate_script_simulation,
+    contract_from_visualizer,
+    serialize_contract,
+    deserialize_contract,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +268,34 @@ class QualityVideoPipeline:
             valid_specs = stage2.result["valid_specs"]
             result["quality_scores"] = stage2.result["quality_scores"]
             
+            # Stage 2.5: Create visual contracts from concept visualizer
+            # The contract FREEZES the visual model so code generation can't downgrade it
+            visual_contracts = []
+            try:
+                from .concept_visualizer import generate_visual_models_batch
+                specs_data = []
+                for i, spec in enumerate(valid_specs):
+                    specs_data.append({
+                        "segment_number": i + 1,
+                        "duration": spec.timing.cognitive_duration_estimate_seconds,
+                        "idea": spec.concept.idea if spec.concept else "main concept",
+                        "narration": spec.narration.text if spec.narration else "",
+                        "visual_intent": spec.visual_metaphor.concrete_representation if spec.visual_metaphor else "",
+                        "layout_strategy": "process_flow",
+                    })
+                vm_models = generate_visual_models_batch(specs_data)
+                for i, vm in enumerate(vm_models):
+                    contract = contract_from_visualizer(vm)
+                    visual_contracts.append(contract)
+                    spec_dict = valid_specs[i].to_dict() if hasattr(valid_specs[i], 'to_dict') else {}
+                    passed, issues = validate_quality_spec_against_contract(spec_dict, contract)
+                    if not passed:
+                        logger.warning(f"  ⚠️ Spec {i+1} vs visual contract: {', '.join(issues)}")
+                    else:
+                        logger.info(f"  ✓ Spec {i+1} passes visual contract check")
+            except Exception as e:
+                logger.warning(f"⚠️ Visual contract creation skipped: {e}")
+            
             # Stage 3: Generate Manim Code
             stage3 = self._stage_generate_code(valid_specs)
             self.stages.append(stage3)
@@ -274,6 +309,22 @@ class QualityVideoPipeline:
             # Stage 4: Validate Generated Code
             stage4 = self._stage_validate_code(scripts)
             self.stages.append(stage4)
+            
+            # Stage 4.5: Validate scripts against visual contracts
+            if visual_contracts and stage4.result:
+                for i, script in enumerate(stage4.result):
+                    if i < len(visual_contracts) and script:
+                        try:
+                            passed, issues, score = validate_script_simulation(script, visual_contracts[i])
+                            if not passed:
+                                logger.warning(
+                                    f"  ⚠️ Quality script {i+1} contract check FAILED "
+                                    f"(score={score:.2f}): {', '.join(issues)}"
+                                )
+                            else:
+                                logger.info(f"  ✓ Quality script {i+1} contract check passed (score={score:.2f})")
+                        except Exception as e:
+                            logger.debug(f"  Script contract validation skipped for {i+1}: {e}")
             
             if not stage4.success and self.config.strict_validation:
                 result["errors"].extend(stage4.errors)

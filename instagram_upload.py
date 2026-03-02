@@ -13,7 +13,7 @@ from instagrapi import Client
 from instagrapi.exceptions import LoginRequired, TwoFactorRequired, ChallengeRequired
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 

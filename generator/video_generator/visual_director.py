@@ -126,27 +126,27 @@ class VisualTimeline:
 PACING_PROFILES = {
     "INTRO": PacingProfile(
         scene_type="INTRO",
-        intensity_curve=[1.0, 0.9, 0.8, 0.7],  # Front-loaded: grab attention FAST
-        event_density=2.0,          # Cinematic: high event density from the start
-        max_static_gap=0.6,         # Cinematic: never let the screen breathe too long
+        intensity_curve=[1.0, 0.9, 0.8, 0.7],
+        event_density=0.6,          # RESTRUCTURED: clean, purposeful animations only
+        max_static_gap=3.0,         # RESTRUCTURED: let content breathe
         entry_style="GrowFromCenter",
         emphasis_style="Flash",
         exit_style="FadeOut"
     ),
     "CONTENT": PacingProfile(
         scene_type="CONTENT",
-        intensity_curve=[0.6, 0.8, 1.0, 0.9],  # Build to peak, hold strong
-        event_density=1.8,          # Cinematic: was 1.3 — Grade A demands ≥1.5
-        max_static_gap=0.8,         # Cinematic: was 1.2 — no dead air
+        intensity_curve=[0.6, 0.8, 1.0, 0.9],
+        event_density=0.5,          # RESTRUCTURED: quality over quantity
+        max_static_gap=3.5,         # RESTRUCTURED: static ≠ dead — content speaks
         entry_style="DrawBorderThenFill",
         emphasis_style="Indicate",
         exit_style="FadeOut"
     ),
     "OUTRO": PacingProfile(
         scene_type="OUTRO",
-        intensity_curve=[0.7, 0.9, 1.0, 1.0],  # End STRONG and SUSTAIN
-        event_density=2.0,          # Cinematic: punchy finish
-        max_static_gap=0.6,         # Cinematic: tight
+        intensity_curve=[0.7, 0.9, 1.0, 1.0],
+        event_density=0.6,          # RESTRUCTURED: clean finish
+        max_static_gap=3.0,         # RESTRUCTURED: let final state hold
         entry_style="GrowFromCenter",
         emphasis_style="Circumscribe",
         exit_style="FadeOut"
@@ -172,6 +172,12 @@ ENTRY_ANIMATIONS = [
     "SpinInFromNothing",
     "GrowFromEdge_RIGHT",  # Cinematic: variety
     "FadeIn_DOWN",         # Cinematic: top-down reveals
+    # v0.19.0 enriched entries
+    "Write",               # Progressive stroke reveal (cinematic)
+    "FadeIn_SCALE",        # FadeIn(scale=0.3) — grow from tiny
+    "GrowFromPoint_CENTER", # GrowFromPoint(ORIGIN) — emerge from center
+    "FadeInFromLarge",     # Shrink from large size while fading in
+    "Create",              # Draw stroke then fill progressively
 ]
 
 EMPHASIS_ANIMATIONS = [
@@ -184,6 +190,12 @@ EMPHASIS_ANIMATIONS = [
     "Flash_BLUE",          # Flash with blue color
     "Indicate_WHITE",      # Indicate with WHITE for contrast
     "FocusZoom",           # Scale up briefly to draw eye
+    # v0.19.0 enriched emphasis
+    "ApplyWave",           # Wave distortion ripple through element
+    "ShowPassingFlash",    # Flash of light tracing element border
+    "CircleIndicate",      # Circle drawn around element
+    "WiggleOutThenIn",     # Wiggle outward then back (playful)
+    "SurroundHighlight",   # SurroundingRectangle appears and fades
 ]
 
 EXIT_ANIMATIONS = [
@@ -191,6 +203,11 @@ EXIT_ANIMATIONS = [
     "FadeOut",
     "FadeOut_LEFT",     # FadeOut with shift=LEFT*0.3
     "ShrinkToCenter",   # Cinematic: variety for exits
+    # v0.19.0 enriched exits
+    "Unwrite",          # Reverse progressive stroke (mirrors Write entry)
+    "FadeOut_UP",       # FadeOut shifting upward
+    "FadeOutToPoint",   # Shrink to a point while fading
+    "Uncreate",         # Reverse of Create — stroke dissolves
 ]
 
 # Cinematic MOVE animations — element repositioning for diagram building
@@ -198,6 +215,9 @@ MOVE_ANIMATIONS = [
     "SlideToPosition",     # Smooth move to new grid position
     "ArcToPosition",       # Curved arc movement (more cinematic)
     "DriftToPosition",     # Slow drift with ease-in-out
+    # v0.19.0 enriched movement
+    "MoveAlongArc",        # Curved path movement via ArcBetweenPoints
+    "ElasticSlide",        # Slide with elastic overshoot easing
 ]
 
 # Cinematic TRANSFORM animations — element evolution
@@ -205,13 +225,19 @@ TRANSFORM_ANIMATIONS = [
     "MorphTransform",      # Shape morphs into new form
     "ScaleTransform",      # Size changes to show emphasis shift
     "ColorTransform",      # Color shifts to show state change
+    # v0.19.0 enriched transforms
+    "FadeTransformMorph",  # Smooth cross-fade morph between states
+    "CounterclockwiseSpin", # Rotate counterclockwise with color shift
 ]
 
 # Cinematic CAMERA animations — virtual camera focus
 CAMERA_ANIMATIONS = [
-    "ZoomIn",              # Zoom into key element
-    "ZoomOut",             # Zoom out to reveal full diagram
+    "ZoomIn",              # Zoom into key element (group-based)
+    "ZoomOut",             # Zoom out to reveal full diagram (group-based)
     "FocusPulse",          # Brief zoom in + out on element
+    # v0.19.0 enriched camera
+    "DollyZoom",           # Zoom content group while shifting opposite (Vertigo effect)
+    "SweepPan",            # Smooth pan across all elements with lingering ease
 ]
 
 GAP_FILLER_ANIMATIONS = [
@@ -222,6 +248,10 @@ GAP_FILLER_ANIMATIONS = [
     "gentle_rotate",    # Slight rotation wobble
     "micro_bounce",     # Cinematic: tiny bounce to keep alive
     "opacity_breathe",  # Cinematic: subtle opacity wave
+    # v0.19.0 enriched gap fillers
+    "wave_distortion",  # Subtle ApplyWave ripple
+    "border_trace",     # ShowPassingFlash along element border
+    "sheen_sweep",      # set_sheen direction sweep
 ]
 
 # === Solution D: Energy bursts — simultaneous animation clusters every 5-7s ===
@@ -233,6 +263,11 @@ ENERGY_BURST_ANIMATIONS = [
     "FocusZoom",
     "Flash_BLUE",
     "Indicate_WHITE",
+    # v0.19.0 enriched bursts
+    "ApplyWave",
+    "ShowPassingFlash",
+    "CircleIndicate",
+    "WiggleOutThenIn",
 ]
 
 # === Solution A: Continuous activity — keep elements alive between major events ===
@@ -243,6 +278,10 @@ CONTINUOUS_ACTIVITY_ANIMATIONS = [
     "position_drift",
     "opacity_breathe",
     "glow_pulse",
+    # v0.19.0 enriched continuous activity
+    "wave_distortion",
+    "border_trace",
+    "sheen_sweep",
 ]
 
 # === Solution B: Lateral camera movements for attention guidance ===
@@ -359,17 +398,13 @@ class VisualDirector:
         )
         
         # =====================================================
-        # STEP 4b: Schedule causal transforms (Solution C)
+        # STEP 4b: Causal transforms — DISABLED (was overloading timeline)
         # =====================================================
-        self._schedule_causal_transforms(
-            timeline=timeline,
-            element_ids=element_ids,
-            beat_timings=beat_timings,
-            audio_duration=audio_duration
-        )
+        # _schedule_causal_transforms removed: caused duplicate overlapping
+        # animations on same elements. Beat emphasis already handles these.
         
         # =====================================================
-        # STEP 5: Schedule camera events (expanded — Solution B)
+        # STEP 5: Schedule camera events (SIMPLIFIED — max 1-2)
         # =====================================================
         self._schedule_camera_events(
             timeline=timeline,
@@ -380,22 +415,17 @@ class VisualDirector:
         )
         
         # =====================================================
-        # STEP 5b: Schedule continuous activity (Solution A)
+        # STEP 5b: Continuous activity — DISABLED (was flooding timeline)
         # =====================================================
-        self._schedule_continuous_activity(
-            timeline=timeline,
-            element_ids=element_ids,
-            audio_duration=audio_duration
-        )
+        # _schedule_continuous_activity removed: inserted gap fillers every
+        # 2 seconds per element, creating 15-30+ extra animations per scene.
+        # Static moments are intentional — they let the viewer read content.
         
         # =====================================================
-        # STEP 5c: Schedule energy peaks (Solution D)
+        # STEP 5c: Energy peaks — DISABLED (was creating burst clusters)
         # =====================================================
-        self._schedule_energy_peaks(
-            timeline=timeline,
-            element_ids=element_ids,
-            audio_duration=audio_duration
-        )
+        # _schedule_energy_peaks removed: inserted 2-3 simultaneous emphasis
+        # animations every 6 seconds, creating visual chaos.
         
         # =====================================================
         # STEP 6: Schedule exits
@@ -523,7 +553,7 @@ class VisualDirector:
             scale_factor = (1.0 if idx == 0 else 0.85) * density_factor
             timeline.events.append(TimedVisualEvent(
                 timestamp=entry_time,
-                duration=min(1.8, audio_duration * 0.12),
+                duration=min(2.5, audio_duration * 0.18),
                 event_type=EventType.ENTER,
                 target_element=elem_id,
                 animation_style=anim,
@@ -564,7 +594,7 @@ class VisualDirector:
                     scale_factor = 0.75 * density_factor
                 timeline.events.append(TimedVisualEvent(
                     timestamp=min(entry_ts, audio_duration * 0.75),
-                    duration=min(1.5, audio_duration * 0.10),
+                    duration=min(2.0, audio_duration * 0.15),
                     event_type=EventType.ENTER,
                     target_element=elem_id,
                     animation_style=anim,
@@ -632,11 +662,11 @@ class VisualDirector:
                             move_target = random.choice(other)
                             timeline.events.append(TimedVisualEvent(
                                 timestamp=start_time,
-                                duration=min(duration, 1.5),
+                                duration=min(duration, 2.0),
                                 event_type=EventType.MOVE,
                                 target_element=elem_id,
                                 animation_style=random.choice(MOVE_ANIMATIONS),
-                                params={"toward": move_target, "fraction": 0.15},
+                                params={"toward": move_target, "fraction": 0.25},
                                 sync_phrase=getattr(beat, 'beat_phrase', None)
                             ))
                             interaction_count += 1
@@ -645,11 +675,11 @@ class VisualDirector:
                     # TRANSFORM: visual evolution
                     timeline.events.append(TimedVisualEvent(
                         timestamp=start_time,
-                        duration=min(duration, 1.2),
+                        duration=min(duration, 1.8),
                         event_type=EventType.TRANSFORM,
                         target_element=elem_id,
                         animation_style=random.choice(TRANSFORM_ANIMATIONS),
-                        params={"scale_factor": 1.12, "color": "GOLD"},
+                        params={"scale_factor": 1.25, "color": "GOLD"},
                         sync_phrase=getattr(beat, 'beat_phrase', None)
                     ))
                     interaction_count += 1
@@ -658,11 +688,11 @@ class VisualDirector:
                     anim = self._next_emphasis_animation()
                     timeline.events.append(TimedVisualEvent(
                         timestamp=start_time,
-                        duration=min(duration, 1.2),
+                        duration=min(duration, 1.8),
                         event_type=EventType.EMPHASIZE,
                         target_element=elem_id,
                         animation_style=anim,
-                        params={"color": "GOLD", "scale_factor": 1.15},
+                        params={"color": "GOLD", "scale_factor": 1.25},
                         sync_phrase=getattr(beat, 'beat_phrase', None)
                     ))
     
@@ -678,87 +708,39 @@ class VisualDirector:
         pacing: PacingProfile,
         audio_duration: float
     ):
-        """Schedule MOVE and TRANSFORM events for progressive diagram construction.
+        """Schedule MOVE and TRANSFORM events — RESTRUCTURED: minimal, purposeful.
         
-        Cinematic principle: Elements don't just appear and sit — they REPOSITION
-        to form relationships, TRANSFORM to show state changes, and DRIFT to
-        guide attention through the visual narrative.
+        Only schedule 1 TRANSFORM at a mid-scene beat moment.
+        No MOVE events — they use hardcoded shifts that accumulate and destroy layout.
         """
         if len(element_ids) < 2:
-            return  # Need at least 2 elements for interactions
+            return
         
-        # --- MOVE events: Reposition elements to build spatial relationships ---
-        # After 40% of duration, shift an early element toward a later element
-        # (simulates "these concepts connect")
-        move_time = audio_duration * 0.40
-        entered_at_move = self._get_entered_elements_at(timeline, move_time)
-        
-        if len(entered_at_move) >= 2:
-            # Move the first entered element slightly toward the second (closing the gap)
-            mover = entered_at_move[0]
-            target = entered_at_move[1]
-            move_anim = random.choice(MOVE_ANIMATIONS)
-            timeline.events.append(TimedVisualEvent(
-                timestamp=move_time,
-                duration=min(1.2, audio_duration * 0.08),
-                event_type=EventType.MOVE,
-                target_element=mover,
-                animation_style=move_anim,
-                params={"toward": target, "fraction": 0.25},
-                sync_phrase=None
-            ))
-        
-        # --- TRANSFORM events: Shape/color evolution at beat moments ---
-        # Pick 1-2 beats in the middle of the scene for TRANSFORM events
+        # --- Single TRANSFORM at one mid-scene beat ---
         mid_beats = [
             (beat, t, d) for beat, t, d in beat_timings
             if 0.3 * audio_duration < t < 0.7 * audio_duration
         ]
         
-        transform_count = 0
-        for beat, beat_time, beat_dur in mid_beats[:2]:
+        if mid_beats:
+            beat, beat_time, beat_dur = mid_beats[0]  # Only the first mid-beat
             targets = getattr(beat, 'target_elements', [])
-            if not targets:
-                continue
             
-            elem_id = targets[0]
-            if elem_id not in element_ids:
-                continue
-            
-            entered = self._get_entered_elements_at(timeline, beat_time)
-            if elem_id not in entered:
-                continue
-            
-            transform_anim = random.choice(TRANSFORM_ANIMATIONS)
-            timeline.events.append(TimedVisualEvent(
-                timestamp=beat_time + beat_dur * 0.5,  # Mid-beat transform
-                duration=min(0.8, beat_dur),
-                event_type=EventType.TRANSFORM,
-                target_element=elem_id,
-                animation_style=transform_anim,
-                params={"scale_factor": 1.15, "color": "GOLD"},
-                sync_phrase=getattr(beat, 'beat_phrase', None)
-            ))
-            transform_count += 1
-        
-        # --- Second MOVE: Late-scene convergence (elements tighten into final diagram) ---
-        if len(element_ids) >= 3 and audio_duration > 8:
-            converge_time = audio_duration * 0.65
-            entered_late = self._get_entered_elements_at(timeline, converge_time)
-            if len(entered_late) >= 3:
-                # Move the third element slightly toward center (convergence)
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=converge_time,
-                    duration=min(1.0, audio_duration * 0.07),
-                    event_type=EventType.MOVE,
-                    target_element=entered_late[2],
-                    animation_style=random.choice(MOVE_ANIMATIONS),
-                    params={"toward": "center", "fraction": 0.2},
-                    sync_phrase=None
-                ))
-        
-        if transform_count > 0:
-            logger.debug(f"🔄 Scheduled {transform_count} TRANSFORM events")
+            if targets:
+                elem_id = targets[0]
+                if elem_id in element_ids:
+                    entered = self._get_entered_elements_at(timeline, beat_time)
+                    if elem_id in entered:
+                        timeline.events.append(TimedVisualEvent(
+                            timestamp=beat_time + beat_dur * 0.5,
+                            duration=min(1.2, beat_dur),
+                            event_type=EventType.TRANSFORM,
+                            target_element=elem_id,
+                            animation_style="ColorTransform",
+                            params={"color": "GOLD"},
+                            sync_phrase=getattr(beat, 'beat_phrase', None)
+                        ))
+                        logger.debug(f"🔄 Scheduled 1 TRANSFORM event")
     
     # =========================================================================
     # CAMERA EVENT SCHEDULING (Virtual Zoom / Focus)
@@ -772,55 +754,16 @@ class VisualDirector:
         pacing: PacingProfile,
         audio_duration: float
     ):
-        """Schedule CAMERA events — Solution B: Camera as Attention Guide.
+        """Schedule CAMERA events — RESTRUCTURED: max 1 self-reverting FocusPulse.
         
-        The camera ACTIVELY guides attention through zoom, lateral shifts,
-        focus isolation, and rack focus. Not a passive tripod — a director's eye.
-        
-        Target: 4-6 camera events per scene (was 2-3).
+        Camera events that scale the entire VGroup are destructive to layout.
+        Only allow FocusPulse (self-reverting zoom in + zoom out on same element)
+        at the narrative climax. No PanLeft/PanRight/ZoomIn-without-ZoomOut.
         """
-        if not element_ids:
+        if not element_ids or audio_duration < 8:
             return
         
-        camera_events_added = 0
-        
-        # --- 1. FOCUS PULSE on first element right after entry ---
-        if element_ids and audio_duration > 4:
-            first_entry_time = None
-            for ev in timeline.events:
-                if ev.event_type == EventType.ENTER and ev.target_element == element_ids[0]:
-                    first_entry_time = ev.end_time
-                    break
-            
-            if first_entry_time and first_entry_time + 0.5 < audio_duration:
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=first_entry_time + 0.2,
-                    duration=0.9,
-                    event_type=EventType.CAMERA,
-                    target_element=element_ids[0],
-                    animation_style="FocusPulse",
-                    params={"scale_factor": 1.15},
-                    sync_phrase=None
-                ))
-                camera_events_added += 1
-        
-        # --- 2. LATERAL PAN at 30% — guide eye across layout ---
-        if len(element_ids) >= 2 and audio_duration > 6:
-            pan_time = audio_duration * 0.30
-            entered = self._get_entered_elements_at(timeline, pan_time)
-            if len(entered) >= 2:
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=pan_time,
-                    duration=1.0,
-                    event_type=EventType.CAMERA,
-                    target_element=entered[1],
-                    animation_style="PanRight",
-                    params={"shift": "RIGHT*0.4"},
-                    sync_phrase=None
-                ))
-                camera_events_added += 1
-        
-        # --- 3. ZOOM IN at narrative climax (60%) ---
+        # Single FocusPulse at 60% (narrative climax)
         climax_time = audio_duration * 0.60
         best_beat = None
         best_dist = float('inf')
@@ -833,86 +776,18 @@ class VisualDirector:
         
         if best_beat and element_ids:
             beat, beat_time, beat_dur = best_beat
-            focus_elem = element_ids[0]
-            # Density-aware camera zoom: reduce when many elements
-            zoom_scale = 1.15 if getattr(self, '_element_count', 3) <= 4 else 1.08
+            focus_elem = element_ids[min(len(element_ids) - 1, 1)]  # Secondary element
             
             timeline.events.append(TimedVisualEvent(
                 timestamp=beat_time,
-                duration=min(1.2, beat_dur * 0.7),
+                duration=min(1.4, beat_dur * 0.7),
                 event_type=EventType.CAMERA,
                 target_element=focus_elem,
-                animation_style="ZoomIn",
-                params={"scale_factor": zoom_scale},
+                animation_style="FocusPulse",  # Self-reverting: zoom in then zoom out
+                params={"scale_factor": 1.12},
                 sync_phrase=getattr(beat, 'beat_phrase', None)
             ))
-            camera_events_added += 1
-            
-            # Follow with ZOOM OUT to reveal full picture
-            zoom_out_time = beat_time + beat_dur
-            if zoom_out_time < audio_duration - 1.5:
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=zoom_out_time,
-                    duration=1.0,
-                    event_type=EventType.CAMERA,
-                    target_element=focus_elem,
-                    animation_style="ZoomOut",
-                    params={"scale_factor": 1.0},
-                    sync_phrase=None
-                ))
-                camera_events_added += 1
-        
-        # --- 4. FOCUS ISOLATE at 45% — zoom into a secondary element ---
-        if len(element_ids) >= 3 and audio_duration > 8:
-            isolate_time = audio_duration * 0.45
-            entered = self._get_entered_elements_at(timeline, isolate_time)
-            if len(entered) >= 2:
-                # Pick a secondary element (not the first)
-                iso_target = entered[min(1, len(entered) - 1)]
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=isolate_time,
-                    duration=1.0,
-                    event_type=EventType.CAMERA,
-                    target_element=iso_target,
-                    animation_style="FocusIsolate",
-                    params={"scale_factor": 1.2, "dim_others": True},
-                    sync_phrase=None
-                ))
-                camera_events_added += 1
-        
-        # --- 5. RACK FOCUS at 75% — shift attention between two elements ---
-        if len(element_ids) >= 2 and audio_duration > 10:
-            rack_time = audio_duration * 0.75
-            entered = self._get_entered_elements_at(timeline, rack_time)
-            if len(entered) >= 2:
-                timeline.events.append(TimedVisualEvent(
-                    timestamp=rack_time,
-                    duration=1.0,
-                    event_type=EventType.CAMERA,
-                    target_element=entered[0],
-                    animation_style="RackFocus",
-                    params={"from_elem": entered[0], "to_elem": entered[-1]},
-                    sync_phrase=None
-                ))
-                camera_events_added += 1
-        
-        # --- 6. Final LATERAL PAN at 85% — guide eye to conclusion ---
-        if audio_duration > 6:
-            final_pan_time = audio_duration * 0.85
-            last_elem = element_ids[-1]
-            timeline.events.append(TimedVisualEvent(
-                timestamp=final_pan_time,
-                duration=0.9,
-                event_type=EventType.CAMERA,
-                target_element=last_elem,
-                animation_style="PanLeft",
-                params={"shift": "LEFT*0.3"},
-                sync_phrase=None
-            ))
-            camera_events_added += 1
-        
-        if camera_events_added > 0:
-            logger.debug(f"🎥 Scheduled {camera_events_added} CAMERA events (Solution B)")
+            logger.debug(f"🎥 Scheduled 1 CAMERA FocusPulse at {beat_time:.1f}s")
     
     # =========================================================================
     # EXIT SCHEDULING
@@ -946,7 +821,7 @@ class VisualDirector:
         # Exit window: last 10% of duration (smaller window — subtle exits)
         exit_start = audio_duration * 0.85
         exit_spacing = (audio_duration * 0.10) / max(1, len(exit_elements))
-        exit_duration = min(0.8, exit_spacing * 0.7)
+        exit_duration = min(1.0, exit_spacing * 0.7)
         
         for idx, elem_id in enumerate(exit_elements):
             anim = self._next_exit_animation()
@@ -1009,7 +884,7 @@ class VisualDirector:
                 
                 timeline.events.append(TimedVisualEvent(
                     timestamp=filler_ts,
-                    duration=min(0.9, filler_spacing * 0.7),
+                    duration=min(1.2, filler_spacing * 0.7),
                     event_type=EventType.GAP_FILLER,
                     target_element=target,
                     animation_style=filler_style,
@@ -1144,7 +1019,7 @@ class VisualDirector:
             # Cause: visual transformation (color shift/morph)
             timeline.events.append(TimedVisualEvent(
                 timestamp=start_time,
-                duration=min(1.0, duration * 0.6),
+                duration=min(1.3, duration * 0.6),
                 event_type=EventType.TRANSFORM,
                 target_element=cause_elem,
                 animation_style="ColorTransform",
@@ -1156,11 +1031,11 @@ class VisualDirector:
             # Effect: move toward cause (pulled by relationship)
             timeline.events.append(TimedVisualEvent(
                 timestamp=start_time + duration * 0.3,
-                duration=min(0.9, duration * 0.5),
+                duration=min(1.2, duration * 0.5),
                 event_type=EventType.MOVE,
                 target_element=effect_elem,
                 animation_style="ArcToPosition",
-                params={"toward": cause_elem, "fraction": 0.15, "causal": True},
+                params={"toward": cause_elem, "fraction": 0.25, "causal": True},
                 sync_phrase=None
             ))
             causal_added += 1
@@ -1310,6 +1185,12 @@ class VisualDirector:
             EventType.CAMERA: CAMERA_ANIMATIONS + LATERAL_CAMERA_ANIMATIONS,
         }
         
+        pool = pool_map.get(event_type, EMPHASIS_ANIMATIONS)
+        alternatives = [a for a in pool if a != current_style]
+        
+        if alternatives:
+            return random.choice(alternatives)
+        return current_style
     
     def _density_scale_factor(self) -> float:
         """Compute density-aware scale reduction based on element count.
@@ -1325,9 +1206,3 @@ class VisualDirector:
             return 0.85
         else:
             return 0.72
-        pool = pool_map.get(event_type, EMPHASIS_ANIMATIONS)
-        alternatives = [a for a in pool if a != current_style]
-        
-        if alternatives:
-            return random.choice(alternatives)
-        return current_style

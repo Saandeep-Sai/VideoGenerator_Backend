@@ -29,6 +29,11 @@ from .scene_spec_generator import SceneSpecGenerator, GenerationConfig, Specific
 from .manim_code_generator import ManimCodeGenerator, GeneratorConfig, CodeValidator
 from .visual_director import VisualDirector, VisualTimeline
 from .quality_scorer import QualityScorer, VideoScore, PipelineHealthCheck
+from .visual_validation import (
+    validate_quality_spec_against_contract,
+    validate_script_simulation,
+    deserialize_contract,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +197,8 @@ class QualityNarrationSegment:
     _audio_duration_final: Optional[float] = None
     # New field for quality pipeline
     scene_spec: Optional[SceneSpecification] = None
+    # Visual contract — frozen authority from concept visualizer
+    visual_contract: Optional[str] = None
 
 
 def generate_quality_segments(
@@ -396,6 +403,23 @@ def generate_quality_scripts_bulk(
             
             if not is_valid:
                 logger.warning(f"⚠️ Script {i+1} has issues: {issues}")
+            
+            # ── Visual contract validation gate ──
+            contract_json = getattr(segment, 'visual_contract', None)
+            if contract_json and script:
+                try:
+                    contract = deserialize_contract(contract_json)
+                    passed, c_issues, score = validate_script_simulation(script, contract)
+                    if not passed:
+                        c_issues_str = ", ".join(c_issues)
+                        logger.warning(
+                            f"  ⚠️ Quality script {i+1} contract check FAILED "
+                            f"(score={score:.2f}): {c_issues_str}"
+                        )
+                    else:
+                        logger.info(f"  ✓ Quality script {i+1} contract check passed (score={score:.2f})")
+                except Exception as e:
+                    logger.debug(f"  Contract validation skipped for quality script {i+1}: {e}")
             
             scripts.append(script)
             segment.script_path = f"segment_{i:03d}.py"

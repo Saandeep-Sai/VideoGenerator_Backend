@@ -5,7 +5,7 @@ import json
 import base64
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Initialize Firebase app
 def initialize_firebase():

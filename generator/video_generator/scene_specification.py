@@ -71,6 +71,13 @@ class ElementType(str, Enum):
     ICON_BADGE = "icon_badge"
     TAG_PILL = "tag_pill"
     PROGRESS_BAR = "progress_bar"
+    # v0.19.0 enriched primitives
+    STAR_BADGE = "star_badge"                # Star-shaped emphasis marker
+    CURVED_ARROW_ELEM = "curved_arrow_elem"  # Curved connection arrow
+    DASHED_LINE_ELEM = "dashed_line_elem"    # Dashed connection line
+    BRACE_ANNOTATION = "brace_annotation"    # Curly brace with label
+    ANNULUS_RING = "annulus_ring"             # Ring shape for cycles/states
+    SECTOR_CHART = "sector_chart"            # Pie-slice sector
 
 
 class TransformAction(str, Enum):
@@ -112,6 +119,18 @@ class TransformAction(str, Enum):
     DRAW_BORDER_THEN_FILL = "draw_border_then_fill"
     DRAW_ARROW = "draw_arrow"
     CIRCUMSCRIBE = "circumscribe"
+    # v0.19.0 enriched animations
+    WRITE = "write"                          # Progressive stroke reveal
+    APPLY_WAVE = "apply_wave"                # Wave distortion emphasis
+    CIRCLE_INDICATE = "circle_indicate"      # Circle drawn around element
+    SURROUND = "surround"                    # SurroundingRectangle highlight
+    GROW_FROM_POINT = "grow_from_point"      # Grow from specific point
+    FADE_TRANSFORM = "fade_transform"        # Smooth morph between elements
+    SHOW_PASSING_FLASH = "show_passing_flash" # Flash along element border
+    WAVE = "wave"                            # Alias for apply_wave
+    RIPPLE = "ripple"                        # Alias for apply_wave
+    TRACE = "trace"                          # Alias for write
+    MORPH = "morph"                          # Alias for fade_transform
 
 
 class Position(str, Enum):
@@ -310,11 +329,11 @@ class Transformation:
 @dataclass
 class Constraints:
     """Hard constraints for this scene."""
-    max_objects: int = 4
-    max_text_elements: int = 2
+    max_objects: int = 8
+    max_text_elements: int = 5
     text_role: TextRole = TextRole.LABEL
     grid_alignment: bool = True
-    allow_decorative_animation: bool = False
+    allow_decorative_animation: bool = True
 
 
 @dataclass

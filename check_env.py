@@ -1,7 +1,7 @@
 """Quick environment check script."""
 import os
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 print('=== Environment Variables Check ===')
 print(f'GEMINI_API_KEY: {"[OK] Set" if os.getenv("GEMINI_API_KEY") else "[X] Missing"}')

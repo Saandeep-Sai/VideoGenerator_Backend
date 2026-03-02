@@ -1,6 +1,6 @@
 """
-Optimized prompt replacements for efficient video generation.
-These prompts are 70% shorter while maintaining all critical requirements.
+DEPRECATED — All prompts now live in prompt_registry.py
+This module is unused and can be safely deleted.
 """
 
 def optimize_narration_generation(original_method):

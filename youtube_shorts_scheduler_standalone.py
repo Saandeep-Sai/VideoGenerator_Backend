@@ -45,7 +45,7 @@ from resource_monitor import resource_monitor
 from dotenv import load_dotenv
 
 # Load environment
-load_dotenv()
+load_dotenv(override=True)
 
 # Import smart topic selector (analytics-driven topic selection)
 try:

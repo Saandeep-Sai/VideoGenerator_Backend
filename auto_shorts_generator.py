@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from generator.dynamic_content_generator import DynamicContentGenerator
 
-load_dotenv()
+load_dotenv(override=True)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

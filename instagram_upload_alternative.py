@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
 def upload_using_instabot(video_path: str, topic: str, metadata: Dict = None) -> Optional[str]:

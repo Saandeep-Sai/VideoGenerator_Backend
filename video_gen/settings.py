@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 import os
 
 SECRET_KEY = "django-insecure-!3sooqvdlc!lddm)@wpth#65s9u7whgcyyeo6r27*38$30(n#t"

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 # Load environment variables from .env
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     pass  # dotenv not installed, assume env vars are set
 

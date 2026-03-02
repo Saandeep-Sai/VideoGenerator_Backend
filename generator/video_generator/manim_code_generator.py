@@ -51,11 +51,11 @@ import numpy as np
 # SPATIAL SAFETY SYSTEM — Screen-safe scaling & overflow prevention
 # =============================================================================
 
-# Safe frame: 90% of screen dimensions — nothing renders beyond this
-SAFE_W = config.frame_width * 0.90
-SAFE_H = config.frame_height * 0.90
-SAFE_MARGIN_X = config.frame_width * 0.05   # 5% margin each side
-SAFE_MARGIN_Y = config.frame_height * 0.05  # 5% margin top/bottom
+# Safe frame: 94% of screen dimensions — generous safe zone for creative layouts
+SAFE_W = config.frame_width * 0.94
+SAFE_H = config.frame_height * 0.94
+SAFE_MARGIN_X = config.frame_width * 0.03   # 3% margin each side
+SAFE_MARGIN_Y = config.frame_height * 0.03  # 3% margin top/bottom
 
 # Mobile readability: minimum element size
 MIN_ELEMENT_SIZE = min(config.frame_width, config.frame_height) * 0.06
@@ -73,16 +73,17 @@ _ELEMENT_COUNT = {element_count}
 
 def auto_density_scale(element_count: int) -> float:
     """Reduce element sizes proportionally when count increases.
-    1-3: 1.0 | 4-5: 0.82 | 6-7: 0.68 | 8+: 0.55
+    Less aggressive scaling to allow more creative freedom.
+    1-4: 1.0 | 5-6: 0.88 | 7-8: 0.75 | 9+: 0.62
     """
-    if element_count <= 3:
+    if element_count <= 4:
         return 1.0
-    elif element_count <= 5:
-        return 0.82
-    elif element_count <= 7:
-        return 0.68
+    elif element_count <= 6:
+        return 0.88
+    elif element_count <= 8:
+        return 0.75
     else:
-        return 0.55
+        return 0.62
 
 
 def clamp_to_safe_frame(mobject, padding=0.1):
@@ -117,14 +118,15 @@ def clamp_to_safe_frame(mobject, padding=0.1):
     return mobject
 
 
-def safe_scale_factor(mobject, target_scale, max_allowed=1.20):
-    """Clamp animation scale factor to prevent safe-frame overflow."""
+def safe_scale_factor(mobject, target_scale, max_allowed=1.40):
+    """Clamp animation scale factor to prevent safe-frame overflow.
+    max_allowed raised to 1.40 so camera zooms and emphasis pulses are clearly visible."""
     proj_w = mobject.width * target_scale
     proj_h = mobject.height * target_scale
-    if proj_w > SAFE_W * 0.95 or proj_h > SAFE_H * 0.95:
+    if proj_w > SAFE_W * 0.92 or proj_h > SAFE_H * 0.92:
         safe_sf = min(
-            (SAFE_W * 0.95) / max(mobject.width, 0.01),
-            (SAFE_H * 0.95) / max(mobject.height, 0.01)
+            (SAFE_W * 0.92) / max(mobject.width, 0.01),
+            (SAFE_H * 0.92) / max(mobject.height, 0.01)
         )
         return min(target_scale, safe_sf)
     return min(target_scale, max_allowed)
@@ -239,11 +241,11 @@ class GlassCard(VGroup):
         super().__init__(**kwargs)
         # Density-aware sizing
         width, height = density_adjusted_size(width, height)
-        max_w = SAFE_W * 0.85
-        max_h = SAFE_H * 0.40
+        max_w = SAFE_W * 0.90
+        max_h = SAFE_H * 0.50
         width = min(width, max_w)
-        if label and height > 2.8:
-            height = min(height, 3.0)
+        if label and height > 3.5:
+            height = min(height, 3.5)
         height = min(height, max_h)
         # Outer glow (subtle)
         outer = RoundedRectangle(corner_radius=0.35, width=width + 0.08, height=height + 0.08,
@@ -272,7 +274,7 @@ class CodeBlock(VGroup):
     def __init__(self, code_text="// code", width=3.5, color=GREEN, **kwargs):
         super().__init__(**kwargs)
         width, _ = density_adjusted_size(width, 1.2)
-        max_w = SAFE_W * 0.80
+        max_w = SAFE_W * 0.88
         width = min(width, max_w)
         # Dark code background
         bg = RoundedRectangle(corner_radius=0.2, width=width, height=1.2,
@@ -447,6 +449,94 @@ class FlowArrow(VGroup):
             self.add(self.label_text)
 
 
+# --- Manim v0.19.0 Expanded Primitives ---
+
+class StarBadge(VGroup):
+    """Star-shaped badge for achievement/emphasis markers."""
+    def __init__(self, label=None, color=GOLD, size=0.6, n_points=5, **kwargs):
+        super().__init__(**kwargs)
+        size, _ = density_adjusted_size(size, size)
+        max_s = min(SAFE_W, SAFE_H) * 0.12
+        size = min(size, max_s)
+        # Glow ring
+        glow = Circle(radius=size * 1.4, fill_opacity=0.05, stroke_width=0, color=color)
+        self.add(glow)
+        # Star shape
+        star = Star(n=n_points, outer_radius=size, inner_radius=size*0.45,
+                    color=color, fill_opacity=0.35, stroke_width=2)
+        self.add(star)
+        if label:
+            _tc = contrast_text_color(color)
+            txt = Text(label, font_size=max(12, int(22 * size)), color=_tc, weight=BOLD, font="sans-serif")
+            if txt.width > size * 1.2:
+                txt.scale_to_fit_width(size * 1.2)
+            txt.move_to(star)
+            self.add(txt)
+
+
+class BraceAnnotation(VGroup):
+    """Brace with label — for annotating relationships between elements."""
+    def __init__(self, target_width=2.0, label="note", color=WHITE, direction=DOWN, **kwargs):
+        super().__init__(**kwargs)
+        target_width, _ = density_adjusted_size(target_width, 0.5)
+        max_w = SAFE_W * 0.70
+        target_width = min(target_width, max_w)
+        # Reference line for the brace
+        ref = Line(LEFT * target_width / 2, RIGHT * target_width / 2)
+        brace = Brace(ref, direction=direction, color=color)
+        self.add(brace)
+        lbl = Text(label, font_size=16, color=color, font="sans-serif")
+        if lbl.width > target_width * 0.85:
+            lbl.scale_to_fit_width(target_width * 0.85)
+        brace.put_at_tip(lbl, buff=0.1)
+        self.add(lbl)
+
+
+class AnnulusRing(VGroup):
+    """Annulus ring — for showing ranges, zones, or layered concepts."""
+    def __init__(self, inner_radius=0.3, outer_radius=0.7, color=TEAL, label=None, **kwargs):
+        super().__init__(**kwargs)
+        outer_radius, _ = density_adjusted_size(outer_radius, outer_radius)
+        inner_radius = outer_radius * 0.45
+        max_r = min(SAFE_W, SAFE_H) * 0.15
+        outer_radius = min(outer_radius, max_r)
+        inner_radius = min(inner_radius, outer_radius * 0.6)
+        ring = Annulus(inner_radius=inner_radius, outer_radius=outer_radius,
+                       color=color, fill_opacity=0.25, stroke_width=2)
+        self.add(ring)
+        if label:
+            _tc = contrast_text_color(color)
+            txt = Text(label, font_size=16, color=_tc, font="sans-serif")
+            if txt.width > outer_radius * 1.4:
+                txt.scale_to_fit_width(outer_radius * 1.4)
+            txt.move_to(ring)
+            self.add(txt)
+
+
+class SectorChart(VGroup):
+    """Sector slice — for pie-chart-style data visualization."""
+    def __init__(self, angle=PI/3, radius=0.8, color=BLUE, label=None, **kwargs):
+        super().__init__(**kwargs)
+        radius, _ = density_adjusted_size(radius, radius)
+        max_r = min(SAFE_W, SAFE_H) * 0.14
+        radius = min(radius, max_r)
+        sector = Sector(outer_radius=radius, angle=angle, start_angle=PI/2 - angle/2,
+                        color=color, fill_opacity=0.35, stroke_width=2)
+        self.add(sector)
+        if label:
+            _tc = contrast_text_color(color)
+            txt = Text(label, font_size=14, color=_tc, font="sans-serif")
+            # Place label at sector midpoint
+            mid_angle = PI/2
+            txt.move_to(sector.get_center() + np.array([
+                radius * 0.5 * np.cos(mid_angle),
+                radius * 0.5 * np.sin(mid_angle), 0
+            ]))
+            if txt.width > radius * 1.0:
+                txt.scale_to_fit_width(radius * 1.0)
+            self.add(txt)
+
+
 # =============================================================================
 # SCENE: {scene_id}
 # Concept: {concept_idea}
@@ -466,21 +556,9 @@ class {class_name}(Scene):
         # Grid positions for {aspect_ratio}
         positions = self._get_grid_positions()
         
-        # === AMBIENT BACKGROUND (renders first, always present) ===
+        # === CLEAN BACKGROUND (minimal — let content be the star) ===
         bg = GradientBackground(accent_color={accent_color})
         self.add(bg)
-        
-        grid_lines = SubtleGrid()
-        self.add(grid_lines)
-        
-        particles = AmbientParticles(count=6)
-        self.add(particles)
-        
-        # Slow particle drift (continuous subtle motion throughout scene)
-        for dot in particles:
-            dx = random.uniform(-0.02, 0.02)
-            dy = random.uniform(0.01, 0.03)
-            dot.add_updater(lambda m, dt, dx=dx, dy=dy: m.shift(np.array([dx * dt, dy * dt, 0])))
         
         # D3: Progress bar (fills with scene progress)
         _pb_total_w = config.frame_width * 0.85
@@ -510,13 +588,6 @@ class {class_name}(Scene):
                               -config.frame_height/2 + 0.35, 0]))
         self.add(_wm)
         
-        # === SCENE INTRO FLASH (subtle scene change marker) ===
-        flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
-                               fill_opacity=0.04, fill_color=WHITE, stroke_width=0)
-        self.play(FadeIn(flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
-        self.play(FadeOut(flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
-        self.remove(flash_rect)
-        
         # Create visual elements
 {element_creation_code}
         
@@ -528,36 +599,16 @@ class {class_name}(Scene):
         if elements:
             elements["all"] = VGroup(*list(elements.values()))
         
-        # D2: Idle drift — subtle movement keeps elements alive during waits
-        # Uses oscillation (not cumulative shift) to prevent elements drifting off-screen
-        for _eid_key, _elem_obj in list(elements.items()):
-            if _eid_key == "all":
-                continue
-            _elem_obj._idle_t = 0
-            _elem_obj._idle_origin = _elem_obj.get_center().copy()
-            _sv = hash(_eid_key) % 1000
-            def _mk_idle(_s, _origin):
-                def _fn(m, dt):
-                    m._idle_t += dt
-                    # Oscillate around origin — never accumulates drift
-                    ox = 0.02 * np.sin(m._idle_t * 0.7 + _s * 0.1)
-                    oy = 0.02 * np.sin(m._idle_t * 0.5 + _s * 0.15)
-                    target = _origin + np.array([ox, oy, 0])
-                    m.move_to(m.get_center() * 0.95 + target * 0.05)
-                return _fn
-            _elem_obj.add_updater(_mk_idle(_sv, _elem_obj._idle_origin))
-        
         # Animation sequence
 {animation_sequence_code}
         
         # C1: End buffer — hold final state so scene doesn't feel cut off
         self.wait(0.3)
         
-        # Clean up all updaters
-        for dot in particles:
-            dot.clear_updaters()
+        # Clean up updaters
         for _eid_key, _elem_obj in elements.items():
-            _elem_obj.clear_updaters()
+            if hasattr(_elem_obj, 'clear_updaters'):
+                _elem_obj.clear_updaters()
         _pb_bar.clear_updaters()
     
     def _get_grid_positions(self):
@@ -565,16 +616,16 @@ class {class_name}(Scene):
         
         Grid uses SAFE FRAME margins (not raw frame edges) to guarantee
         no element center is placed where it could overflow the screen.
-        Horizontal spread is capped so wide elements don't hit edges.
+        Horizontal spread is generous to use the FULL screen width.
         """
         fw = config.frame_width
         fh = config.frame_height
-        # Use safe-frame-aware positioning:
-        # - Horizontal: 30% of fw leaves room for element widths on both sides
-        # - Vertical: 28% of fh (top/bot rows), 14% (upper/lower mid rows)
-        gx = fw * 0.30   # horizontal grid spread
-        gy = fh * 0.28   # vertical grid spread (top/bottom rows)
-        my = fh * 0.14   # mid-row vertical offset
+        # Use generous positioning — spread elements across the screen
+        # Horizontal: 38% of fw — uses most of the safe frame
+        # Vertical: 30% of fh (top/bot rows), 15% (upper/lower mid rows)
+        gx = fw * 0.38   # horizontal grid spread (wider for better use of space)
+        gy = fh * 0.30   # vertical grid spread (top/bottom rows)
+        my = fh * 0.15   # mid-row vertical offset
         return {{
             # 3x3 primary grid
             "top_left": np.array([-gx, gy, 0]),
@@ -731,6 +782,51 @@ ELEMENT_TEMPLATES = {
     ElementType.PROGRESS_BAR: '''elements["{id}"] = ProgressBar(
             progress=0.5,
             width={width},
+            color={color},
+            label="{label}"
+        )
+        elements["{id}"].move_to(positions["{position}"])''',
+
+    # --- Manim v0.19.0 Expanded Element Types ---
+
+    ElementType.STAR_BADGE: '''elements["{id}"] = StarBadge(
+            label="{label}",
+            color={color},
+            size={size}
+        )
+        elements["{id}"].move_to(positions["{position}"])''',
+
+    ElementType.CURVED_ARROW_ELEM: '''elements["{id}"] = CurvedArrow(
+            start_point=positions["{start_pos}"] if "{start_pos}" in positions else LEFT*1.5,
+            end_point=positions["{end_pos}"] if "{end_pos}" in positions else RIGHT*1.5,
+            color={color},
+            stroke_width=3
+        )''',
+
+    ElementType.DASHED_LINE_ELEM: '''elements["{id}"] = DashedLine(
+            start=positions["{start_pos}"] if "{start_pos}" in positions else LEFT*1.5,
+            end=positions["{end_pos}"] if "{end_pos}" in positions else RIGHT*1.5,
+            color={color},
+            stroke_width=2,
+            dash_length=0.15
+        )''',
+
+    ElementType.BRACE_ANNOTATION: '''elements["{id}"] = BraceAnnotation(
+            target_width={width},
+            label="{label}",
+            color={color}
+        )
+        elements["{id}"].move_to(positions["{position}"])''',
+
+    ElementType.ANNULUS_RING: '''elements["{id}"] = AnnulusRing(
+            outer_radius={radius},
+            color={color},
+            label="{label}"
+        )
+        elements["{id}"].move_to(positions["{position}"])''',
+
+    ElementType.SECTOR_CHART: '''elements["{id}"] = SectorChart(
+            radius={radius},
             color={color},
             label="{label}"
         )
@@ -911,6 +1007,66 @@ ANIMATION_TEMPLATES = {
             Circumscribe(elements["{target}"], color=GOLD, time_width=1.5, buff=0.08),
             run_time={run_time}
         )''',
+
+    # --- Manim v0.19.0 expanded animations ---
+
+    TransformAction.WRITE: '''self.play(
+            DrawBorderThenFill(elements["{target}"]),
+            run_time={run_time}, rate_func=rate_functions.ease_out_expo
+        )''',
+
+    TransformAction.APPLY_WAVE: '''self.play(
+            ApplyWave(elements["{target}"], amplitude=0.15, direction=UP),
+            run_time={run_time}, rate_func=smooth
+        )''',
+
+    TransformAction.CIRCLE_INDICATE: '''self.play(
+            Circumscribe(elements["{target}"], color=YELLOW, time_width=1.5, buff=0.08),
+            run_time={run_time}
+        )''',
+
+    TransformAction.SURROUND: '''_srect = SurroundingRectangle(elements["{target}"], color=GOLD, buff=0.12)
+        self.play(Create(_srect), run_time={run_time}*0.6)
+        self.play(FadeOut(_srect), run_time={run_time}*0.4)''',
+
+    TransformAction.GROW_FROM_POINT: '''self.play(
+            GrowFromPoint(elements["{target}"], ORIGIN),
+            run_time={run_time}, rate_func=rate_functions.ease_out_back
+        )''',
+
+    TransformAction.FADE_TRANSFORM: '''self.play(
+            elements["{target}"].animate.set_color(GOLD),
+            run_time={run_time}, rate_func=rate_functions.ease_in_out_cubic
+        )''',
+
+    TransformAction.SHOW_PASSING_FLASH: '''self.play(
+            Indicate(elements["{target}"], color=YELLOW, scale_factor=1.08),
+            run_time={run_time}
+        )''',
+
+    TransformAction.WAVE: '''self.play(
+            ApplyWave(elements["{target}"], amplitude=0.12, direction=RIGHT),
+            run_time={run_time}, rate_func=smooth
+        )''',
+
+    TransformAction.RIPPLE: '''self.play(
+            ApplyWave(elements["{target}"], amplitude=0.10, direction=UP),
+            run_time={run_time}*0.5, rate_func=smooth
+        )
+        self.play(
+            ApplyWave(elements["{target}"], amplitude=0.08, direction=RIGHT),
+            run_time={run_time}*0.5, rate_func=smooth
+        )''',
+
+    TransformAction.TRACE: '''self.play(
+            Circumscribe(elements["{target}"], color=GOLD, time_width=1.5, buff=0.08),
+            run_time={run_time}
+        )''',
+
+    TransformAction.MORPH: '''self.play(
+            elements["{target}"].animate.scale(safe_scale_factor(elements["{target}"], 1.10, 1.15)).set_color(GOLD),
+            run_time={run_time}, rate_func=rate_functions.ease_in_out_cubic
+        )''',
 }
 
 
@@ -1063,11 +1219,60 @@ class ManimCodeGenerator:
         return code
     
     def _generate_element_code(self, spec: SceneSpecification, element_count: int = 3) -> str:
-        """Generate code to create all visual elements with anti-stacking and density-aware sizing."""
+        """Generate code to create all visual elements with metaphor-aware layout,
+        auto-connection arrows, anti-stacking, and density-aware sizing."""
         lines = []
         position_counts = {}  # Track how many elements target each position
+        element_ids_ordered = []  # Track creation order for auto-connections
         
-        for elem in spec.visual_metaphor.visual_elements:
+        # =====================================================================
+        # FIX E: METAPHOR-AWARE LAYOUT OVERRIDE
+        # Override element positions based on metaphor type for intentional layouts.
+        # =====================================================================
+        metaphor_type = spec.visual_metaphor.metaphor_type
+        elems = spec.visual_metaphor.visual_elements
+        n = len(elems)
+        
+        # Build layout position overrides based on metaphor type
+        layout_overrides = {}
+        if n >= 2:
+            if metaphor_type in (MetaphorType.PROCESS_FLOW,):
+                # Process: left-to-right flow (evenly spaced horizontally)
+                h_positions = ["center_left", "center", "center_right", "top_left", "top_right",
+                               "bottom_left", "bottom_center", "bottom_right"]
+                for i, elem in enumerate(elems):
+                    if i < len(h_positions):
+                        layout_overrides[elem.id] = h_positions[i]
+            elif metaphor_type in (MetaphorType.COMPARISON,):
+                # Comparison: side-by-side (first left, second right, rest bottom)
+                side_positions = ["center_left", "center_right", "bottom_center",
+                                  "top_left", "top_right", "bottom_left", "bottom_right"]
+                for i, elem in enumerate(elems):
+                    if i < len(side_positions):
+                        layout_overrides[elem.id] = side_positions[i]
+            elif metaphor_type in (MetaphorType.HIERARCHY,):
+                # Hierarchy: top-down tree (root at top, children spread below)
+                tree_positions = ["top_center", "center_left", "center_right",
+                                  "bottom_left", "bottom_center", "bottom_right"]
+                for i, elem in enumerate(elems):
+                    if i < len(tree_positions):
+                        layout_overrides[elem.id] = tree_positions[i]
+            elif metaphor_type in (MetaphorType.RELATIONSHIP,):
+                # Relationship: spread around center for graph-like layout
+                graph_positions = ["center", "top_left", "top_right",
+                                   "bottom_left", "bottom_right", "center_left", "center_right"]
+                for i, elem in enumerate(elems):
+                    if i < len(graph_positions):
+                        layout_overrides[elem.id] = graph_positions[i]
+            elif metaphor_type in (MetaphorType.CONTAINER,):
+                # Container: central large element with satellites
+                container_positions = ["center", "top_right", "bottom_left",
+                                       "top_left", "bottom_right", "center_right"]
+                for i, elem in enumerate(elems):
+                    if i < len(container_positions):
+                        layout_overrides[elem.id] = container_positions[i]
+        
+        for elem in elems:
             template = ELEMENT_TEMPLATES.get(elem.element_type)
             
             if not template:
@@ -1076,7 +1281,9 @@ class ManimCodeGenerator:
             
             # Prepare template parameters with aspect-ratio-aware + density-aware sizing
             size_dims = self.config.get_element_size_for_aspect(elem.size, element_count)
-            position = elem.position.value if elem.position else "center"
+            
+            # Use layout override if available, else element's own position
+            position = layout_overrides.get(elem.id, elem.position.value if elem.position else "center")
             
             # F1: Anti-stacking — offset elements that share the same position
             if position not in position_counts:
@@ -1098,6 +1305,7 @@ class ManimCodeGenerator:
             
             code_line = template.format(**params)
             lines.append(code_line)
+            element_ids_ordered.append(elem.id)
             
             # Anti-stacking: shift duplicate-position elements vertically
             count = position_counts[position]
@@ -1109,18 +1317,14 @@ class ManimCodeGenerator:
                 lines.append(f'elements["{elem.id}"].shift({direction} * {offset:.1f})')
                 lines.append(f'clamp_to_safe_frame(elements["{elem.id}"])')
         
-        # F3: Add glow breathing updater to first glass_card or icon_badge
-        for elem in spec.visual_metaphor.visual_elements:
-            if elem.element_type in (ElementType.GLASS_CARD, ElementType.ICON_BADGE):
-                lines.append(f'# Dopamine: subtle glow breathing on {elem.id}')
-                lines.append(f'elements["{elem.id}"]._glow_t = 0')
-                lines.append(f'def _glow_update_{elem.id}(m, dt):')
-                lines.append(f'    m._glow_t += dt')
-                lines.append(f'    pulse = 0.97 + 0.06 * np.sin(m._glow_t * 2.5)')
-                lines.append(f'    m.scale(pulse / m.get_height() * m.get_height())'  # No-op safe version
-                             if False else f'    m.set_opacity(0.85 + 0.15 * np.sin(m._glow_t * 2.5))')
-                lines.append(f'elements["{elem.id}"].add_updater(_glow_update_{elem.id})')
-                break  # Only one glow breathing per scene
+        # AUTO-CONNECTION ARROWS: REMOVED
+        # Arrows between consecutive elements used static .get_right()/.get_left()
+        # positions that became stale after anti-stacking shifts and animations,
+        # causing severe overlapping. Layout now speaks through positioning alone.
+        
+        # GLOW BREATHING UPDATER: REMOVED  
+        # Continuous updaters on elements fought with self.play() animations,
+        # causing jittery rendering and cumulative state corruption.
         
         return "\n".join(f"        {line}" for line in lines) if lines else "        pass"
     
@@ -1132,112 +1336,153 @@ class ManimCodeGenerator:
         """
         Generate Manim code from a VisualTimeline.
         
-        This is the attention-first path: the VisualDirector has already
-        planned exact timestamps, animation styles, and pacing.
+        RESTRUCTURED: Includes duration budget enforcement to prevent
+        animations from running past audio_duration.
         """
         from generator.video_generator.visual_director import EventType
         
         lines = []
         current_time = 0.0
+        # DURATION BUDGET: Track cumulative animation time to prevent overflow
+        cumulative_play_time = 0.0
+        audio_duration = spec.timing.audio_duration_seconds or 10.0
+        # Reserve 10% of duration for waits/breathing room
+        play_budget = audio_duration * 0.90
+        
         events = sorted(timeline.events, key=lambda e: e.timestamp)
         
         # Map animation style names to Manim code
+        # AMPLIFIED MAGNITUDES: shifts 0.4→1.0+, scales 1.08→1.25+, flashes bigger
         ENTRY_CODE = {
             "GrowFromCenter": 'self.play(GrowFromCenter(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_out_back)',
-            "FadeIn_UP": 'self.play(FadeIn(elements["{target}"], shift=UP*0.4), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
-            "FadeIn_RIGHT": 'self.play(FadeIn(elements["{target}"], shift=RIGHT*0.4), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
-            "FadeIn_LEFT": 'self.play(FadeIn(elements["{target}"], shift=LEFT*0.4), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
-            "FadeIn_DOWN": 'self.play(FadeIn(elements["{target}"], shift=DOWN*0.4), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "FadeIn_UP": 'self.play(FadeIn(elements["{target}"], shift=UP*1.0), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "FadeIn_RIGHT": 'self.play(FadeIn(elements["{target}"], shift=RIGHT*1.2), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "FadeIn_LEFT": 'self.play(FadeIn(elements["{target}"], shift=LEFT*1.2), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "FadeIn_DOWN": 'self.play(FadeIn(elements["{target}"], shift=DOWN*1.0), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
             "SpinInFromNothing": 'self.play(SpinInFromNothing(elements["{target}"]), run_time={dur}, rate_func=smooth)',
             "DrawBorderThenFill": 'self.play(DrawBorderThenFill(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
             "GrowFromEdge_LEFT": 'self.play(GrowFromEdge(elements["{target}"], LEFT), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
             "GrowFromEdge_DOWN": 'self.play(GrowFromEdge(elements["{target}"], DOWN), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
             "GrowFromEdge_RIGHT": 'self.play(GrowFromEdge(elements["{target}"], RIGHT), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            # v0.19.0 enriched entries — safe for VGroup primitives
+            "Write": 'self.play(DrawBorderThenFill(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_out_expo)',
+            "FadeIn_SCALE": 'self.play(FadeIn(elements["{target}"], scale=0.15), run_time={dur}, rate_func=rate_functions.ease_out_back)',
+            "GrowFromPoint_CENTER": 'self.play(GrowFromPoint(elements["{target}"], ORIGIN), run_time={dur}, rate_func=rate_functions.ease_out_back)',
+            "FadeInFromLarge": 'self.play(FadeIn(elements["{target}"], scale=3.0), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "Create": 'self.play(GrowFromCenter(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_out_back)',
         }
         
         EMPHASIS_CODE = {
-            "Indicate": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=safe_scale_factor(elements["{target}"], 1.15, 1.20)), run_time={dur})',
-            "Flash": 'self.play(Flash(elements["{target}"], color=YELLOW, flash_radius=0.5, num_lines=12), run_time={dur})',
-            "Circumscribe": 'self.play(Circumscribe(elements["{target}"], color=WHITE, time_width=1.5, buff=0.08), run_time={dur})',
-            "Wiggle": 'self.play(Wiggle(elements["{target}"], scale_value=1.08, rotation_angle=0.04*TAU), run_time={dur})',
-            "ScalePulse": """_sf = safe_scale_factor(elements["{target}"], 1.15, 1.20)
+            "Indicate": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=safe_scale_factor(elements["{target}"], 1.25, 1.35)), run_time={dur})',
+            "Flash": 'self.play(Flash(elements["{target}"], color=YELLOW, flash_radius=0.8, num_lines=16), run_time={dur})',
+            "Circumscribe": 'self.play(Circumscribe(elements["{target}"], color=WHITE, time_width=2.0, buff=0.15, stroke_width=4), run_time={dur})',
+            "Wiggle": 'self.play(Wiggle(elements["{target}"], scale_value=1.18, rotation_angle=0.06*TAU), run_time={dur})',
+            "ScalePulse": """_sf = safe_scale_factor(elements["{target}"], 1.25, 1.35)
         self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
         self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
-            "Circumscribe_GOLD": 'self.play(Circumscribe(elements["{target}"], color=GOLD, time_width=1.5, buff=0.08), run_time={dur})',
-            "Flash_BLUE": 'self.play(Flash(elements["{target}"], color=BLUE, flash_radius=0.5, num_lines=12), run_time={dur})',
-            "Indicate_WHITE": 'self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=safe_scale_factor(elements["{target}"], 1.15, 1.20)), run_time={dur})',
-            "FocusZoom": """_sf = safe_scale_factor(elements["{target}"], 1.20, 1.25)
+            "Circumscribe_GOLD": 'self.play(Circumscribe(elements["{target}"], color=GOLD, time_width=2.0, buff=0.15, stroke_width=4), run_time={dur})',
+            "Flash_BLUE": 'self.play(Flash(elements["{target}"], color=BLUE, flash_radius=0.8, num_lines=16), run_time={dur})',
+            "Indicate_WHITE": 'self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=safe_scale_factor(elements["{target}"], 1.25, 1.35)), run_time={dur})',
+            "FocusZoom": """_sf = safe_scale_factor(elements["{target}"], 1.30, 1.40)
         self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
         self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
+            # v0.19.0 enriched emphasis
+            "ApplyWave": 'self.play(ApplyWave(elements["{target}"], amplitude=0.25, direction=UP), run_time={dur}, rate_func=smooth)',
+            "ShowPassingFlash": 'self.play(Indicate(elements["{target}"], color=YELLOW, scale_factor=1.18), run_time={dur})',
+            "CircleIndicate": 'self.play(Circumscribe(elements["{target}"], color=YELLOW, time_width=2.0, buff=0.15, stroke_width=4), run_time={dur})',
+            "WiggleOutThenIn": 'self.play(Wiggle(elements["{target}"], scale_value=1.2, rotation_angle=0.08*TAU), run_time={dur})',
+            "SurroundHighlight": """_sr = SurroundingRectangle(elements["{target}"], color=GOLD, buff=0.20, corner_radius=0.15, stroke_width=4)
+        self.play(Create(_sr), run_time={half_dur}, rate_func=rate_functions.ease_out_expo)
+        self.play(FadeOut(_sr), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
         }
         
         EXIT_CODE = {
-            "FadeOut_DOWN": 'self.play(FadeOut(elements["{target}"], shift=DOWN*0.3, scale=0.5), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
+            "FadeOut_DOWN": 'self.play(FadeOut(elements["{target}"], shift=DOWN*0.8, scale=0.3), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
             "ShrinkToCenter": 'self.play(ShrinkToCenter(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
-            "FadeOut": 'self.play(FadeOut(elements["{target}"], shift=DOWN*0.2), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
-            "FadeOut_LEFT": 'self.play(FadeOut(elements["{target}"], shift=LEFT*0.3), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
+            "FadeOut": 'self.play(FadeOut(elements["{target}"], shift=DOWN*0.5), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
+            "FadeOut_LEFT": 'self.play(FadeOut(elements["{target}"], shift=LEFT*1.0), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
+            # v0.19.0 enriched exits — safe for VGroup primitives
+            "Unwrite": 'self.play(FadeOut(elements["{target}"], shift=DOWN*0.5, scale=0.5), run_time={dur}, rate_func=rate_functions.ease_in_expo)',
+            "FadeOut_UP": 'self.play(FadeOut(elements["{target}"], shift=UP*0.8, scale=0.3), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
+            "FadeOutToPoint": 'self.play(FadeOut(elements["{target}"], scale=0.01), run_time={dur}, rate_func=rate_functions.ease_in_expo)',
+            "Uncreate": 'self.play(ShrinkToCenter(elements["{target}"]), run_time={dur}, rate_func=rate_functions.ease_in_cubic)',
         }
         
         GAP_FILLER_CODE = {
             "subtle_pulse": """self.play(elements["{target}"].animate.scale(1.08), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
         self.play(elements["{target}"].animate.scale(1/1.08), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
-            "color_shift": 'self.play(elements["{target}"].animate.set_color(GOLD), run_time={dur}, rate_func=smooth)',
-            "position_drift": 'self.play(elements["{target}"].animate.shift(UP*0.15), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
-            "glow_pulse": 'self.play(Flash(elements["{target}"], color=YELLOW, flash_radius=0.3, num_lines=8), run_time={dur})',
-            "micro_bounce": """self.play(elements["{target}"].animate.shift(UP*0.12), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
-        self.play(elements["{target}"].animate.shift(DOWN*0.12), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
+            "color_shift": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=1.0), run_time={dur}, rate_func=smooth)',
+            "position_drift": """self.play(elements["{target}"].animate.shift(UP*0.15), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)
+        self.play(elements["{target}"].animate.shift(DOWN*0.15), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)""",
+            "glow_pulse": 'self.play(Flash(elements["{target}"], color=YELLOW, flash_radius=0.4, num_lines=8), run_time={dur})',
+            "micro_bounce": """self.play(elements["{target}"].animate.shift(UP*0.15), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
+        self.play(elements["{target}"].animate.shift(DOWN*0.15), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
             "opacity_breathe": 'self.play(elements["{target}"].animate.set_opacity(0.6), run_time={half_dur}, rate_func=smooth)\n        self.play(elements["{target}"].animate.set_opacity(1.0), run_time={half_dur}, rate_func=smooth)',
+            # v0.19.0 gap fillers — all self-reverting
+            "wave_distortion": 'self.play(ApplyWave(elements["{target}"], amplitude=0.08, direction=RIGHT), run_time={dur}, rate_func=smooth)',
+            "border_trace": 'self.play(Circumscribe(elements["{target}"], color=YELLOW, time_width=2.0, buff=0.08, stroke_width=2), run_time={dur})',
+            "sheen_sweep": 'self.play(elements["{target}"].animate.set_opacity(0.6), run_time={half_dur}, rate_func=smooth)\n        self.play(elements["{target}"].animate.set_opacity(1.0), run_time={half_dur}, rate_func=smooth)',
         }
         
-        # === CINEMATIC: MOVE event code templates (progressive diagram building) ===
+        # === MOVE event code templates — RESTRUCTURED: self-reverting oscillations ===
+        # No more cumulative shifts that destroy layout
         MOVE_CODE = {
-            "SlideToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.5 + UP*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
-            "ArcToPosition": 'self.play(MoveAlongPath(elements["{target}"], ArcBetweenPoints(elements["{target}"].get_center(), elements["{target}"].get_center() + RIGHT*0.5 + UP*0.2, angle=PI/4)), run_time={dur}, rate_func=smooth)',
-            "DriftToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.3), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
+            "SlideToPosition": """self.play(elements["{target}"].animate.shift(RIGHT*0.3), run_time={half_dur}, rate_func=rate_functions.ease_in_out_cubic)
+        self.play(elements["{target}"].animate.shift(LEFT*0.3), run_time={half_dur}, rate_func=rate_functions.ease_in_out_cubic)""",
+            "ArcToPosition": """self.play(elements["{target}"].animate.shift(RIGHT*0.2 + UP*0.15), run_time={half_dur}, rate_func=rate_functions.ease_in_out_cubic)
+        self.play(elements["{target}"].animate.shift(LEFT*0.2 + DOWN*0.15), run_time={half_dur}, rate_func=rate_functions.ease_in_out_cubic)""",
+            "DriftToPosition": """self.play(elements["{target}"].animate.shift(UP*0.2), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)
+        self.play(elements["{target}"].animate.shift(DOWN*0.2), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)""",
+            "MoveAlongArc": 'self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=1.05), run_time={dur}, rate_func=smooth)',
+            "ElasticSlide": """self.play(elements["{target}"].animate.shift(RIGHT*0.25), run_time={half_dur}, rate_func=rate_functions.ease_out_back)
+        self.play(elements["{target}"].animate.shift(LEFT*0.25), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
         }
         
-        # === CINEMATIC: TRANSFORM event code templates (element evolution) ===
+        # === TRANSFORM event code templates — RESTRUCTURED: self-reverting ===
         TRANSFORM_CODE = {
-            "MorphTransform": 'self.play(elements["{target}"].animate.scale(safe_scale_factor(elements["{target}"], 1.12, 1.15)).set_color(GOLD), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "MorphTransform": """_sf = safe_scale_factor(elements["{target}"], 1.15, 1.20)
+        self.play(elements["{target}"].animate.scale(_sf).set_color(GOLD), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
+        self.play(elements["{target}"].animate.scale(1/_sf).set_color(elements["{target}"].get_color()), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
             "ScaleTransform": """_sf = safe_scale_factor(elements["{target}"], 1.15, 1.20)
         self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
         self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
-            "ColorTransform": 'self.play(elements["{target}"].animate.set_color(GOLD), run_time={dur}, rate_func=smooth)',
+            "ColorTransform": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=1.0), run_time={dur}, rate_func=smooth)',
+            "FadeTransformMorph": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=1.08), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+            "CounterclockwiseSpin": 'self.play(Wiggle(elements["{target}"], scale_value=1.08, rotation_angle=0.04*TAU), run_time={dur}, rate_func=rate_functions.ease_in_out_back)',
         }
         
-        # === CINEMATIC: CAMERA event code templates (virtual zoom/focus) ===
+        # === CAMERA event code templates — RESTRUCTURED ===
+        # No more VGroup scaling that destroys layout. Camera events now use
+        # individual element emphasis (Indicate, Circumscribe) to guide attention.
         CAMERA_CODE = {
-            "ZoomIn": """# Camera: Zoom focus on {target} (safe-clamped)
-        _sf = safe_scale_factor(elements["{target}"], 1.15, max_allowed=1.20)
-        self.play(elements["{target}"].animate.scale(_sf), run_time={dur}, rate_func=rate_functions.ease_out_cubic)""",
-            "ZoomOut": """# Camera: Pull back — restore scale
-        self.play(elements["{target}"].animate.scale(1/1.15), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)""",
-            "FocusPulse": """# Camera: Quick focus pulse on {target} (safe-clamped)
-        _sf = safe_scale_factor(elements["{target}"], 1.12, max_allowed=1.15)
-        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
-        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
-            # Solution B: Lateral camera animations (safe shift amounts)
-            "PanLeft": """# Camera: Lateral pan left to guide attention
-        _cam_group = VGroup(*[v for k, v in elements.items() if k != "all"])
-        self.play(_cam_group.animate.shift(RIGHT*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)""",
-            "PanRight": """# Camera: Lateral pan right to guide attention
-        _cam_group = VGroup(*[v for k, v in elements.items() if k != "all"])
-        self.play(_cam_group.animate.shift(LEFT*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)""",
-            "FocusIsolate": """# Camera: Focus isolate {target} (safe-clamped)
-        _sf = safe_scale_factor(elements["{target}"], 1.12, max_allowed=1.15)
-        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
-        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
-            "RackFocus": """# Camera: Rack focus (safe-clamped)
+            "ZoomIn": '# Camera focus: Indicate {target}\n        self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=1.12), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+            "ZoomOut": '# Camera: subtle de-emphasis\n        self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=1.05), run_time={dur}, rate_func=smooth)',
+            "FocusPulse": """# Camera: FocusPulse on {target}
         _sf = safe_scale_factor(elements["{target}"], 1.10, max_allowed=1.15)
         self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
         self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
+            "PanLeft": 'self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=1.05), run_time={dur}, rate_func=smooth)',
+            "PanRight": 'self.play(Indicate(elements["{target}"], color=WHITE, scale_factor=1.05), run_time={dur}, rate_func=smooth)',
+            "FocusIsolate": """# Camera: FocusIsolate {target}
+        _sf = safe_scale_factor(elements["{target}"], 1.10, max_allowed=1.15)
+        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)
+        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)""",
+            "RackFocus": 'self.play(Circumscribe(elements["{target}"], color=GOLD, time_width=2.0, buff=0.12, stroke_width=3), run_time={dur})',
+            "DollyZoom": 'self.play(Indicate(elements["{target}"], color=GOLD, scale_factor=1.10), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+            "SweepPan": 'self.play(Circumscribe(elements["{target}"], color=WHITE, time_width=2.0, buff=0.10, stroke_width=2), run_time={dur})',
         }
         
-        # Group nearby events for overlapped play (lag_ratio) — tight grouping for snappy feel
-        event_groups = self._group_nearby_events(events, threshold=1.2)
+        # Group nearby events for overlapped play (lag_ratio)
+        # threshold=0.35: only events within 350ms merge — keeps most animations sequential & visible
+        event_groups = self._group_nearby_events(events, threshold=0.35)
         
         for group in event_groups:
             first_event = group[0]
+            
+            # === DURATION BUDGET CHECK ===
+            # If we've used 90% of audio duration in play() calls, stop adding animations
+            if cumulative_play_time >= play_budget:
+                break
             
             # Wait to sync with timestamp
             wait_time = max(0.0, first_event.timestamp - current_time)
@@ -1251,20 +1496,75 @@ class ManimCodeGenerator:
             if len(group) == 1:
                 # Single event — direct play
                 event = group[0]
+                
+                # Budget check for this specific animation
+                event_dur = event.duration
+                if cumulative_play_time + event_dur > play_budget:
+                    break  # Would exceed budget
+                
                 code = self._event_to_manim_code(
                     event, ENTRY_CODE, EMPHASIS_CODE, EXIT_CODE, GAP_FILLER_CODE
                 )
                 if event.sync_phrase:
                     lines.append(f'# "{event.sync_phrase[:40]}"')
                 lines.append(code)
+                cumulative_play_time += event_dur
                 current_time = event.end_time
             else:
                 # Multiple events close together — AnimationGroup with lag_ratio
+                # ====================================================================
+                # CRITICAL: Deduplicate by target element to prevent Manim freezing.
+                # ====================================================================
+                
+                # Budget check for group
+                group_dur_estimate = max(e.duration for e in group)
+                if cumulative_play_time + group_dur_estimate > play_budget:
+                    break  # Would exceed budget
+                
                 lines.append(f'# Grouped: {len(group)} animations')
+                
+                # Priority: EXIT > ENTER > EMPHASIZE > TRANSFORM > CAMERA > MOVE > GAP_FILLER
+                EVENT_PRIORITY = {
+                    EventType.EXIT: 0,
+                    EventType.ENTER: 1,
+                    EventType.EMPHASIZE: 2,
+                    EventType.TRANSFORM: 3,
+                    EventType.CAMERA: 4,
+                    EventType.MOVE: 5,
+                    EventType.GAP_FILLER: 6,
+                }
+                
+                # Sort by priority so higher-priority animations win per target
+                sorted_group = sorted(group, key=lambda e: EVENT_PRIORITY.get(e.event_type, 99))
+                
+                seen_targets = set()
+                deduped_events = []
+                exit_targets = set()
+                
+                # First pass: collect all EXIT targets (nothing else should touch them)
+                for event in sorted_group:
+                    if event.event_type == EventType.EXIT:
+                        exit_targets.add(event.target_element)
+                
+                # Second pass: keep only ONE animation per target element
+                for event in sorted_group:
+                    target = event.target_element
+                    
+                    # Skip if this target is exiting and this isn't the exit animation
+                    if target in exit_targets and event.event_type != EventType.EXIT:
+                        continue
+                    
+                    # Skip duplicate targets
+                    if target in seen_targets:
+                        continue
+                    
+                    seen_targets.add(target)
+                    deduped_events.append(event)
+                
                 anim_parts = []
                 max_end = current_time
                 
-                for event in group:
+                for event in deduped_events:
                     anim_expr = self._event_to_animation_expr(event)
                     if anim_expr:
                         anim_parts.append(anim_expr)
@@ -1277,11 +1577,12 @@ class ManimCodeGenerator:
                     else:
                         anims_str = ",\n            ".join(anim_parts)
                         lines.append(f'self.play(AnimationGroup(\n            {anims_str},\n            lag_ratio=0.2\n        ), run_time={group_dur:.2f}, rate_func=rate_functions.ease_out_cubic)')
+                    cumulative_play_time += group_dur
                     current_time = max_end
         
-        # C1: Fill remaining audio duration (no artificial cap)
-        remaining = max(0, timeline.total_duration - current_time)
-        if remaining > 0.05:
+        # Fill remaining audio duration with wait (budget-aware)
+        remaining = max(0, audio_duration - cumulative_play_time)
+        if remaining > 0.1:
             lines.append(f'self.wait({remaining:.2f})')
         
         return "\n".join(f"        {line}" for line in lines)
@@ -1321,31 +1622,37 @@ class ManimCodeGenerator:
         elif event.event_type == EventType.GAP_FILLER:
             template = gap_map.get(event.animation_style, gap_map.get("subtle_pulse"))
         elif event.event_type == EventType.MOVE:
-            # Cinematic: MOVE event — element repositions for diagram building
+            # Cinematic: MOVE event — element repositions for diagram building (AMPLIFIED)
             move_map = {
-                "SlideToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.4 + UP*0.15), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
-                "ArcToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.3 + UP*0.1), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
-                "DriftToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
+                "SlideToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*1.0 + UP*0.4), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+                "ArcToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.8 + UP*0.3), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+                "DriftToPosition": 'self.play(elements["{target}"].animate.shift(RIGHT*0.6), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
+                "MoveAlongArc": 'self.play(elements["{target}"].animate.shift(RIGHT*1.0 + UP*0.5), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+                "ElasticSlide": 'self.play(elements["{target}"].animate.shift(RIGHT*1.0 + UP*0.3), run_time={dur}, rate_func=rate_functions.ease_out_back)',
             }
             template = move_map.get(event.animation_style, move_map.get("SlideToPosition"))
         elif event.event_type == EventType.TRANSFORM:
-            # Cinematic: TRANSFORM event — element evolution (safe-clamped)
+            # Cinematic: TRANSFORM event — element evolution (AMPLIFIED)
             transform_map = {
-                "MorphTransform": 'self.play(elements["{target}"].animate.scale(safe_scale_factor(elements["{target}"], 1.12, 1.15)).set_color(GOLD), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
-                "ScaleTransform": '_sf = safe_scale_factor(elements["{target}"], 1.15, 1.20)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
+                "MorphTransform": 'self.play(elements["{target}"].animate.scale(safe_scale_factor(elements["{target}"], 1.25, 1.30)).set_color(GOLD), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
+                "ScaleTransform": '_sf = safe_scale_factor(elements["{target}"], 1.30, 1.35)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
                 "ColorTransform": 'self.play(elements["{target}"].animate.set_color(GOLD), run_time={dur}, rate_func=smooth)',
+                "FadeTransformMorph": 'self.play(elements["{target}"].animate.scale(safe_scale_factor(elements["{target}"], 1.20, 1.25)).set_color(GOLD), run_time={dur}, rate_func=rate_functions.ease_in_out_expo)',
+                "CounterclockwiseSpin": 'self.play(Rotate(elements["{target}"], angle=-PI/4), run_time={dur}, rate_func=rate_functions.ease_in_out_back)',
             }
             template = transform_map.get(event.animation_style, transform_map.get("MorphTransform"))
         elif event.event_type == EventType.CAMERA:
-            # Cinematic: CAMERA event — safe-clamped zoom/focus + lateral
+            # Cinematic: CAMERA event — GROUP-BASED zoom/focus + lateral (AMPLIFIED)
             camera_map = {
-                "ZoomIn": '_sf = safe_scale_factor(elements["{target}"], 1.15, 1.20)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={dur}, rate_func=rate_functions.ease_out_cubic)',
-                "ZoomOut": 'self.play(elements["{target}"].animate.scale(1/1.15), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
-                "FocusPulse": '_sf = safe_scale_factor(elements["{target}"], 1.12, 1.15)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
-                "PanLeft": 'self.play(elements["{target}"].animate.shift(LEFT*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
-                "PanRight": 'self.play(elements["{target}"].animate.shift(RIGHT*0.2), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
-                "FocusIsolate": '_sf = safe_scale_factor(elements["{target}"], 1.12, 1.15)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
-                "RackFocus": '_sf = safe_scale_factor(elements["{target}"], 1.10, 1.15)\n        self.play(elements["{target}"].animate.scale(_sf), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(elements["{target}"].animate.scale(1/_sf), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
+                "ZoomIn": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        _pivot = elements["{target}"].get_center()\n        _sf = safe_scale_factor(elements["{target}"], 1.30, 1.40)\n        self.play(_content.animate.scale(_sf, about_point=_pivot), run_time={dur}, rate_func=rate_functions.ease_out_expo)',
+                "ZoomOut": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        self.play(_content.animate.scale(1/1.25, about_point=ORIGIN), run_time={dur}, rate_func=rate_functions.ease_in_out_cubic)',
+                "FocusPulse": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        _pivot = elements["{target}"].get_center()\n        _sf = safe_scale_factor(elements["{target}"], 1.25, 1.30)\n        self.play(_content.animate.scale(_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(_content.animate.scale(1/_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
+                "PanLeft": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        self.play(_content.animate.shift(RIGHT*0.5), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
+                "PanRight": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        self.play(_content.animate.shift(LEFT*0.5), run_time={dur}, rate_func=rate_functions.ease_in_out_sine)',
+                "FocusIsolate": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        _pivot = elements["{target}"].get_center()\n        _sf = safe_scale_factor(elements["{target}"], 1.25, 1.30)\n        self.play(_content.animate.scale(_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_out_expo)\n        self.play(_content.animate.scale(1/_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
+                "RackFocus": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        _pivot = elements["{target}"].get_center()\n        _sf = safe_scale_factor(elements["{target}"], 1.20, 1.25)\n        self.play(_content.animate.scale(_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)\n        self.play(_content.animate.scale(1/_sf, about_point=_pivot), run_time={half_dur}, rate_func=rate_functions.ease_in_cubic)',
+                "DollyZoom": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        _pivot = elements["{target}"].get_center()\n        self.play(_content.animate.scale(1.20, about_point=_pivot).shift(LEFT*0.3), run_time={dur}, rate_func=rate_functions.ease_in_out_expo)\n        self.play(_content.animate.scale(1/1.20, about_point=_pivot).shift(RIGHT*0.3), run_time={half_dur}, rate_func=rate_functions.ease_out_cubic)',
+                "SweepPan": '_content = VGroup(*[v for k, v in elements.items() if k != "all"])\n        self.play(_content.animate.shift(LEFT*0.6), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)\n        self.play(_content.animate.shift(RIGHT*0.6), run_time={half_dur}, rate_func=rate_functions.ease_in_out_sine)',
             }
             template = camera_map.get(event.animation_style, camera_map.get("FocusPulse"))
         else:
@@ -1357,7 +1664,12 @@ class ManimCodeGenerator:
         return template.format(target=target, dur=dur, half_dur=half_dur)
     
     def _event_to_animation_expr(self, event) -> str:
-        """Convert event to a Manim animation expression (for use inside AnimationGroup)."""
+        """Convert event to a Manim animation expression (for use inside AnimationGroup).
+        
+        Expanded for Manim v0.19.0: Write, Create, ApplyWave, ShowPassingFlash,
+        CircleIndicate, WiggleOutThenIn, Unwrite, Uncreate, FadeTransform,
+        group-based camera zoom, and 20+ rate functions.
+        """
         from generator.video_generator.visual_director import EventType
         
         target = event.target_element
@@ -1366,15 +1678,25 @@ class ManimCodeGenerator:
         if event.event_type == EventType.ENTER:
             if style == "GrowFromCenter":
                 return f'GrowFromCenter(elements["{target}"])'
+            elif style == "Write":
+                return f'DrawBorderThenFill(elements["{target}"])'
+            elif style == "Create":
+                return f'GrowFromCenter(elements["{target}"])'
+            elif style == "FadeIn_SCALE":
+                return f'FadeIn(elements["{target}"], scale=0.15)'
+            elif style == "GrowFromPoint_CENTER":
+                return f'GrowFromPoint(elements["{target}"], ORIGIN)'
+            elif style == "FadeInFromLarge":
+                return f'FadeIn(elements["{target}"], scale=3.0)'
             elif "FadeIn" in style:
                 if "DOWN" in style:
-                    direction = "DOWN*0.3"
+                    direction = "DOWN*1.0"
                 elif "LEFT" in style:
-                    direction = "LEFT*0.3"
+                    direction = "LEFT*1.2"
                 elif "RIGHT" in style:
-                    direction = "RIGHT*0.3"
+                    direction = "RIGHT*1.2"
                 else:
-                    direction = "UP*0.3"
+                    direction = "UP*1.0"
                 return f'FadeIn(elements["{target}"], shift={direction})'
             elif style == "SpinInFromNothing":
                 return f'SpinInFromNothing(elements["{target}"])'
@@ -1393,55 +1715,66 @@ class ManimCodeGenerator:
         
         elif event.event_type == EventType.EMPHASIZE:
             if style == "Indicate":
-                return f'Indicate(elements["{target}"], color=GOLD, scale_factor=1.12)'
+                return f'Indicate(elements["{target}"], color=GOLD, scale_factor=1.25)'
             elif style == "Flash":
-                return f'Flash(elements["{target}"], color=YELLOW, flash_radius=0.4)'
+                return f'Flash(elements["{target}"], color=YELLOW, flash_radius=0.8)'
             elif style == "Circumscribe":
-                return f'Circumscribe(elements["{target}"], color=WHITE)'
+                return f'Circumscribe(elements["{target}"], color=WHITE, stroke_width=4)'
             elif style == "Wiggle":
-                return f'Wiggle(elements["{target}"], scale_value=1.06)'
+                return f'Wiggle(elements["{target}"], scale_value=1.18)'
+            elif style == "ApplyWave":
+                return f'ApplyWave(elements["{target}"], amplitude=0.25, direction=UP)'
+            elif style == "ShowPassingFlash":
+                return f'Indicate(elements["{target}"], color=YELLOW, scale_factor=1.18)'
+            elif style == "CircleIndicate":
+                return f'Circumscribe(elements["{target}"], color=YELLOW, stroke_width=4)'
+            elif style == "WiggleOutThenIn":
+                return f'WiggleOutThenIn(elements["{target}"], scale_value=1.18)'
+            elif style == "SurroundHighlight":
+                return f'Indicate(elements["{target}"], color=GOLD, scale_factor=1.20)'
             else:
                 return f'Indicate(elements["{target}"])'
         
         elif event.event_type == EventType.EXIT:
-            if "FadeOut" in style:
-                return f'FadeOut(elements["{target}"], shift=DOWN*0.3)'
+            if style == "Unwrite":
+                return f'FadeOut(elements["{target}"], shift=DOWN*0.5)'
+            elif style == "Uncreate":
+                return f'ShrinkToCenter(elements["{target}"])'
+            elif style == "FadeOutToPoint":
+                return f'FadeOut(elements["{target}"], scale=0.01)'
+            elif style == "FadeOut_UP":
+                return f'FadeOut(elements["{target}"], shift=UP*0.8)'
+            elif "FadeOut" in style:
+                return f'FadeOut(elements["{target}"], shift=DOWN*0.8)'
             elif style == "ShrinkToCenter":
                 return f'ShrinkToCenter(elements["{target}"])'
             else:
                 return f'FadeOut(elements["{target}"])'
         
         elif event.event_type == EventType.GAP_FILLER:
-            return f'elements["{target}"].animate.scale(1.05)'
+            if style == "wave_distortion":
+                return f'ApplyWave(elements["{target}"], amplitude=0.06, direction=UP)'
+            elif style == "border_trace":
+                return f'Indicate(elements["{target}"], color=YELLOW, scale_factor=1.04)'
+            elif style == "sheen_sweep":
+                return f'elements["{target}"].animate.set_color(elements["{target}"].get_color())'
+            else:
+                return f'elements["{target}"].animate.scale(1.05)'
         
         elif event.event_type == EventType.MOVE:
-            # Cinematic: MOVE events shift elements for diagram building
-            return f'elements["{target}"].animate.shift(RIGHT*0.3 + UP*0.15)'
+            # RESTRUCTURED: self-reverting — small shift for AnimationGroup context
+            return f'Indicate(elements["{target}"], color=WHITE, scale_factor=1.05)'
         
         elif event.event_type == EventType.TRANSFORM:
-            # Cinematic: TRANSFORM events evolve element appearance (safe scales)
+            # RESTRUCTURED: safe indication in group context
             if style == "ColorTransform":
-                return f'elements["{target}"].animate.set_color(GOLD)'
-            elif style == "ScaleTransform":
-                return f'elements["{target}"].animate.scale(1.10)'
+                return f'Indicate(elements["{target}"], color=GOLD, scale_factor=1.0)'
             else:
-                return f'elements["{target}"].animate.scale(1.08).set_color(GOLD)'
+                return f'Indicate(elements["{target}"], color=GOLD, scale_factor=1.08)'
         
         elif event.event_type == EventType.CAMERA:
-            # Cinematic: CAMERA events — safe scale factors
-            if style == "ZoomIn":
-                return f'elements["{target}"].animate.scale(1.12)'
-            elif style == "ZoomOut":
-                return f'elements["{target}"].animate.scale(1/1.12)'
-            elif style in ("PanLeft", "PanRight"):
-                direction = "LEFT*0.15" if "Left" in style else "RIGHT*0.15"
-                return f'elements["{target}"].animate.shift({direction})'
-            elif style == "FocusIsolate":
-                return f'elements["{target}"].animate.scale(1.10)'
-            elif style == "RackFocus":
-                return f'elements["{target}"].animate.scale(1.08)'
-            else:
-                return f'elements["{target}"].animate.scale(1.08)'
+            # RESTRUCTURED: individual element emphasis instead of VGroup scaling
+            return f'Indicate(elements["{target}"], color=WHITE, scale_factor=1.05)'
         
         return None
     
@@ -1513,7 +1846,7 @@ class ManimCodeGenerator:
         introduced_elements = set()
         current_time = 0.0
         
-        # Diverse entry animations — cycle through these
+        # Diverse entry animations — cycle through these (expanded v0.19.0)
         entry_animations = [
             'GrowFromCenter(elements["{id}"])',
             'DrawBorderThenFill(elements["{id}"])',
@@ -1522,13 +1855,22 @@ class ManimCodeGenerator:
             'FadeIn(elements["{id}"], shift=RIGHT*0.5)',
             'GrowFromEdge(elements["{id}"], LEFT)',
             'GrowFromEdge(elements["{id}"], DOWN)',
+            'DrawBorderThenFill(elements["{id}"])',
+            'FadeIn(elements["{id}"], scale=0.3)',
+            'GrowFromPoint(elements["{id}"], ORIGIN)',
+            'GrowFromCenter(elements["{id}"])',
+            'SpinInFromNothing(elements["{id}"])',
         ]
-        # Diverse emphasis animations — cycle through these
+        # Diverse emphasis animations — cycle through these (expanded v0.19.0)
         emphasis_animations = [
             'Indicate(elements["{id}"], color=GOLD, scale_factor=1.2)',
             'Circumscribe(elements["{id}"], color=YELLOW, buff=0.15)',
             'Flash(elements["{id}"], color=YELLOW, flash_radius=0.5, num_lines=12)',
             'Wiggle(elements["{id}"], scale_value=1.15)',
+            'ApplyWave(elements["{id}"], amplitude=0.12, direction=UP)',
+            'Flash(elements["{id}"], color=YELLOW, flash_radius=0.4, num_lines=10)',
+            'Circumscribe(elements["{id}"], color=YELLOW, buff=0.1)',
+            'WiggleOutThenIn(elements["{id}"], scale_value=1.08)',
         ]
         entry_idx = 0
         emphasis_idx = 0
