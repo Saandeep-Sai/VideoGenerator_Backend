@@ -1,7 +1,7 @@
 services:
   - type: web
     name: video-gen-api
-    runtime: python
+    runtime: python-3.11.9
     plan: free
 
     # API only - no video processing on Render
