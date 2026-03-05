@@ -32,7 +32,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ✅ Load from environment - Load ALL Gemini API keys for rotation
+# ✅ Load from environment - Load OpenRouter API key (primary) and Gemini keys for content generation
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Load Gemini keys for dynamic content generation
 GEMINI_API_KEYS = []
 for key_name in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
     key_value = os.getenv(key_name)
@@ -40,18 +44,16 @@ for key_name in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
         GEMINI_API_KEYS.append(key_value)
         logger.info(f"✓ Loaded {key_name}")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-if not GEMINI_API_KEYS or not GROQ_API_KEY:
-    logger.error("❌ Missing API keys! Set GEMINI_API_KEY (and optionally _2, _3) and GROQ_API_KEY")
+if not OPENROUTER_API_KEY or not GROQ_API_KEY:
+    logger.error("❌ Missing API keys! Set OPENROUTER_API_KEY and GROQ_API_KEY")
     sys.exit(1)
 
-logger.info(f"📊 Loaded {len(GEMINI_API_KEYS)} Gemini API key(s) for rotation")
-GEMINI_API_KEY = GEMINI_API_KEYS[0]  # Primary key for backward compatibility
+logger.info(f"✓ Loaded OPENROUTER_API_KEY")
+logger.info(f"📊 Loaded {len(GEMINI_API_KEYS)} Gemini API key(s) for content generation")
 
 # ✅ Configure pipeline
 config = VideoGenerationConfig(
-    gemini_api_key=GEMINI_API_KEY,
+    openrouter_api_key=OPENROUTER_API_KEY,
     groq_api_key=GROQ_API_KEY
 )
 pipeline = OptimizedVideoGenerationPipeline(config)
