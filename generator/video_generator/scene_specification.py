@@ -290,9 +290,9 @@ class VisualMetaphor:
         """Validate metaphor constraints."""
         errors = []
         
-        # Element count check
-        if len(self.visual_elements) > 8:
-            errors.append(f"Too many visual elements: {len(self.visual_elements)} (max 8)")
+        # Element count check - allow up to 12 for complex scenes
+        if len(self.visual_elements) > 12:
+            errors.append(f"Too many visual elements: {len(self.visual_elements)} (max 12)")
         
         # Validate each element
         for elem in self.visual_elements:

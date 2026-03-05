@@ -84,6 +84,7 @@ async def run():
                 duration = int(job.get("duration", 60))
                 aspect_ratio = job.get("aspect_ratio", "16:9")
                 video_type = job.get("video_type", "regular")
+                use_quality_pipeline = job.get("use_quality_pipeline", True)
 
                 logger.info("=" * 60)
                 logger.info(f"⚙️  NEW JOB RECEIVED")
@@ -92,6 +93,7 @@ async def run():
                 logger.info(f"⏱️  Duration: {duration} seconds")
                 logger.info(f"📐 Aspect Ratio: {aspect_ratio}")
                 logger.info(f"🎬 Video Type: {video_type}")
+                logger.info(f"🔧 Quality Pipeline: {use_quality_pipeline}")
                 logger.info("=" * 60)
 
                 update_job_status(job_id, "processing")
@@ -100,6 +102,7 @@ async def run():
                     # Update config with aspect ratio and video type from job
                     config.aspect_ratio = aspect_ratio
                     config.video_type = video_type
+                    config.use_quality_pipeline = use_quality_pipeline
                     
                     # Reinitialize pipeline with updated config
                     pipeline_instance = OptimizedVideoGenerationPipeline(config)

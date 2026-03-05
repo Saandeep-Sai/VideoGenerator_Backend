@@ -291,8 +291,8 @@ class VideoGenerationPipeline:
         self.tts_available = False
         
         # OpenRouter model names for different pipeline stages
-        self.narration_model = "qwen/qwen3-next-80b-a3b-instruct:free"
-        self.script_model = "qwen/qwen3-next-80b-a3b-instruct:free"
+        self.narration_model = "nvidia/nemotron-3-nano-30b-a3b:free"
+        self.script_model = "nvidia/nemotron-3-nano-30b-a3b:free"
         self.output_dir = Path(config.output_dir)
         self.device = "cpu"
         self.scaled_intro_path = None  # Cache for pre-scaled intro
@@ -1151,7 +1151,7 @@ class GeneratedAnimation{segment_number}(Scene):
         script = re.sub(r'```(python\s*)?|\s*```', '', script)
         return script.strip()
 
-    def _correct_script_with_groq(self, broken_script: str, error_context: str, segment: NarrationSegment = None) -> str:
+    def _correct_script_with_groq(self, broken_script: str, error_context: str, segment: NarrationSegment = None, segment_index: int = 0) -> str:
         """
         STAGE 4: Script Correction (Structural Repair Only)
         
@@ -1163,10 +1163,11 @@ class GeneratedAnimation{segment_number}(Scene):
             return broken_script
         
         prompt = format_error_correction_minimal_prompt(
-            index=0,  # Groq correction doesn't track segment index
+            index=segment_index,
             duration=segment.duration if segment else 10.0,
             error=error_context,
             script=broken_script,
+            aspect_ratio=self.config.aspect_ratio,
         )
         
         try:
@@ -1182,7 +1183,7 @@ class GeneratedAnimation{segment_number}(Scene):
             return broken_script
     def _regenerate_script_from_scratch(self, segment: NarrationSegment, segment_number: int) -> str:
         """
-        Fully regenerate a fresh Manim script using Gemini.
+        Fully regenerate a fresh Manim script using Gemini directly.
         Uses the original narration, visuals, and audio duration.
         """
         aspect_ratio_config = self._get_aspect_ratio_config()
@@ -1191,7 +1192,7 @@ class GeneratedAnimation{segment_number}(Scene):
     You are a Manim Python expert.
     Rewrite a complete script for this segment from scratch.
 
-    - Class name must be: GeneratedAnimation{segment_number}
+    - Class name must be: Segment{segment_number:03d}
     - Use ONLY 'from manim import *'
     - Must include aspect ratio configuration immediately after imports
     - Must match exact duration: {segment.duration:.2f} seconds
@@ -1203,30 +1204,22 @@ class GeneratedAnimation{segment_number}(Scene):
 
     {aspect_ratio_config}
 
-    class GeneratedAnimation{segment_number}(Scene):
+    class Segment{segment_number:03d}(Scene):
         def construct(self):
-            # Your code here
-            self.wait({segment.duration:.2f})
+            # Your code here - fill entire duration with animations
+            # End with self.wait() ONLY if needed to reach exact duration
 
     Output ONLY raw Python code. No markdown, no explanations.
         """
 
         try:
-            # Use OpenRouter with Qwen Coder for script regeneration
-            def call_openrouter(client):
-                response = client.chat.completions.create(
-                    model=self.script_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=self.config.gemini_temperature,
-                    max_tokens=self.config.gemini_max_tokens,
-                )
-                return response.choices[0].message.content
-            
-            response_text = self.openrouter_key_manager.execute_with_rotation(
-                call_openrouter,
-                model=self.script_model
+            # Use Gemini directly for script regeneration
+            response = self._call_gemini_with_rotation(
+                prompt,
+                {'temperature': self.config.gemini_temperature, 'max_output_tokens': self.config.gemini_max_tokens},
+                f"script_regeneration_segment_{segment_number}"
             )
-            raw_script = response_text.strip()
+            raw_script = response.text.strip()
             return self._clean_script(raw_script)
         except Exception as e:
             logger.error(f"❌ Last-resort regeneration failed for segment {segment_number}: {e}")
@@ -1260,6 +1253,8 @@ class GeneratedAnimation{segment_number}(Scene):
                 if attempt == self.config.max_correction_attempts - 1:
                     logger.warning(f"❗ All Gemini & Groq corrections failed — regenerating from scratch...")
                     script_content = self._regenerate_script_from_scratch(segment, i + 1)
+                    # Inject premium background after regeneration
+                    script_content = self._inject_premium_background(script_content, i, segment.duration or 5.0)
                     video_path, error = self.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
 
                     if video_path:
@@ -1275,7 +1270,7 @@ class GeneratedAnimation{segment_number}(Scene):
                     script_content = self._generate_individual_script(segment, i + 1)
                 else:
                     logger.info("🛠 Fixing with Groq...")
-                    script_content = self._correct_script_with_groq(script_content, error or "Unknown error")
+                    script_content = self._correct_script_with_groq(script_content, error or "Unknown error", segment, i)
 
                 script_content = self._clean_script(script_content)
                 Path(segment.script_path).write_text(script_content, encoding="utf-8")
@@ -1488,6 +1483,345 @@ class GeneratedAnimation{segment_number}(Scene):
         logger.info("📁 No intro video found in initial_video folder")
         return None
 
+    def _prepare_intro_for_aspect_ratio(self) -> Optional[Path]:
+        """
+        Prepare intro video for the current aspect ratio.
+        
+        For 16:9: Uses the pre-made intro video scaled to 720p
+        For 9:16/1:1/4:3: Generates a Manim-based intro with Code Tapasya branding
+        
+        Returns:
+            Path to intro video, or None if not available
+        """
+        if self.config.aspect_ratio == "16:9":
+            # Use traditional scaled intro
+            return self._prepare_scaled_intro()
+        
+        # For other aspect ratios, generate Manim-based intro
+        return self._generate_manim_intro()
+    
+    def _generate_manim_intro(self) -> Optional[Path]:
+        """
+        Generate a Manim-based intro animation for non-16:9 aspect ratios.
+        Features Code Tapasya branding with professional animation.
+        
+        Returns:
+            Path to rendered intro video, or None on failure
+        """
+        temp_dir = Path(self.config.temp_dir)
+        aspect_ratio = self.config.aspect_ratio
+        
+        # Cache filename includes aspect ratio
+        cache_path = temp_dir / f"intro_manim_{aspect_ratio.replace(':', 'x')}.mp4"
+        
+        if cache_path.exists():
+            logger.info(f"✅ Using cached Manim intro: {cache_path}")
+            return cache_path
+        
+        logger.info(f"🎬 Generating Manim intro for {aspect_ratio}...")
+        
+        # Get config for aspect ratio
+        aspect_configs = {
+            "9:16": {"fw": 9, "fh": 16, "pw": 1080, "ph": 1920},
+            "1:1": {"fw": 1, "fh": 1, "pw": 1080, "ph": 1080},
+            "4:3": {"fw": 4, "fh": 3, "pw": 1440, "ph": 1080},
+        }
+        cfg = aspect_configs.get(aspect_ratio, aspect_configs["9:16"])
+        
+        intro_script = f'''from manim import *
+
+# Configure for {aspect_ratio}
+config.frame_width = {cfg["fw"]}
+config.frame_height = {cfg["fh"]}
+config.pixel_width = {cfg["pw"]}
+config.pixel_height = {cfg["ph"]}
+
+
+class IntroAnimation(Scene):
+    def construct(self):
+        # Background gradient
+        bg = Rectangle(
+            width=config.frame_width + 1,
+            height=config.frame_height + 1,
+            fill_opacity=1.0,
+            stroke_width=0
+        )
+        bg.set_fill(color=["#0a0a1a", "#1a1a3a", "#0a0a1a"])
+        self.add(bg)
+        
+        # Code Tapasya logo text
+        brand_name = Text("Code Tapasya", font_size=36, weight=BOLD)
+        brand_name.scale_to_fit_width(config.frame_width * 0.7)
+        brand_name.set_color_by_gradient(BLUE, TEAL)
+        
+        # Tagline
+        tagline = Text("Learn • Create • Grow", font_size=20)
+        tagline.scale_to_fit_width(config.frame_width * 0.6)
+        tagline.set_color(GRAY)
+        tagline.next_to(brand_name, DOWN, buff=0.4)
+        
+        # Center group
+        logo_group = VGroup(brand_name, tagline)
+        logo_group.move_to(ORIGIN)
+        
+        # Decorative elements
+        circle_glow = Circle(radius=config.frame_width * 0.3, stroke_width=0)
+        circle_glow.set_fill(color=BLUE, opacity=0.05)
+        circle_glow.move_to(ORIGIN)
+        
+        # Animated particles
+        particles = VGroup()
+        import random
+        random.seed(42)
+        for _ in range(8):
+            dot = Dot(radius=0.05, fill_opacity=random.uniform(0.3, 0.6), color=BLUE_B)
+            x = random.uniform(-config.frame_width * 0.4, config.frame_width * 0.4)
+            y = random.uniform(-config.frame_height * 0.4, config.frame_height * 0.4)
+            dot.move_to([x, y, 0])
+            particles.add(dot)
+        
+        # Animation sequence (3 seconds total)
+        self.play(FadeIn(circle_glow, scale=0.5), run_time=0.3)
+        self.play(LaggedStart(*[FadeIn(p, scale=0.5) for p in particles], lag_ratio=0.05), run_time=0.4)
+        self.play(Write(brand_name), run_time=0.8)
+        self.play(FadeIn(tagline, shift=UP*0.2), run_time=0.4)
+        self.play(
+            circle_glow.animate.scale(1.1).set_opacity(0.02),
+            brand_name.animate.scale(1.02),
+            run_time=0.5
+        )
+        self.wait(0.3)
+        self.play(
+            FadeOut(logo_group),
+            FadeOut(circle_glow),
+            FadeOut(particles),
+            run_time=0.3
+        )
+'''
+        
+        # Save and render
+        script_path = temp_dir / "intro_script.py"
+        script_path.write_text(intro_script, encoding="utf-8")
+        
+        try:
+            cmd = [
+                'manim', 'render',
+                '-qh',  # High quality
+                '--disable_caching',
+                '--media_dir', str(temp_dir / 'media_intro'),
+                str(script_path),
+                'IntroAnimation'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(temp_dir)
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"❌ Manim intro render failed: {result.stderr}")
+                return None
+            
+            # Find output video
+            output_dir = temp_dir / 'media_intro' / 'videos' / 'intro_script' / '1080p60'
+            if not output_dir.exists():
+                output_dir = temp_dir / 'media_intro' / 'videos' / 'intro_script' / '1920p60'
+            
+            intro_files = list(output_dir.glob('IntroAnimation.mp4'))
+            if intro_files:
+                # Move to cache location
+                shutil.copy2(intro_files[0], cache_path)
+                logger.info(f"✅ Manim intro generated and cached: {cache_path}")
+                return cache_path
+            
+            logger.error("❌ Manim intro video not found after render")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Manim intro generation failed: {e}")
+            return None
+
+    def _generate_manim_outro(self) -> Optional[Path]:
+        """
+        Generate a Manim-based outro animation with CTA for subscriptions.
+        Features Code Tapasya branding with subscribe/like prompts.
+        
+        Returns:
+            Path to rendered outro video, or None on failure
+        """
+        temp_dir = Path(self.config.temp_dir)
+        aspect_ratio = self.config.aspect_ratio
+        
+        # Cache filename includes aspect ratio
+        cache_path = temp_dir / f"outro_manim_{aspect_ratio.replace(':', 'x')}.mp4"
+        
+        if cache_path.exists():
+            logger.info(f"✅ Using cached Manim outro: {cache_path}")
+            return cache_path
+        
+        logger.info(f"🎬 Generating Manim outro for {aspect_ratio}...")
+        
+        # Get config for aspect ratio
+        aspect_configs = {
+            "9:16": {"fw": 9, "fh": 16, "pw": 1080, "ph": 1920},
+            "1:1": {"fw": 1, "fh": 1, "pw": 1080, "ph": 1080},
+            "4:3": {"fw": 4, "fh": 3, "pw": 1440, "ph": 1080},
+            "16:9": {"fw": 16, "fh": 9, "pw": 1920, "ph": 1080},
+        }
+        cfg = aspect_configs.get(aspect_ratio, aspect_configs["9:16"])
+        
+        outro_script = f'''from manim import *
+
+# Configure for {aspect_ratio}
+config.frame_width = {cfg["fw"]}
+config.frame_height = {cfg["fh"]}
+config.pixel_width = {cfg["pw"]}
+config.pixel_height = {cfg["ph"]}
+
+
+class OutroAnimation(Scene):
+    def construct(self):
+        # Background gradient
+        bg = Rectangle(
+            width=config.frame_width + 1,
+            height=config.frame_height + 1,
+            fill_opacity=1.0,
+            stroke_width=0
+        )
+        bg.set_fill(color=["#0a0a1a", "#0f1a2a", "#0a0a1a"])
+        self.add(bg)
+        
+        # Thank you message
+        thanks = Text("Thanks for watching!", font_size=28, weight=BOLD)
+        thanks.scale_to_fit_width(config.frame_width * 0.75)
+        thanks.set_color(WHITE)
+        
+        # Subscribe CTA
+        subscribe = Text("Subscribe for more!", font_size=22)
+        subscribe.scale_to_fit_width(config.frame_width * 0.6)
+        subscribe.set_color_by_gradient(RED, PINK)
+        subscribe.next_to(thanks, DOWN, buff=0.5)
+        
+        # Code Tapasya branding
+        brand = Text("Code Tapasya", font_size=18)
+        brand.scale_to_fit_width(config.frame_width * 0.4)
+        brand.set_color(GRAY)
+        brand.to_edge(DOWN, buff=0.8)
+        
+        # Decorative subscribe button effect
+        btn_rect = RoundedRectangle(
+            width=config.frame_width * 0.35,
+            height=0.6,
+            corner_radius=0.15,
+            fill_opacity=0.9,
+            fill_color=RED,
+            stroke_width=0
+        )
+        btn_text = Text("SUBSCRIBE", font_size=16, weight=BOLD, color=WHITE)
+        btn_text.scale_to_fit_width(btn_rect.width * 0.7)
+        btn_group = VGroup(btn_rect, btn_text)
+        btn_group.next_to(subscribe, DOWN, buff=0.4)
+        
+        # Center main content
+        main_group = VGroup(thanks, subscribe, btn_group)
+        main_group.move_to(ORIGIN + UP * 0.5)
+        
+        # Animation sequence (3 seconds total)
+        self.play(FadeIn(thanks, scale=0.8), run_time=0.5)
+        self.play(
+            FadeIn(subscribe, shift=UP * 0.2),
+            run_time=0.4
+        )
+        self.play(
+            GrowFromCenter(btn_group),
+            run_time=0.4
+        )
+        self.play(
+            btn_rect.animate.scale(1.05),
+            rate_func=there_and_back,
+            run_time=0.3
+        )
+        self.play(FadeIn(brand, shift=UP * 0.1), run_time=0.3)
+        self.wait(0.5)
+        self.play(
+            FadeOut(main_group),
+            FadeOut(brand),
+            run_time=0.6
+        )
+'''
+        
+        # Save and render
+        script_path = temp_dir / "outro_script.py"
+        script_path.write_text(outro_script, encoding="utf-8")
+        
+        try:
+            cmd = [
+                'manim', 'render',
+                '-qh',  # High quality
+                '--disable_caching',
+                '--media_dir', str(temp_dir / 'media_outro'),
+                str(script_path),
+                'OutroAnimation'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(temp_dir)
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"❌ Manim outro render failed: {result.stderr}")
+                return None
+            
+            # Find output video
+            output_dir = temp_dir / 'media_outro' / 'videos' / 'outro_script' / '1080p60'
+            if not output_dir.exists():
+                output_dir = temp_dir / 'media_outro' / 'videos' / 'outro_script' / '1920p60'
+            
+            outro_files = list(output_dir.glob('OutroAnimation.mp4'))
+            if outro_files:
+                # Move to cache location
+                shutil.copy2(outro_files[0], cache_path)
+                logger.info(f"✅ Manim outro generated and cached: {cache_path}")
+                return cache_path
+            
+            logger.error("❌ Manim outro video not found after render")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Manim outro generation failed: {e}")
+            return None
+
+    def _video_has_audio(self, video_path: str) -> bool:
+        """
+        Check if a video file has an audio stream using ffprobe.
+        
+        Args:
+            video_path: Path to the video file
+            
+        Returns:
+            True if video has audio, False otherwise
+        """
+        try:
+            cmd = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                str(video_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            return "audio" in result.stdout.lower()
+        except Exception as e:
+            logger.warning(f"⚠️ ffprobe audio check failed for {video_path}: {e}")
+            return False
+
     def _prepare_scaled_intro(self) -> Optional[Path]:
         """
         Pre-scale intro video once to 1280x720 (16:9, 720p) and cache it.
@@ -1536,94 +1870,28 @@ class GeneratedAnimation{segment_number}(Scene):
 
     def _add_intro_with_ffmpeg(self, generated_video_path: str) -> str:
         """
-        Add intro video to the beginning of generated video.
-        Re-encodes both videos to identical specs for reliable concatenation.
+        Previously added intro/outro clips via FFmpeg concatenation.
+        Now disabled - intro/outro are built into the narration and visuals.
         
         Args:
-            generated_video_path: Path to the generated video (with audio)
+            generated_video_path: Path to the generated video
             
         Returns:
-            Path to final video (with intro if found, otherwise original path)
+            The same video path (no concatenation needed)
         """
-        # Only add intro for 16:9 aspect ratio
-        if self.config.aspect_ratio != "16:9":
-            logger.info(f"ℹ️ Intro only supported for 16:9 aspect ratio (current: {self.config.aspect_ratio}), skipping intro")
-            return generated_video_path
-        
-        # Get pre-scaled intro (or scale it now if not cached)
-        scaled_intro = self._prepare_scaled_intro()
-        
-        if not scaled_intro:
-            logger.info("ℹ️ No intro video available, returning video without intro")
-            return generated_video_path
-
-        # Default output path
-        output_path = generated_video_path.replace(".mp4", "_with_intro.mp4")
-        temp_dir = Path(self.config.temp_dir)
-        
-        # Use concat FILTER instead of concat demuxer to handle any encoding mismatches
-        # This ensures both videos are properly normalized and concatenated without speed issues
-        logger.info("🔗 Concatenating intro + main using concat filter (handles mismatched specs)...")
-        
-        # Concat filter approach: Reads both inputs, normalizes them, then concatenates
-        # This is more reliable than concat demuxer which requires perfect matching specs
-        cmd_concat = [
-            "ffmpeg", "-y",
-            "-i", str(scaled_intro),  # Input 0: intro (already 720p)
-            "-i", str(generated_video_path),  # Input 1: main video (720p30 from Manim -qm)
-            "-filter_complex",
-            # Scale both to same resolution (720p), ensure same fps (30), then concat
-            "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v0];"
-            "[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30,setsar=1[v1];"
-            "[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]",
-            "-map", "[outv]",
-            "-map", "[outa]",
-            "-c:v", "libx264",
-            "-preset", "fast",       # Balanced speed/quality for 720p
-            "-crf", "23",            # Good quality (was 28 for 480p)
-            "-c:a", "aac",
-            "-b:a", "192k",          # Higher audio bitrate for 720p
-            "-ar", "44100",
-            "-ac", "2",
-            "-movflags", "+faststart",
-            str(output_path)
-        ]
-
-        logger.info(f"🔗 Running FFmpeg concat filter: {output_path}")
-        
-        try:
-            result = subprocess.run(cmd_concat, capture_output=True, text=True, timeout=180)
-            
-            if result.returncode != 0:
-                logger.error(f"❌ FFmpeg concat failed:\nSTDERR: {result.stderr}")
-                logger.warning("⚠️ Returning video without intro")
-                return generated_video_path
-            
-            logger.info(f"✅ Intro concatenation complete: {output_path}")
-            return output_path
-            
-        except subprocess.TimeoutExpired:
-            logger.error("❌ ffmpeg concat timed out (>180s)")
-            logger.warning("⚠️ Returning video without intro")
-            return generated_video_path
-        except Exception as e:
-            logger.error(f"❌ Concat filter error: {e}")
-            logger.warning("⚠️ Returning video without intro")
-            return generated_video_path
+        # Intro/outro now built into content via narrative prompt
+        # No separate clips needed
+        logger.info("ℹ️ Intro/outro built into content, no concatenation needed")
+        return generated_video_path
 
     def cleanup_temp_files(self) -> None:
         """Clean up temporary files after video generation."""
         try:
             temp_path = Path(self.config.temp_dir)
             if temp_path.exists():
-                # Remove all contents but keep the temp directory and cached intro
+                # Remove all contents but keep the temp directory
                 for item in temp_path.iterdir():
                     try:
-                        # Skip cached scaled intro
-                        if item.name == "intro_scaled_854x480.mp4":
-                            logger.info(f"⏭️ Keeping cached intro: {item}")
-                            continue
-                            
                         if item.is_file():
                             item.unlink()
                         elif item.is_dir():
@@ -1654,6 +1922,7 @@ class GeneratedAnimation{segment_number}(Scene):
             '-b:a', '192k',        # High quality audio bitrate
             '-map', '0:v:0',       # Map video from first input
             '-map', '1:a:0',       # Map audio from second input
+            '-shortest',           # Trim to shorter of audio/video
             '-movflags', '+faststart',  # Enable fast start for web playback
             output_file
         ]
@@ -1703,6 +1972,7 @@ class GeneratedAnimation{segment_number}(Scene):
             '-b:a', '192k',        # High quality audio bitrate
             '-map', '0:v:0',       # Map video from first input
             '-map', '1:a:0',       # Map audio from second input
+            '-shortest',           # Trim to shorter of audio/video
             '-movflags', '+faststart',  # Enable fast start for web playback
             output_file
         ]
@@ -1817,6 +2087,182 @@ import psutil
 
 logger = logging.getLogger(__name__)
 _singleton_pipeline = None
+
+
+def _safe_move_video(src_path: str, dest_path: str) -> None:
+    """Safely move a video file, handling Windows file-locking (WinError 5).
+    
+    Path.replace() fails on Windows when the target already exists and is
+    locked by another process (antivirus, explorer thumbnailing, etc.).
+    We use shutil.copy2 + os.remove with retry logic instead.
+    """
+    import shutil, time
+    src = Path(src_path)
+    dest = Path(dest_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Remove existing target first (free any stale lock)
+    for attempt in range(3):
+        try:
+            if dest.exists():
+                dest.unlink()
+            break
+        except PermissionError:
+            time.sleep(0.5 * (attempt + 1))
+    
+    # Copy then remove source (works across volumes, avoids atomic-rename issues)
+    for attempt in range(3):
+        try:
+            shutil.copy2(str(src), str(dest))
+            try:
+                src.unlink()  # best-effort remove source
+            except Exception:
+                pass
+            return
+        except PermissionError:
+            time.sleep(0.5 * (attempt + 1))
+    
+    # Final fallback: shutil.move
+    shutil.move(str(src), str(dest))
+
+
+def _inject_premium_background_standalone(script: str, index: int, duration: float, aspect_ratio: str = "9:16") -> str:
+    """
+    Standalone background injection for use in worker processes.
+    
+    Injects premium background (GradientBackground, SubtleGrid, AmbientParticles,
+    progress bar, channel watermark) into Manim scripts.
+    
+    This is a module-level copy of OptimizedVideoGenerationPipeline._inject_premium_background()
+    so that ProcessPoolExecutor workers can use it without access to the class instance.
+    """
+    # Skip if already has premium background
+    if 'GradientBackground' in script or 'SubtleGrid' in script:
+        return script
+    
+    # Per-segment accent color rotation
+    accent_colors = ["BLUE", "TEAL", "PURPLE", "GOLD", "PINK", "GREEN"]
+    accent = accent_colors[index % len(accent_colors)]
+    
+    # PRIMITIVES BLOCK: inserted before the Scene class
+    primitives_block = f'''
+# === PREMIUM BACKGROUND PRIMITIVES (auto-injected) ===
+
+class GradientBackground(VGroup):
+    """Dark gradient background with subtle color accent."""
+    def __init__(self, accent_color=BLUE, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        base = Rectangle(width=fw + 1, height=fh + 1, fill_opacity=1.0, stroke_width=0)
+        base.set_fill(color=["#0a0a1a", "#0f1629", "#0a0a1a"])
+        self.add(base)
+        glow = Circle(radius=fw * 0.06, fill_opacity=0.015, stroke_width=0, color=accent_color)
+        glow.shift(UP * fh * 0.4 + RIGHT * fw * 0.35)
+        self.add(glow)
+
+
+class AmbientParticles(VGroup):
+    """Floating dots that drift slowly."""
+    def __init__(self, count=6, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        import random as _rng
+        _rng.seed(42)
+        for _ in range(count):
+            r = _rng.uniform(0.03, 0.07)
+            opacity = _rng.uniform(0.12, 0.25)
+            dot = Dot(radius=r, fill_opacity=opacity, color=WHITE, stroke_width=0)
+            x = _rng.uniform(-fw * 0.45, fw * 0.45)
+            y = _rng.uniform(-fh * 0.45, fh * 0.45)
+            dot.move_to([x, y, 0])
+            self.add(dot)
+
+
+class SubtleGrid(VGroup):
+    """Very faint grid lines for visual structure."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        fw, fh = config.frame_width, config.frame_height
+        for i in range(-3, 4):
+            x = i * fw / 6
+            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            self.add(line)
+        for i in range(-5, 6):
+            y = i * fh / 10
+            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            self.add(line)
+
+'''
+    
+    # BACKGROUND SETUP CODE: inserted right after `def construct(self):`
+    bg_setup = f'''
+        # === PREMIUM BACKGROUND (auto-injected) ===
+        _bg = GradientBackground(accent_color={accent})
+        self.add(_bg)
+        _grid = SubtleGrid()
+        self.add(_grid)
+        _particles = AmbientParticles(count=6)
+        self.add(_particles)
+        for _dot in _particles:
+            _dx = random.uniform(-0.02, 0.02)
+            _dy = random.uniform(0.01, 0.03)
+            _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
+        # Progress bar
+        _pb_total_w = config.frame_width * 0.85
+        _pb_bg = Rectangle(width=_pb_total_w, height=0.06, fill_opacity=0.15,
+                           fill_color=WHITE, stroke_width=0)
+        _pb_bg.move_to(np.array([0, -config.frame_height/2 + 0.12, 0]))
+        self.add(_pb_bg)
+        _pb_bar = Rectangle(width=0.01, height=0.06, fill_opacity=0.6,
+                            fill_color={accent}, stroke_width=0)
+        _pb_bar.move_to(_pb_bg.get_center())
+        _pb_bar.align_to(_pb_bg, LEFT)
+        self.add(_pb_bar)
+        _pb_bar._pt = 0
+        _scene_dur = {duration:.1f}
+        def _pb_upd(m, dt):
+            m._pt += dt
+            frac = min(1.0, m._pt / max(0.1, _scene_dur))
+            new_w = max(0.01, _pb_total_w * frac)
+            m.stretch_to_fit_width(new_w)
+            m.align_to(_pb_bg, LEFT)
+        _pb_bar.add_updater(_pb_upd)
+        # Channel watermark
+        _wm = Text("Code Tapasya", font_size=14, color=WHITE,
+                    font="sans-serif", fill_opacity=0.25)
+        _wm.move_to(np.array([config.frame_width/2 - 1.2,
+                              -config.frame_height/2 + 0.35, 0]))
+        self.add(_wm)
+        # Scene intro flash
+        _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
+                               fill_opacity=0.04, fill_color=WHITE, stroke_width=0)
+        self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
+        self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
+        self.remove(_flash_rect)
+'''
+    
+    # Ensure numpy is imported
+    if 'import numpy' not in script and 'numpy' not in script:
+        script = script.replace('from manim import *', 'from manim import *\nimport numpy as np')
+    if 'import random' not in script:
+        script = script.replace('from manim import *', 'from manim import *\nimport random')
+    
+    # Step 1: Inject primitive class definitions before the Scene class
+    class_pattern = re.search(r'^class Segment\d{3}\(Scene\):', script, re.MULTILINE)
+    if class_pattern:
+        insert_pos = class_pattern.start()
+        script = script[:insert_pos] + primitives_block + script[insert_pos:]
+    
+    # Step 2: Inject background setup code after `def construct(self):`
+    construct_pattern = re.search(r'def construct\(self\):\s*\n', script)
+    if construct_pattern:
+        insert_pos = construct_pattern.end()
+        script = script[:insert_pos] + bg_setup + '\n' + script[insert_pos:]
+    
+    logger.info(f"🎨 Injected premium background into regenerated segment {index}")
+    return script
+
+
 # Global functions for ProcessPoolExecutor (must be at module level)
 def render_single_video_worker(args):
     """
@@ -1829,8 +2275,10 @@ def render_single_video_worker(args):
 
     try:
         
-        # Extract openrouter_key_manager before creating config (it's not part of VideoGenerationConfig)
+        # Extract keys that are not part of VideoGenerationConfig before creating config
         openrouter_key_manager = config_dict.pop('openrouter_key_manager', None)
+        gemini_api_key = config_dict.pop('gemini_api_key', None)
+        gemini_models = config_dict.pop('gemini_models', None)
         
         # Initialize the singleton pipeline only once per process
         if _singleton_pipeline is None:
@@ -1839,9 +2287,13 @@ def render_single_video_worker(args):
 
         pipeline = _singleton_pipeline
         
-        # Re-add key manager to config_dict for use by correction functions
+        # Re-add extracted keys to config_dict for use by correction/regeneration functions
         if openrouter_key_manager:
             config_dict['openrouter_key_manager'] = openrouter_key_manager
+        if gemini_api_key:
+            config_dict['gemini_api_key'] = gemini_api_key
+        if gemini_models:
+            config_dict['gemini_models'] = gemini_models
 
         script_path = segment_data['script_path']
         video_output_dir = segment_data['video_output_dir']
@@ -1872,7 +2324,7 @@ def render_single_video_worker(args):
                 target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                 target_dir.mkdir(parents=True, exist_ok=True)
                 expected_path = target_dir / f"Segment{i:03d}.mp4"
-                Path(video_path).replace(expected_path)
+                _safe_move_video(video_path, str(expected_path))
                 logger.info(f"✅ Video {i+1} saved to: {expected_path} (after {total_attempts} attempts)")
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
 
@@ -1909,6 +2361,9 @@ def render_single_video_worker(args):
         logger.warning(f"🔄 All {max_correction_attempts} correction attempts failed for segment {i+1}")
         logger.info(f"🔄 Starting regeneration phase (up to {max_regeneration_attempts} regenerations)...")
         
+        # Track last error for context in regeneration
+        last_error_for_regen = error if error else "Unknown render failure"
+        
         while regeneration_count < max_regeneration_attempts:
             regeneration_count += 1
             total_attempts += 1
@@ -1916,10 +2371,21 @@ def render_single_video_worker(args):
             logger.warning(f"🔄 Regenerating script {i+1} from scratch (regeneration {regeneration_count}/{max_regeneration_attempts})")
             
             try:
-                # Regenerate script from scratch using enhanced function
+                # Regenerate script from scratch using Gemini directly
+                # Pass previous_error so Gemini can avoid same mistakes
                 script_content = _regenerate_script_from_scratch_enhanced(
-                    segment_data, i, config_dict['openrouter_key_manager'], config_dict.get('aspect_ratio', '16:9')
+                    segment_data, i, config_dict['gemini_api_key'], 
+                    config_dict.get('aspect_ratio', '16:9'),
+                    config_dict.get('gemini_models'),
+                    previous_error=last_error_for_regen  # NEW: Pass error context
                 )
+                
+                # CRITICAL: Inject premium background after regeneration
+                duration = segment_data.get('duration', 5.0)
+                script_content = _inject_premium_background_standalone(
+                    script_content, i, duration, config_dict.get('aspect_ratio', '16:9')
+                )
+                
                 Path(script_path).write_text(script_content, encoding="utf-8")
                 
                 # Try rendering the regenerated script
@@ -1929,7 +2395,7 @@ def render_single_video_worker(args):
                     target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                     target_dir.mkdir(parents=True, exist_ok=True)
                     expected_path = target_dir / f"Segment{i:03d}.mp4"
-                    Path(video_path).replace(expected_path)
+                    _safe_move_video(video_path, str(expected_path))
                     logger.info(f"✅ Regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
                     return {'success': True, 'video_path': str(expected_path), 'index': i}
                 else:
@@ -1966,14 +2432,18 @@ def render_single_video_worker(args):
                             target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                             target_dir.mkdir(parents=True, exist_ok=True)
                             expected_path = target_dir / f"Segment{i:03d}.mp4"
-                            Path(video_path).replace(expected_path)
+                            _safe_move_video(video_path, str(expected_path))
                             logger.info(f"✅ Fixed regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
                             return {'success': True, 'video_path': str(expected_path), 'index': i}
                     
                     # All fixes failed, will regenerate again in next iteration
+                    # Update error context for next regeneration attempt
+                    last_error_for_regen = error if error else "Render failed after fixes"
                     logger.warning(f"⚠️ All 3 fix attempts failed for regenerated script {i+1}, will try next regeneration")
                     
             except Exception as regen_error:
+                # Update error context for next regeneration attempt
+                last_error_for_regen = str(regen_error)
                 logger.error(f"❌ Regeneration {regeneration_count} crashed for segment {i+1}: {regen_error}")
                 continue  # Try next regeneration
         
@@ -2018,7 +2488,7 @@ def render_single_video_worker(args):
                     target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                     target_dir.mkdir(parents=True, exist_ok=True)
                     expected_path = target_dir / f"Segment{i:03d}.mp4"
-                    Path(video_path).replace(expected_path)
+                    _safe_move_video(video_path, str(expected_path))
                     logger.info(f"✅ Video {i+1} GENERATED (fallback attempt {fallback_attempts}) after {total_attempts} total attempts: {expected_path}")
                     return {'success': True, 'video_path': str(expected_path), 'index': i}
                 else:
@@ -2047,7 +2517,7 @@ class Segment{i:03d}(Scene):
                 target_dir = Path(segment_data['video_output_dir']) / f"segment_{i:03d}"
                 target_dir.mkdir(parents=True, exist_ok=True)
                 expected_path = target_dir / f"Segment{i:03d}.mp4"
-                Path(video_path).replace(expected_path)
+                _safe_move_video(video_path, str(expected_path))
                 logger.info(f"✅ Video {i+1} GENERATED with ABSOLUTE MINIMUM script after {total_attempts} attempts: {expected_path}")
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
             else:
@@ -2063,18 +2533,40 @@ class Segment{i:03d}(Scene):
         logger.error(f"❌ Critical error in video rendering for segment {i+1}: {e}")
         return {'success': False, 'error': str(e), 'index': i}
 
-def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, openrouter_key_manager, aspect_ratio: str = "16:9") -> str:
+def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gemini_api_key: str, aspect_ratio: str = "16:9", gemini_models: list = None, previous_error: str = None) -> str:
     """
-    Fully regenerate the script using OpenRouter with automatic key rotation.
-    This is an enhanced version that uses the actual audio file duration.
+    Fully regenerate the script using Gemini directly with automatic model rotation.
+    
+    ENHANCED: Now uses scene_spec and visual_contract from segment_data for better context,
+    and includes previous_error to help Gemini avoid the same mistakes.
+    
+    Args:
+        segment_data: Dict containing narration, visuals, duration, scene_spec, visual_contract, audio_path
+        index: Segment index (0-based)
+        gemini_api_key: Gemini API key
+        aspect_ratio: Video aspect ratio
+        gemini_models: List of Gemini models for rotation
+        previous_error: The error from the previous failed attempt (helps Gemini avoid it)
+    
+    Returns:
+        Raw Manim script (WITHOUT background injection - caller must inject background)
     """
     try:
         from pydub import AudioSegment
+        import google.genai as genai
+        from google.genai import types
         
-        model_name = "qwen/qwen3-coder:free"
+        # Initialize Gemini client
+        gemini_client = genai.Client(api_key=gemini_api_key)
+        
+        # Default models for rotation
+        if gemini_models is None:
+            gemini_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
+        scene_spec = segment_data.get('scene_spec')  # NEW: scene_spec dict
+        visual_contract = segment_data.get('visual_contract')  # NEW: visual_contract JSON
         
         # Get actual audio duration from the audio file
         audio_path = segment_data.get('audio_path')
@@ -2088,320 +2580,307 @@ def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, ope
 
         # Generate aspect ratio config
         aspect_ratio_configs = {
-            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080},
-            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920},
-            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080},
-            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080},
-            "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080}
+            "16:9": {"frame_width": 16, "frame_height": 9, "pixel_width": 1920, "pixel_height": 1080, "safe_x": 7.0, "safe_y": 3.5},
+            "9:16": {"frame_width": 9, "frame_height": 16, "pixel_width": 1080, "pixel_height": 1920, "safe_x": 3.8, "safe_y": 6.5},
+            "1:1": {"frame_width": 1, "frame_height": 1, "pixel_width": 1080, "pixel_height": 1080, "safe_x": 4.0, "safe_y": 4.0},
+            "4:3": {"frame_width": 4, "frame_height": 3, "pixel_width": 1440, "pixel_height": 1080, "safe_x": 5.5, "safe_y": 4.0},
+            "21:9": {"frame_width": 21, "frame_height": 9, "pixel_width": 2560, "pixel_height": 1080, "safe_x": 9.5, "safe_y": 3.5}
         }
         config = aspect_ratio_configs.get(aspect_ratio, aspect_ratio_configs["16:9"])
-        aspect_ratio_config = f"""# Aspect Ratio Configuration: {aspect_ratio}
+        
+        # Width factor for text scaling
+        width_factors = {"16:9": 0.85, "9:16": 0.55, "1:1": 0.70, "4:3": 0.80, "21:9": 0.90}
+        width_factor = width_factors.get(aspect_ratio, 0.55)
+        max_fonts = {"16:9": 48, "9:16": 28, "1:1": 38, "4:3": 44, "21:9": 48}
+        max_font = max_fonts.get(aspect_ratio, 28)
+
+        # Build scene direction from scene_spec if available
+        scene_direction = ""
+        if scene_spec:
+            parts = []
+            vm = scene_spec.get('visual_metaphor', {})
+            if vm.get('abstract_concept'):
+                parts.append(f"Abstract concept: {vm['abstract_concept']}")
+            if vm.get('concrete_representation'):
+                parts.append(f"Visual representation: {vm['concrete_representation']}")
+            elements = vm.get('visual_elements', [])
+            if elements:
+                elem_strs = []
+                for e in elements[:6]:
+                    etype = e.get('element_type', 'unknown')
+                    label = e.get('label', '')
+                    elem_strs.append(f"  - {label or etype} ({etype})")
+                parts.append("Key elements:\n" + "\n".join(elem_strs))
+            
+            transformation = scene_spec.get('transformation', {})
+            sequence = transformation.get('sequence', [])
+            if sequence:
+                step_strs = []
+                for s in sequence[:6]:
+                    action = s.get('action', 'appear')
+                    target = s.get('target', '')
+                    step_strs.append(f"  {action} → {target}")
+                parts.append("Animation sequence:\n" + "\n".join(step_strs))
+            
+            scene_direction = "\n".join(parts) if parts else "Create engaging educational animation"
+        
+        # Build visual contract context
+        contract_context = ""
+        if visual_contract:
+            try:
+                if isinstance(visual_contract, str):
+                    import json
+                    vc = json.loads(visual_contract)
+                else:
+                    vc = visual_contract
+                parts = []
+                if vc.get('depiction_mode'):
+                    parts.append(f"Depiction mode: {vc['depiction_mode']}")
+                if vc.get('visual_model'):
+                    parts.append(f"Visual model: {vc['visual_model']}")
+                if vc.get('entities'):
+                    parts.append(f"Key entities: {', '.join(str(e.get('type', e)) if isinstance(e, dict) else str(e) for e in vc['entities'][:5])}")
+                contract_context = "\n".join(parts)
+            except Exception:
+                pass
+        
+        # Build error avoidance section if we have a previous error
+        error_avoidance = ""
+        if previous_error:
+            # Extract key error info
+            error_lines = previous_error[:800]  # Limit error context
+            error_avoidance = f"""
+⚠️ CRITICAL: PREVIOUS ATTEMPT FAILED WITH THIS ERROR - AVOID IT!
+```
+{error_lines}
+```
+ANALYZE THIS ERROR and ensure your new script does NOT make the same mistake.
+Common fixes:
+- If "no attribute": Check Manim API - use correct method names
+- If "not defined": Make sure all variables are defined before use
+- If "position" error: Use .move_to([x, y, 0]) or .move_to(UP*2 + RIGHT*3)
+- If "Transform" error: Transform takes exactly 2 mobjects
+- If "Text" error: Use font_size=X not size=X, use weight=BOLD not bold=True
+"""
+
+        # Layout guidance based on aspect ratio
+        if aspect_ratio == "9:16":
+            layout_guidance = """VERTICAL LAYOUT (9:16):
+- Stack elements VERTICALLY using .arrange(DOWN, buff=0.5)
+- Keep text SHORT (max 15 words per text object)
+- Position: TOP (UP*6), CENTER (ORIGIN), BOTTOM (DOWN*6)
+- ALWAYS use .scale_to_fit_width(config.frame_width * 0.55) for ALL text"""
+        else:
+            layout_guidance = f"""LAYOUT ({aspect_ratio}):
+- Use appropriate spacing for frame dimensions
+- ALWAYS use .scale_to_fit_width(config.frame_width * {width_factor}) for ALL text"""
+
+        prompt = f"""You are an expert Manim animation engineer.
+
+Your job is to generate a COMPLETE and EXECUTABLE Manim script that visually represents the narration.
+
+The animation must be educational, visually alive, and clearly depict the concept described in the narration.
+
+You have creative freedom, but the code must be STABLE and FOLLOW valid Manim API usage.
+
+--------------------------------------------------
+
+SEGMENT INFORMATION
+
+Class name: Segment{index:03d}
+
+Target Duration: {actual_duration:.2f} seconds
+
+Aspect Ratio: {aspect_ratio}
+
+Frame size:
+width = {config['frame_width']}
+height = {config['frame_height']}
+
+--------------------------------------------------
+
+ASPECT RATIO CONFIGURATION
+This must appear directly after imports:
+
 config.frame_width = {config['frame_width']}
 config.frame_height = {config['frame_height']}
 config.pixel_width = {config['pixel_width']}
 config.pixel_height = {config['pixel_height']}
-"""
 
-        # Load enhanced prompt resources
-        try:
-            with open('./generator/video_generator/prompt/sample.txt', 'r', encoding='utf-8') as f:
-                samples = f.read()
-        except FileNotFoundError:
-            logger.warning("⚠️ sample.txt not found. Using basic samples.")
-            samples = """
-# Basic Manim Examples
+--------------------------------------------------
+
+NARRATION
+
+{narration}
+
+--------------------------------------------------
+
+VISUAL DIRECTION
+
+{scene_direction if scene_direction else "Create an engaging visual explanation of the narration."}
+
+--------------------------------------------------
+
+VISUAL CONTRACT
+
+{contract_context if contract_context else "Use your judgement to visually depict the narration."}
+
+--------------------------------------------------
+
+SPATIAL SAFETY LIMITS
+
+Objects must stay within these bounds:
+
+Horizontal: LEFT*{config['safe_x']} to RIGHT*{config['safe_x']}
+
+Vertical: UP*{config['safe_y']} to DOWN*{config['safe_y']}
+
+All text must use:
+
+.scale_to_fit_width(config.frame_width * {width_factor})
+
+OR
+
+font_size ≤ {max_font}
+
+--------------------------------------------------
+
+CODE STRUCTURE (MANDATORY)
+
+Your script MUST follow this exact structure:
+
 from manim import *
 
-class BasicExample(Scene):
+config.frame_width = ...
+config.frame_height = ...
+config.pixel_width = ...
+config.pixel_height = ...
+
+class SegmentXXX(Scene):
     def construct(self):
-        title = Text("Hello World", font_size=48)
-        self.play(Write(title), run_time=2)
-        self.wait(1)
-"""
 
-        try:
-            with open('./generator/video_generator/prompt/obj-attrbute_list.txt', 'r') as f:
-                allowed_attributes = f.read()
-        except FileNotFoundError:
-            logger.warning("⚠️ obj-attrbute_list.txt not found. Using basic attributes.")
-            allowed_attributes = """
-Text: font_size, color, move_to, shift, scale
-Circle: radius, color, fill_color, fill_opacity
-Rectangle: width, height, color, fill_color, fill_opacity
-"""
+        # create visual objects
+        object_a = ...
+        object_b = ...
 
-        allowed_colors = "WHITE, BLUE, GREEN, RED, YELLOW, PINK, ORANGE, PURPLE, GOLD, GRAY"
+        # animate them
+        self.play(...)
 
-        # Aspect ratio-specific layout guidelines with detailed constraints
-        aspect_ratio_guidelines = {
-            "16:9": {
-                "guide": "Wide horizontal (16:9). Place titles at top, content center. Frame: 16 wide × 9 tall.",
-                "max_text_width": "config.frame_width * 0.85",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "example": """
-# 16:9 Example
-title = Text("Wide Layout Title", font_size=48)
-title.scale_to_fit_width(config.frame_width * 0.85)
-title.to_edge(UP, buff=1)
+        # continue animations
+        self.play(...)
 
-content = Text("Content goes here", font_size=36)
-content.scale_to_fit_width(config.frame_width * 0.85)
-content.move_to(ORIGIN)
-"""
-            },
-            "9:16": {
-                "guide": "CRITICAL: Vertical portrait (9:16) for mobile. Frame: 9 wide × 16 tall. Text MUST be narrow!",
-                "max_text_width": "config.frame_width * 0.65",
-                "max_font_title": 32,
-                "max_font_body": 24,
-                "example": """
-# 9:16 VERTICAL Example - ALWAYS use scale_to_fit_width!
-title = Text("Short Title", font_size=32)
-title.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL for 9:16!
-title.move_to(UP * 6)
+        # finish scene
+        self.wait()
 
-subtitle = Text("Subtitle text", font_size=24)
-subtitle.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL!
-subtitle.move_to(UP * 4)
+--------------------------------------------------
 
-content = Text("Main point", font_size=24)
-content.scale_to_fit_width(config.frame_width * 0.65)  # CRITICAL!
-content.move_to(ORIGIN)
+ANIMATION DESIGN RULES
 
-# Stack elements vertically with spacing
-footer = Text("Footer", font_size=20)
-footer.scale_to_fit_width(config.frame_width * 0.65)
-footer.move_to(DOWN * 6)
-"""
-            },
-            "1:1": {
-                "guide": "Square (1:1). Center everything. Frame: 1×1 ratio. Balanced layout.",
-                "max_text_width": "config.frame_width * 0.75",
-                "max_font_title": 42,
-                "max_font_body": 30,
-                "example": """
-# 1:1 Square Example
-title = Text("Centered Title", font_size=42)
-title.scale_to_fit_width(config.frame_width * 0.75)
-title.move_to(UP * 2)
+• Animate PROCESSES, not just objects.
+• Objects should move, transform, or interact.
+• Prefer Transform() or ReplacementTransform().
+• Use Create(), Write(), or FadeIn() to introduce objects.
+• Do NOT leave the screen static for long periods.
 
-content = Text("Content", font_size=30)
-content.scale_to_fit_width(config.frame_width * 0.75)
-content.move_to(ORIGIN)
-"""
-            },
-            "4:3": {
-                "guide": "Standard (4:3). Frame: 4 wide × 3 tall. Traditional TV layout.",
-                "max_text_width": "config.frame_width * 0.80",
-                "max_font_title": 44,
-                "max_font_body": 32,
-                "example": """
-# 4:3 Example
-title = Text("Standard Title", font_size=44)
-title.scale_to_fit_width(config.frame_width * 0.80)
-title.to_edge(UP, buff=0.5)
+Avoid purely explanatory diagrams.
 
-content = Text("Content", font_size=32)
-content.scale_to_fit_width(config.frame_width * 0.80)
-content.move_to(ORIGIN)
-"""
-            },
-            "21:9": {
-                "guide": "Ultra-wide (21:9). Frame: 21 wide × 9 tall. Use full width, side-by-side layouts.",
-                "max_text_width": "config.frame_width * 0.90",
-                "max_font_title": 48,
-                "max_font_body": 36,
-                "example": """
-# 21:9 Ultra-wide Example
-title = Text("Cinematic Wide Title", font_size=48)
-title.scale_to_fit_width(config.frame_width * 0.90)
-title.to_edge(UP, buff=1)
+Visuals should SHOW what the narration describes.
 
-# Use side-by-side layout
-left_content = Text("Left", font_size=36)
-left_content.move_to(LEFT * 5)
+--------------------------------------------------
 
-right_content = Text("Right", font_size=36)
-right_content.move_to(RIGHT * 5)
-"""
-            }
-        }
-        layout_info = aspect_ratio_guidelines.get(aspect_ratio, aspect_ratio_guidelines["16:9"])
-        layout_guide = layout_info["guide"]
-        max_text_width = layout_info["max_text_width"]
-        max_font_title = layout_info["max_font_title"]
-        max_font_body = layout_info["max_font_body"]
-        code_example = layout_info["example"]
+TIMING GUIDELINES
 
-        prompt = f"""
-You are a senior Manim Community Python developer. Generate a COMPLETELY NEW, WORKING Manim script from scratch.
+Do NOT try to calculate exact durations.
 
-⏱️ **#1 CRITICAL: PERFECT TIMING - NO BLANK SCREENS!**
+Instead:
 
-This script MUST run for EXACTLY {actual_duration:.2f} seconds with CONTINUOUS animation.
+• Use several animations with run_time between 1.5 and 3 seconds.
+• Add self.wait() at the end if extra time remains.
+• The animation should approximately fill the target duration.
 
-**🚨 ABSOLUTELY FORBIDDEN: Ending animations early and using self.wait() for the rest!**
+--------------------------------------------------
 
-**✅ CORRECT APPROACH - Distribute animations across FULL duration:**
+MANIM API RULES
 
-```python
-# For {actual_duration:.2f} seconds total
-# Plan: 30% entry, 40% content, 30% exit
+Correct usage examples:
 
-# Entry phase (~{actual_duration * 0.3:.1f}s)
-title = Text("Title")
-self.play(Write(title), run_time={actual_duration * 0.15:.1f})
-self.play(title.animate.shift(UP*2), run_time={actual_duration * 0.15:.1f})
+Text("Title", font_size=32)
 
-# Content phase (~{actual_duration * 0.4:.1f}s)
-text1 = Text("Point 1")
-self.play(GrowFromCenter(text1), run_time={actual_duration * 0.13:.1f})
-self.play(Indicate(text1), run_time={actual_duration * 0.13:.1f})
+circle = Circle()
 
-text2 = Text("Point 2")  
-self.play(FadeIn(text2), run_time={actual_duration * 0.14:.1f})
+self.play(Create(circle))
 
-# Exit phase (~{actual_duration * 0.3:.1f}s)
-self.play(FadeOut(text1), FadeOut(text2), run_time={actual_duration * 0.15:.1f})
-self.play(Uncreate(title), run_time={actual_duration * 0.15:.1f})
+self.play(circle.animate.shift(RIGHT))
 
-# ONLY use short wait if slightly under (< 0.5s)
-# self.wait(0.3) if needed
-```
+Transform(obj1, obj2)
 
-**❌ BAD - Don't do this:**
-```python
-self.play(FadeIn(text), run_time=2)
-self.play(FadeOut(text), run_time=1.5)
-self.wait(10.5)  # ❌ BLANK SCREEN FOR 10 SECONDS!
-```
+self.play(..., run_time=2)
 
-**✅ GOOD - Do this:**
-```python
-# Spread animations across full duration
-self.play(Write(text), run_time=3.5)
-self.play(text.animate.shift(UP), run_time=2.0)
-self.play(Indicate(text), run_time=2.5)
-self.play(text.animate.scale(1.2), run_time=2.0)
-self.play(FadeOut(text), run_time=4.0)
-# Total = 14s, only 0.1s wait needed
-```
+Never:
 
-**RULES:**
-1. Use LONGER run_time values to fill the duration
-2. Add MORE animations instead of waiting
-3. Maximum wait allowed: 1 second
-4. If you need > 1s wait, add more animations or increase run_times
-5. Keep screen ACTIVE throughout entire duration
+• Use undefined variables
+• Use size= in Text
+• Use strings for colors
+• Use objects before defining them
 
----
+--------------------------------------------------
 
-🎯 OTHER REQUIREMENTS:
-- Class name: Segment{index:03d}
-- Aspect Ratio: {aspect_ratio}
-- Create awesome and professional animations
-- DO NOT use markdown formatting - return raw Python code only
-- Use ONLY the provided allowed objects and colors
+IMPORTANT STABILITY RULES
 
-🎬 ASPECT RATIO: {aspect_ratio}
-{layout_guide}
+• Every object must be stored in a variable.
+• Define objects before using them.
+• Always animate objects using self.play().
+• Use simple, reliable Manim constructs.
 
-🚨 CRITICAL TEXT OVERFLOW PREVENTION FOR {aspect_ratio}:
-- Maximum font size for titles: {max_font_title}
-- Maximum font size for body text: {max_font_body}
-- ALWAYS apply .scale_to_fit_width({max_text_width}) to EVERY Text object
-- For {aspect_ratio}, text width is LIMITED - MUST use scale_to_fit_width()!
-- Break long text (>50 chars) into multiple shorter Text objects
+--------------------------------------------------
 
-📚 WORKING CODE EXAMPLE FOR {aspect_ratio}:
-{code_example}
+OUTPUT
 
-⚠️ STRICT ANTI-OVERLAP RULES FOR {aspect_ratio}:
+Return ONLY valid Python code.
 
-1. **TEXT WIDTH (MANDATORY):**
-   - EVERY Text object MUST have .scale_to_fit_width({max_text_width})
-   - NO exceptions - apply to ALL text
-   
-2. **FONT SIZE LIMITS (STRICT):**
-   - Titles: MAX {max_font_title}px
-   - Body: MAX {max_font_body}px
-   - NEVER exceed these limits
+Do NOT include markdown.
 
-3. **VERTICAL SPACING (CRITICAL):**
-   - Minimum 1.5 units between ANY two text objects
-   - Use zones: TOP (UP*{6 if aspect_ratio == "9:16" else 3}), MIDDLE (ORIGIN), BOTTOM (DOWN*{6 if aspect_ratio == "9:16" else 3})
-   - NEVER place text in same zone
+The script MUST begin with:
 
-4. **HORIZONTAL MARGINS:**
-   - 1 unit minimum from edges
-   - 2 units minimum between side-by-side objects
-
-5. **LONG TEXT HANDLING:**
-   - Text > 50 chars: Split into 2+ Text objects
-   - Stack vertically with 1.5+ unit spacing
-   - Reduce font_size by 20% for long text
-
-6. **POSITIONING CHECKLIST:**
-   ✓ scale_to_fit_width() on every text
-   ✓ Font sizes within limits
-   ✓ 1.5+ units vertical spacing
-   ✓ Objects in different zones
-   ✓ No overlaps
-
-⚠️ Layout Rules for {aspect_ratio}:
-- Respect frame dimensions: config.frame_width × config.frame_height
-- MANDATORY: Use .scale_to_fit_width({max_text_width}) for ALL text objects
-- Never place two objects too close or on top of each other
-- Use `.move_to()` or `.shift()` to keep each element in a separate area
-- Keep 1-unit margin from all edges
-- Position elements with proper vertical/horizontal spacing
-
-📝 CONTENT:
-- Narration: "{narration}"
-- Visual concept: "{visuals}"
-
-🎨 ALLOWED OBJECTS:
-{allowed_attributes}
-
-🎨 ALLOWED COLORS:
-{allowed_colors} 
-
-
-⚠️ IMPORTANT:
-- Start with: from manim import *
-- Then add aspect ratio configuration
-- Don't use <b>, <i>, <u> tags in MarkupText (NO <code> tags)
-- Ensure animations + wait time = {actual_duration:.2f} seconds exactly
-- Make it visually engaging but simple
-- EVERY Text object MUST have .scale_to_fit_width() applied
-
-Required format:
 from manim import *
-
-{aspect_ratio_config}
-
-class Segment{index:03d}(Scene):
-    def construct(self):
-        # Your code here - REMEMBER: scale_to_fit_width() for ALL text!
-
-Generate the complete script now:
 """
 
-        # Use execute_with_rotation for automatic key rotation on rate limits
-        def call_openrouter(client):
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=8192
-            )
-            return response.choices[0].message.content.strip()
+        # Use Gemini directly with model rotation
+        regenerated_script = None
+        last_error = None
         
-        regenerated_script = openrouter_key_manager.execute_with_rotation(
-            call_openrouter,
-            model=model_name
-        )
+        for model_name in gemini_models:
+            try:
+                logger.info(f"🔄 Regenerating script {index+1} with Gemini model: {model_name}")
+                gen_config = types.GenerateContentConfig(
+                    temperature=0.4,
+                    max_output_tokens=8192
+                )
+                response = gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=gen_config
+                )
+                
+                if response and hasattr(response, 'text') and response.text:
+                    regenerated_script = response.text.strip()
+                    break
+                else:
+                    logger.warning(f"⚠️ Gemini {model_name} returned empty response, trying next model...")
+                    continue
+                    
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                if "quota" in error_str or "429" in error_str or "rate" in error_str:
+                    logger.warning(f"⚠️ Gemini {model_name} rate limited, trying next model...")
+                    continue
+                else:
+                    logger.warning(f"⚠️ Gemini {model_name} error: {e}, trying next model...")
+                    continue
+        
+        if not regenerated_script:
+            raise RuntimeError(f"All Gemini models failed for script regeneration: {last_error}")
         
         # Clean the response
         if "```python" in regenerated_script:
@@ -2593,18 +3072,43 @@ def _fix_script_errors_with_openrouter(script_content: str, error: str, index: i
     """
     STAGE 4: Script Correction with OpenRouter (Structural Repair Only)
     Uses prompt registry for consistent error correction.
+    Truncates inputs to avoid token limit issues.
+    IMPORTANT: Preserves truncated portion to avoid losing script content.
     """
+    # Model fallback list - try multiple models if one fails
+    model_fallback_list = [
+        "google/gemma-3-4b-it:free",
+        "meta-llama/llama-3.2-3b-instruct:free", 
+        "qwen/qwen3-4b:free",
+        "microsoft/phi-4-reasoning-plus:free",
+    ]
+    
     try:
-        model_name = "qwen/qwen3-coder:free"
+        # Truncate error and script to avoid token limit issues
+        max_error_chars = 2000
+        max_script_chars = 5000
+        
+        truncated_error = error[:max_error_chars] if len(error) > max_error_chars else error
+        if len(error) > max_error_chars:
+            truncated_error += "\n... [error truncated]"
+        
+        # Store the truncated portion to preserve it
+        was_truncated = len(script_content) > max_script_chars
+        truncated_portion = script_content[max_script_chars:] if was_truncated else ""
+        
+        truncated_script = script_content[:max_script_chars] if was_truncated else script_content
+        if was_truncated:
+            truncated_script += "\n# ... [script truncated, fix visible portion]"
         
         # Extract locked constraints
         locked_constraints = ""
+        duration = 10.0
         if segment_data:
             narration = segment_data.get('narration', '')
             duration = segment_data.get('duration', 10.0)
             locked_constraints = f"""STAGE 4 CONSTRAINTS (ABSOLUTE):
 1. Audio duration LOCKED at {duration:.2f}s
-2. Narration READ-ONLY: "{narration}"
+2. Narration READ-ONLY: "{narration[:200]}..."
 3. Fix ONLY technical errors
 """
         
@@ -2617,28 +3121,59 @@ def _fix_script_errors_with_openrouter(script_content: str, error: str, index: i
         
         correction_prompt = format_error_correction_prompt(
             index=index,
-            duration=segment_data.get("duration", 10.0) if segment_data else 10.0,
+            duration=duration,
             aspect_ratio=aspect_ratio,
-            error=error,
-            script=script_content,
+            error=truncated_error,
+            script=truncated_script,
             frame_width=fw,
             frame_height=fh,
             locked_constraints=locked_constraints,
         )
         
-        def call_openrouter(client):
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": correction_prompt}],
-                temperature=0.2,
-                max_tokens=4096
-            )
-            return response.choices[0].message.content.strip()
+        corrected_script = None
+        last_error = None
         
-        corrected_script = openrouter_key_manager.execute_with_rotation(
-            call_openrouter,
-            model=model_name
-        )
+        # Try each model in the fallback list
+        for model_name in model_fallback_list:
+            try:
+                def call_openrouter(client):
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": correction_prompt}],
+                        temperature=0.2,
+                        max_tokens=4096
+                    )
+                    
+                    # Check finish_reason for issues
+                    finish_reason = getattr(response.choices[0], 'finish_reason', None)
+                    if finish_reason == 'length':
+                        logger.warning(f"Model {model_name} hit token limit (finish_reason=length)")
+                    
+                    content = response.choices[0].message.content
+                    if content is None or content.strip() == "":
+                        raise ValueError(f"Model {model_name} returned empty content (finish_reason={finish_reason})")
+                    return content.strip()
+                
+                corrected_script = openrouter_key_manager.execute_with_rotation(
+                    call_openrouter,
+                    model=model_name
+                )
+                
+                if corrected_script and len(corrected_script) > 50:
+                    logger.info(f"✅ Script correction succeeded with model: {model_name}")
+                    break  # Success, exit the loop
+                else:
+                    logger.warning(f"Model {model_name} returned invalid/short response, trying next model...")
+                    corrected_script = None
+                    
+            except Exception as model_error:
+                last_error = model_error
+                logger.warning(f"Model {model_name} failed: {model_error}, trying next model...")
+                continue
+        
+        if not corrected_script:
+            logger.warning(f"All OpenRouter models failed. Last error: {last_error}")
+            return script_content
         
         # Clean the response
         if "```python" in corrected_script:
@@ -2648,7 +3183,27 @@ def _fix_script_errors_with_openrouter(script_content: str, error: str, index: i
             end_idx = corrected_script.rfind(end_marker)
             if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                 corrected_script = corrected_script[start_idx:end_idx].strip()
-        logger.info(f"Script {index+1} corrected using OpenRouter")
+        
+        # If script was truncated, restore the truncated portion
+        # Remove lazy LLM comments like "rest of script remains the same"
+        if was_truncated and truncated_portion:
+            # Remove lazy placeholder comments that LLMs often add
+            lazy_patterns = [
+                r'#\s*\.{3,}\s*\[?rest\s+of\s+(the\s+)?script.*',
+                r'#\s*\.{3,}\s*\[?script\s+truncated.*',
+                r'#\s*\.{3,}\s*\[?continues?\s+(as\s+)?before.*',
+                r'#\s*\.{3,}\s*\[?same\s+as\s+before.*',
+                r'#\s*\.\.\.\s*$',
+            ]
+            for pattern in lazy_patterns:
+                corrected_script = re.sub(pattern, '', corrected_script, flags=re.IGNORECASE | re.MULTILINE)
+            
+            # Append the truncated portion back
+            corrected_script = corrected_script.rstrip() + '\n' + truncated_portion
+            logger.info(f"Script {index+1} corrected using OpenRouter (truncated portion restored)")
+        else:
+            logger.info(f"Script {index+1} corrected using OpenRouter")
+        
         return corrected_script
         
     except Exception as e:
@@ -2659,6 +3214,8 @@ def _fix_script_errors_with_groq(script_content: str, error: str, index: int, gr
     """
     STAGE 3: Script Correction with Groq (Structural Repair Only).
     Uses prompt registry for consistent error correction.
+    Truncates inputs to fit within Groq's token limits.
+    IMPORTANT: Preserves truncated portion to avoid losing script content.
     """
     try:
         from groq import Groq
@@ -2668,11 +3225,30 @@ def _fix_script_errors_with_groq(script_content: str, error: str, index: int, gr
         if segment_data:
             duration = segment_data.get("duration", 10.0)
         
+        # Truncate error and script to fit within Groq's 6000 TPM limit
+        # Reserve ~1000 tokens for prompt overhead and output
+        # ~4 chars per token means ~4000 chars for script, ~1500 for error
+        max_error_chars = 1500
+        max_script_chars = 4000
+        
+        truncated_error = error[:max_error_chars] if len(error) > max_error_chars else error
+        if len(error) > max_error_chars:
+            truncated_error += "\n... [error truncated]"
+        
+        # Store the truncated portion to preserve it
+        was_truncated = len(script_content) > max_script_chars
+        truncated_portion = script_content[max_script_chars:] if was_truncated else ""
+        
+        truncated_script = script_content[:max_script_chars] if was_truncated else script_content
+        if was_truncated:
+            truncated_script += "\n# ... [script truncated, fix visible portion]"
+        
         prompt = format_error_correction_minimal_prompt(
             index=index,
             duration=duration,
-            error=error,
-            script=script_content,
+            error=truncated_error,
+            script=truncated_script,
+            aspect_ratio=aspect_ratio,
         )
         
         chat_completion = groq_client.chat.completions.create(
@@ -2681,7 +3257,10 @@ def _fix_script_errors_with_groq(script_content: str, error: str, index: int, gr
             temperature=0.1,
             max_tokens=4096
         )
-        corrected_script = chat_completion.choices[0].message.content.strip()
+        content = chat_completion.choices[0].message.content
+        if content is None:
+            raise ValueError("Groq returned empty content")
+        corrected_script = content.strip()
         if "```python" in corrected_script:
             start_marker = "```python"
             end_marker = "```"
@@ -2690,7 +3269,27 @@ def _fix_script_errors_with_groq(script_content: str, error: str, index: int, gr
             if start_idx > len(start_marker) - 1 and end_idx > start_idx:
                 corrected_script = corrected_script[start_idx:end_idx].strip()
         corrected_script = re.sub(r"```+", "", corrected_script)
-        logger.info(f"Script {index+1} corrected using Groq")
+        
+        # If script was truncated, restore the truncated portion
+        # Remove lazy LLM comments like "rest of script remains the same"
+        if was_truncated and truncated_portion:
+            # Remove lazy placeholder comments that LLMs often add
+            lazy_patterns = [
+                r'#\s*\.{3,}\s*\[?rest\s+of\s+(the\s+)?script.*',
+                r'#\s*\.{3,}\s*\[?script\s+truncated.*',
+                r'#\s*\.{3,}\s*\[?continues?\s+(as\s+)?before.*',
+                r'#\s*\.{3,}\s*\[?same\s+as\s+before.*',
+                r'#\s*\.\.\.\s*$',
+            ]
+            for pattern in lazy_patterns:
+                corrected_script = re.sub(pattern, '', corrected_script, flags=re.IGNORECASE | re.MULTILINE)
+            
+            # Append the truncated portion back
+            corrected_script = corrected_script.rstrip() + '\n' + truncated_portion
+            logger.info(f"Script {index+1} corrected using Groq (truncated portion restored)")
+        else:
+            logger.info(f"Script {index+1} corrected using Groq")
+        
         return corrected_script
         
     except Exception as e:
@@ -3125,10 +3724,44 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                     pipeline=self
                 )
                 
-                # Step 1: Generate scene specifications
+                # Step 0: Pre-generate visual contracts from topic
+                # These contracts give the spec generator HIGHEST AUTHORITY
+                # context so it doesn't default to diagram-style output.
+                pre_contracts = []
+                try:
+                    try:
+                        from .concept_visualizer import generate_visual_models_batch
+                        from .visual_validation import contract_from_visualizer
+                    except ImportError:
+                        from generator.video_generator.concept_visualizer import generate_visual_models_batch
+                        from generator.video_generator.visual_validation import contract_from_visualizer
+                    
+                    num_pre = max(3, round(duration / 15))
+                    pre_data = []
+                    for idx in range(num_pre):
+                        pre_data.append({
+                            "segment_number": idx + 1,
+                            "duration": duration / num_pre,
+                            "idea": topic,
+                            "narration": "",
+                            "visual_intent": topic,
+                            "layout_strategy": "process_flow",
+                        })
+                    pre_models = generate_visual_models_batch(pre_data)
+                    for vm in pre_models:
+                        pre_contracts.append(contract_from_visualizer(vm))
+                    logger.info(
+                        f"🔒 Pre-generated {len(pre_contracts)} visual contracts for spec generation "
+                        f"(mode={pre_contracts[0].get('depiction_mode', '?') if pre_contracts else '?'})"
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Pre-contract generation skipped: {e}")
+                
+                # Step 1: Generate scene specifications (with contract authority)
                 logger.info("📋 Step 1: Generating scene specifications...")
                 quality_segments, spec_errors = generate_quality_segments(
-                    llm_adapter, topic, duration, self.config.aspect_ratio
+                    llm_adapter, topic, duration, self.config.aspect_ratio,
+                    visual_contracts=pre_contracts or None,
                 )
                 
                 if spec_errors:
@@ -3157,29 +3790,44 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                         segments.append(seg)
                     
                     # ── VISUAL CONTRACT for quality segments ──
-                    # Run concept visualizer on quality segments too — the contract
-                    # ensures the quality pipeline doesn't downgrade simulation into diagrams
-                    logger.info("🔒 Creating visual contracts for quality segments...")
-                    q_segments_data = []
-                    for i, seg in enumerate(segments):
-                        q_segments_data.append({
-                            "segment_number": i + 1,
-                            "duration": seg.duration,
-                            "idea": seg.visual_description[:80],
-                            "narration": seg.text,
-                            "visual_intent": seg.visual_description,
-                            "layout_strategy": "process_flow",
-                        })
-                    
-                    q_visual_models = generate_visual_models_batch(q_segments_data)
-                    for i, vm in enumerate(q_visual_models):
-                        if i < len(segments):
-                            contract = contract_from_visualizer(vm)
-                            segments[i].visual_contract = serialize_contract(contract)
-                            logger.info(
-                                f"    QSeg {i+1}: depiction={contract.get('depiction_mode', '?')}, "
-                                f"model={contract.get('visual_model', '?')}"
-                            )
+                    # Reuse pre-contracts when available; otherwise regenerate
+                    if pre_contracts and len(pre_contracts) >= len(segments):
+                        logger.info("🔒 Reusing pre-generated visual contracts for quality segments")
+                        for i, seg in enumerate(segments):
+                            if i < len(pre_contracts):
+                                seg.visual_contract = serialize_contract(pre_contracts[i])
+                                logger.info(
+                                    f"    QSeg {i+1}: depiction={pre_contracts[i].get('depiction_mode', '?')}, "
+                                    f"model={pre_contracts[i].get('visual_model', '?')}"
+                                )
+                    else:
+                        logger.info("🔒 Creating visual contracts for quality segments...")
+                        try:
+                            from .concept_visualizer import generate_visual_models_batch
+                            from .visual_validation import contract_from_visualizer
+                        except ImportError:
+                            from generator.video_generator.concept_visualizer import generate_visual_models_batch
+                            from generator.video_generator.visual_validation import contract_from_visualizer
+                        q_segments_data = []
+                        for i, seg in enumerate(segments):
+                            q_segments_data.append({
+                                "segment_number": i + 1,
+                                "duration": seg.duration,
+                                "idea": seg.visual_description[:80],
+                                "narration": seg.text,
+                                "visual_intent": seg.visual_description,
+                                "layout_strategy": "process_flow",
+                            })
+                        
+                        q_visual_models = generate_visual_models_batch(q_segments_data)
+                        for i, vm in enumerate(q_visual_models):
+                            if i < len(segments):
+                                contract = contract_from_visualizer(vm)
+                                segments[i].visual_contract = serialize_contract(contract)
+                                logger.info(
+                                    f"    QSeg {i+1}: depiction={contract.get('depiction_mode', '?')}, "
+                                    f"model={contract.get('visual_model', '?')}"
+                                )
                     
                     # Validate quality specs against visual contracts
                     for i, seg in enumerate(segments):
@@ -3217,16 +3865,25 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             # Step 3: Generate scripts
             if use_quality and hasattr(segments[0], '_quality_spec') and segments[0]._quality_spec:
                 # ===============================================================
-                # QUALITY PIPELINE: Template-based script generation from specs
+                # QUALITY PIPELINE: Gemini-Direct Manim Script Generation
+                # Gemini writes the full Manim script — NO templates involved.
+                # Error correction uses the same legacy correction loop.
                 # ===============================================================
-                logger.info("🎨 Stage 3: Template-Based Script Generation (QUALITY MODE)")
+                logger.info("🎬 Stage 3: GEMINI-DIRECT Script Generation (QUALITY MODE)")
                 
                 try:
                     from .pipeline_integration import generate_quality_scripts_bulk
-                    from .pipeline_integration import QualityNarrationSegment
+                    from .pipeline_integration import QualityNarrationSegment, GeminiClientAdapter
                 except ImportError:
                     from generator.video_generator.pipeline_integration import generate_quality_scripts_bulk
-                    from generator.video_generator.pipeline_integration import QualityNarrationSegment
+                    from generator.video_generator.pipeline_integration import QualityNarrationSegment, GeminiClientAdapter
+                
+                # Create LLM adapter for Gemini direct script generation
+                gemini_script_adapter = GeminiClientAdapter(
+                    self.gemini_client,
+                    self.gemini_models,
+                    pipeline=self
+                )
                 
                 # Convert back to quality segments with audio duration
                 quality_segs = []
@@ -3244,31 +3901,38 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                     )
                     quality_segs.append(qs)
                 
-                # Generate scripts from specs
-                scripts = generate_quality_scripts_bulk(quality_segs, self.config.aspect_ratio)
+                # Generate scripts via Gemini (llm_client enables direct mode)
+                scripts = generate_quality_scripts_bulk(
+                    quality_segs, self.config.aspect_ratio,
+                    llm_client=gemini_script_adapter,
+                )
                 
-                # Assign scripts to segments + contract validation gate
-                for i, (seg, script) in enumerate(zip(segments, scripts)):
+                # Assign scripts to segments (inject premium background before saving)
+                for i, (seg, qs, script) in enumerate(zip(segments, quality_segs, scripts)):
                     if script:
-                        # Script-level contract validation for quality pipeline
-                        self._validate_script_against_contract(script, seg, i)
+                        # Inject premium background template (same as legacy pipeline)
+                        dur = getattr(qs, '_audio_duration_final', None) or seg.duration or 10.0
+                        script = self._inject_premium_background(script, i, dur)
                         
                         # Save script to file
                         script_path = Path(self.config.temp_dir) / f"segment_{i:03d}.py"
                         with open(script_path, 'w', encoding='utf-8') as f:
                             f.write(script)
                         seg.script_path = str(script_path)
-                        logger.info(f"✅ Quality script {i+1} generated from spec")
+                        logger.info(f"🎬 Gemini script {i+1} generated + background injected ({len(script)} chars)")
                     else:
-                        logger.warning(f"⚠️ Quality script {i+1} needs legacy generation")
+                        logger.warning(f"⚠️ Gemini script {i+1} failed — needs legacy generation")
                 
                 # Check for any segments without scripts
                 failed_indices = [i for i, seg in enumerate(segments) if not seg.script_path]
+                
                 if failed_indices:
-                    logger.warning(f"⚠️ {len(failed_indices)} segments need legacy regeneration")
+                    logger.warning(
+                        f"⚠️ {len(failed_indices)} segments need legacy regeneration"
+                    )
                     segments = await self._regenerate_failed_segments(segments, failed_indices)
                 
-                logger.info("📜 Quality script generation complete.")
+                logger.info("📜 Gemini-direct script generation complete.")
             else:
                 # ====================================================================
                 # LEGACY: Bulk script generation
@@ -3661,7 +4325,10 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                         temperature=0.3,
                         max_tokens=8192
                     )
-                    return response.choices[0].message.content.strip()
+                    content = response.choices[0].message.content
+                    if content is None:
+                        raise ValueError("LLM returned empty content")
+                    return content.strip()
                 
                 raw_script = self.openrouter_key_manager.execute_with_rotation(
                     call_openrouter,
@@ -3799,23 +4466,40 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         # Inject visual_contract as MANDATORY context
         if getattr(segment, 'visual_contract', None):
             try:
+                from .visual_validation import contract_prompt_block
                 contract = deserialize_contract(segment.visual_contract)
-                dep_mode = contract.get("depiction_mode", "simulation")
-                vis_model = contract.get("visual_model", "")
-                entities = contract.get("entities", [])
-                behaviors = contract.get("behaviors", [])
-                primitives = contract.get("animation_primitives", [])
-                direction += f"""
+                direction += "\n\n" + contract_prompt_block(contract)
+            except Exception:
+                # Fallback to inline format if contract_prompt_block not available
+                try:
+                    contract = deserialize_contract(segment.visual_contract)
+                    dep_mode = contract.get("depiction_mode", "simulation")
+                    vis_model = contract.get("visual_model", "")
+                    entities = contract.get("entities", [])
+                    behaviors = contract.get("behaviors", [])
+                    primitives = contract.get("animation_primitives", [])
+                    chain = contract.get("transformation_chain", [])
+                    entities_str = ", ".join(
+                        (e.get("type", str(e)) if isinstance(e, dict) else str(e))
+                        for e in entities[:6]
+                    )
+                    chain_str = " → ".join(
+                        f"{s.get('from_state', '?')}→{s.get('to_state', '?')}"
+                        for s in chain[:4]
+                    ) if chain else "(none)"
+                    direction += f"""
 
 [VISUAL CONTRACT — MANDATORY]
   depiction_mode: {dep_mode}
   visual_model: {vis_model}
-  entities: {', '.join(entities[:6])}
+  entities: {entities_str}
   behaviors: {', '.join(behaviors[:6])}
   animation_primitives: {', '.join(primitives[:6])}
-  RULE: ALL visual elements MUST come from these entities. Do NOT invent labeled boxes or diagram containers."""
-            except Exception:
-                pass
+  transformation_chain: {chain_str}
+  RULE: ALL visual elements MUST come from these entities. Do NOT invent labeled boxes or diagram containers.
+  RULE: Walk the transformation_chain in order — each step = a Transform animation."""
+                except Exception:
+                    pass
         
         return format_manim_execution_prompt(
             index=index,
@@ -4041,8 +4725,15 @@ Scene Direction: {direction}
     def _validate_script_against_contract(self, script: str, segment: 'NarrationSegment', index: int) -> str:
         """Post-generation validation: check script against frozen visual_contract.
         
-        Logs warnings if the generated Manim code drifts from the contract,
-        but does NOT block (non-fatal gate). Returns the script unchanged.
+        Runs THREE validation gates:
+          1. HARD simulation integrity gate (from simulation_integrity.py)
+             — returns pass/fail, used by caller for rollback decisions
+          2. Legacy contract validation (validate_script_simulation)
+          3. Simulation quality validation (validate_script_simulation_quality)
+        
+        Returns the script unchanged. The integrity result is logged but
+        the caller (quality pipeline path in OVG) uses _integrity_passed
+        from pipeline_integration for actual rollback decisions.
         """
         contract_json = getattr(segment, 'visual_contract', None) if segment else None
         if not contract_json:
@@ -4050,6 +4741,31 @@ Scene Direction: {direction}
         
         try:
             contract = deserialize_contract(contract_json)
+            
+            # Gate 0: HARD simulation integrity gate
+            if contract.get("depiction_mode") == "simulation":
+                try:
+                    try:
+                        from .simulation_integrity import validate_script_integrity
+                    except ImportError:
+                        from generator.video_generator.simulation_integrity import validate_script_integrity
+                    integrity_result = validate_script_integrity(script, contract)
+                    if not integrity_result.passed:
+                        logger.warning(
+                            f"  🚫 Segment {index+1} SIMULATION INTEGRITY FAILED: "
+                            f"{integrity_result.summary()}"
+                        )
+                    else:
+                        logger.info(
+                            f"  ✅ Segment {index+1} simulation integrity PASSED: "
+                            f"{integrity_result.summary()}"
+                        )
+                except ImportError:
+                    pass
+                except Exception as sie:
+                    logger.debug(f"  Simulation integrity check error: {sie}")
+            
+            # Gate 1: Legacy contract validation
             passed, issues, score = validate_script_simulation(script, contract)
             if not passed:
                 issues_str = ", ".join(issues)
@@ -4058,6 +4774,32 @@ Scene Direction: {direction}
                 )
             else:
                 logger.info(f"  ✓ Segment {index+1} script contract check passed (score={score:.2f})")
+            
+            # Gate 2: Simulation quality validation (execution safety rules)
+            if contract.get("depiction_mode") == "simulation":
+                try:
+                    try:
+                        from .visual_quality_validator import validate_script_simulation_quality
+                    except ImportError:
+                        from generator.video_generator.visual_quality_validator import validate_script_simulation_quality
+                    sq_passed, sq_issues, sq_metrics = validate_script_simulation_quality(
+                        script, contract
+                    )
+                    if not sq_passed:
+                        sq_str = ", ".join(sq_issues[:3])
+                        logger.warning(
+                            f"  ⚠️ Segment {index+1} simulation quality FAILED "
+                            f"(score={sq_metrics.overall:.2f}): {sq_str}"
+                        )
+                    else:
+                        logger.info(
+                            f"  ✓ Segment {index+1} simulation quality passed "
+                            f"(score={sq_metrics.overall:.2f})"
+                        )
+                except ImportError:
+                    pass
+                except Exception as sqe:
+                    logger.debug(f"  Simulation quality check skipped: {sqe}")
         except Exception as e:
             logger.debug(f"  Script contract validation skipped for segment {index+1}: {e}")
         
@@ -4410,6 +5152,226 @@ class Segment{index:03d}(Scene):
         remaining_time = max(0.1, {duration} - 4.5)
         self.wait(remaining_time)'''
 
+    async def _regenerate_and_render_with_gemini(
+        self, 
+        segment: 'NarrationSegment', 
+        index: int, 
+        max_gemini_attempts: int = 3
+    ) -> str:
+        """
+        Regenerate a failed segment's script using Gemini and re-render.
+        
+        This is called when the worker subprocess failed to produce a video.
+        Uses Gemini for regeneration (not fallback scripts), then applies
+        the full correction ladder before giving up.
+        
+        Args:
+            segment: The failed segment with narration and spec
+            index: Segment index
+            max_gemini_attempts: Max Gemini regeneration cycles
+            
+        Returns:
+            Path to successfully rendered video, or raises RuntimeError
+        """
+        logger.warning(f"🔄 Regenerating segment {index+1} with Gemini (up to {max_gemini_attempts} attempts)")
+        
+        output_dir = Path(self.config.output_dir) / f"segment_{index:03d}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"Segment{index:03d}.mp4"
+        
+        # Import Gemini generator for single-segment regeneration
+        try:
+            from .gemini_manim_generator import generate_manim_script
+        except ImportError:
+            from generator.video_generator.gemini_manim_generator import generate_manim_script
+        
+        # Get segment info
+        narration = segment.text if hasattr(segment, 'text') else ""
+        spec = getattr(segment, '_quality_spec', None) or getattr(segment, 'scene_spec', None)
+        duration = getattr(segment, '_audio_duration_final', None) or segment.duration or 10.0
+        
+        # Create Gemini adapter
+        try:
+            from .pipeline_integration import GeminiClientAdapter
+        except ImportError:
+            from generator.video_generator.pipeline_integration import GeminiClientAdapter
+        
+        gemini_adapter = GeminiClientAdapter(
+            self.gemini_client,
+            self.gemini_models,
+            pipeline=self
+        )
+        
+        for gemini_attempt in range(1, max_gemini_attempts + 1):
+            logger.info(f"  🎬 Gemini regeneration attempt {gemini_attempt}/{max_gemini_attempts} for segment {index+1}")
+            
+            try:
+                # Generate new script with Gemini
+                script = generate_manim_script(
+                    llm_client=gemini_adapter,
+                    narration=narration,
+                    scene_spec=spec,
+                    index=index,
+                    duration=duration,
+                    aspect_ratio=self.config.aspect_ratio,
+                    visual_contract=None,
+                )
+                
+                if not script:
+                    logger.warning(f"  ⚠️ Gemini returned empty script, retrying...")
+                    continue
+                
+                # Inject premium background
+                script = self._inject_premium_background(script, index, duration)
+                
+                # Save script
+                script_path = Path(self.config.temp_dir) / f"segment_{index:03d}_regen_{gemini_attempt}.py"
+                script_path.write_text(script, encoding="utf-8")
+                logger.info(f"  📝 Regenerated script saved ({len(script)} chars)")
+                
+                # Try to render with correction ladder
+                video_path = await self._render_with_correction_ladder(
+                    script, script_path, index, output_path, segment, duration
+                )
+                
+                if video_path and Path(video_path).exists():
+                    logger.info(f"  ✅ Gemini regeneration successful for segment {index+1}")
+                    return str(video_path)
+                    
+            except Exception as e:
+                logger.warning(f"  ⚠️ Gemini attempt {gemini_attempt} failed: {e}")
+                continue
+        
+        # If all Gemini attempts failed, fall back to emergency fallback
+        logger.error(f"❌ All {max_gemini_attempts} Gemini regenerations failed for segment {index+1}")
+        logger.warning(f"🆘 Using emergency fallback for segment {index+1}")
+        return await self._generate_emergency_fallback_video(segment, index)
+    
+    async def _render_with_correction_ladder(
+        self,
+        script: str,
+        script_path: Path,
+        index: int,
+        output_path: Path,
+        segment: 'NarrationSegment',
+        duration: float,
+        max_corrections: int = 6,
+    ) -> Optional[str]:
+        """
+        Render a script with Groq/OpenRouter correction ladder.
+        
+        Tries: Groq x3 → OpenRouter x3 before giving up.
+        """
+        current_script = script
+        
+        for attempt in range(max_corrections + 1):  # +1 for initial render
+            try:
+                # Use async subprocess for Manim
+                video_result, error = await self._render_manim_async(
+                    current_script, script_path, index
+                )
+                
+                if video_result:
+                    # Move to output location
+                    _safe_move_video(str(video_result), str(output_path))
+                    return str(output_path)
+                
+                if attempt >= max_corrections:
+                    logger.warning(f"  ⚠️ All {max_corrections} corrections exhausted")
+                    break
+                
+                # Apply correction
+                logger.info(f"  🔧 Correction {attempt+1}/{max_corrections}: {error[:100] if error else 'Unknown'}...")
+                
+                segment_data = {
+                    'narration': segment.text,
+                    'duration': duration,
+                }
+                
+                if attempt < 3:
+                    # Groq corrections
+                    current_script = _fix_script_errors_with_groq(
+                        current_script, error or "Render failed", index,
+                        self.config.groq_api_key, self.config.aspect_ratio,
+                        segment_data, model_name="llama-3.1-8b-instant"
+                    )
+                else:
+                    # OpenRouter corrections
+                    current_script = _fix_script_errors_with_openrouter(
+                        current_script, error or "Render failed", index,
+                        self.openrouter_key_manager, self.config.aspect_ratio,
+                        segment_data
+                    )
+                
+                # Re-inject background after correction (might have been stripped)
+                current_script = self._inject_premium_background(current_script, index, duration)
+                script_path.write_text(current_script, encoding="utf-8")
+                
+            except Exception as e:
+                logger.warning(f"  ⚠️ Render attempt {attempt+1} crashed: {e}")
+                continue
+        
+        return None
+    
+    async def _render_manim_async(
+        self, 
+        script: str, 
+        script_path: Path, 
+        index: int
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Async Manim render returning (video_path, error)."""
+        import asyncio
+        
+        script_path.write_text(script, encoding="utf-8")
+        
+        cmd = [
+            'manim', 'render',
+            '-qh',  # High quality 1080p60
+            '--disable_caching',
+            '--media_dir', str(Path(self.config.temp_dir) / 'media'),
+            str(script_path),
+            f'Segment{index:03d}'
+        ]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(Path(self.config.temp_dir))
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.manim_timeout
+            )
+            
+            if process.returncode != 0:
+                error_text = stderr.decode() if stderr else stdout.decode() if stdout else "Unknown error"
+                return None, error_text[:500]
+            
+            # Find output video
+            expected_path = (
+                Path(self.config.temp_dir) / 'media' / 'videos' / 
+                script_path.stem / '1080p60' / f'Segment{index:03d}.mp4'
+            )
+            
+            if expected_path.exists():
+                return str(expected_path), None
+            
+            # Fallback search
+            media_dir = Path(self.config.temp_dir) / 'media' / 'videos'
+            for mp4 in media_dir.glob('**/*.mp4'):
+                if f'Segment{index:03d}' in mp4.name:
+                    return str(mp4), None
+            
+            return None, "Video file not found after render"
+            
+        except asyncio.TimeoutError:
+            return None, "Manim render timed out"
+        except Exception as e:
+            return None, str(e)
+
     async def _generate_emergency_fallback_video(self, segment: NarrationSegment, index: int) -> str:
         """
         Generate an ultra-simple emergency fallback video when all else fails.
@@ -4493,6 +5455,8 @@ class Segment{index:03d}(Scene):
             'groq_api_key': self.config.groq_api_key,
             'openrouter_api_key': self.config.openrouter_api_key,  # Required for VideoGenerationConfig
             'openrouter_key_manager': self.openrouter_key_manager,  # Pass key manager for rotation
+            'gemini_api_key': os.getenv('GEMINI_API_KEY'),  # For script regeneration with Gemini
+            'gemini_models': self.gemini_models,  # Gemini model list for rotation
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'manim_quality': self.config.manim_quality,
@@ -4505,6 +5469,16 @@ class Segment{index:03d}(Scene):
         for i, segment in enumerate(segments):
             if not segment.script_path:
                 raise RuntimeError(f"Missing script path for segment {i+1}")
+            
+            # Serialize scene_spec if available (for regeneration context)
+            scene_spec_dict = None
+            spec = getattr(segment, '_quality_spec', None)
+            if spec and hasattr(spec, 'to_dict'):
+                try:
+                    scene_spec_dict = spec.to_dict()
+                except Exception:
+                    pass
+            
             segment_data = {
                 'script_path': segment.script_path,
                 'video_output_dir': self.config.output_dir,
@@ -4512,6 +5486,10 @@ class Segment{index:03d}(Scene):
                 'narration': segment.text,
                 'visuals': segment.visual_description,
                 'duration': segment.duration,
+                # NEW: Add context for regeneration
+                'audio_path': segment.audio_path,
+                'scene_spec': scene_spec_dict,
+                'visual_contract': getattr(segment, 'visual_contract', None),
             }
             worker_args.append((i, segment_data, config_dict))
 
@@ -4580,22 +5558,23 @@ class Segment{index:03d}(Scene):
                 
                 failed_segments = still_missing
             
-            # RECOVERY PHASE 2: Generate fallback videos for unrecoverable segments
+            # RECOVERY PHASE 2: Regenerate with Gemini (not fallback scripts!)
             if failed_segments:
-                logger.warning(f"⚠️ {len(failed_segments)} segment(s) still missing. Creating fallback videos...")
+                logger.warning(f"⚠️ {len(failed_segments)} segment(s) still missing. Regenerating with Gemini...")
                 for idx in failed_segments:
                     try:
-                        logger.warning(f"🔄 Creating fallback video for segment {idx+1}")
-                        fallback_path = await self._generate_emergency_fallback_video(
+                        logger.warning(f"🔄 Regenerating segment {idx+1} with Gemini (not fallback)")
+                        regen_path = await self._regenerate_and_render_with_gemini(
                             segments[idx], 
-                            idx
+                            idx,
+                            max_gemini_attempts=3
                         )
-                        segments[idx].video_path = fallback_path
-                        logger.info(f"✅ Fallback video created for segment {idx+1}")
-                    except Exception as fallback_error:
-                        logger.error(f"❌ Even fallback failed for segment {idx+1}: {fallback_error}")
+                        segments[idx].video_path = regen_path
+                        logger.info(f"✅ Segment {idx+1} regenerated successfully")
+                    except Exception as regen_error:
+                        logger.error(f"❌ Gemini regeneration failed for segment {idx+1}: {regen_error}")
                         # Critical failure - cannot proceed
-                        raise RuntimeError(f"Cannot generate video for segment {idx+1}. Both rendering and fallback failed.")
+                        raise RuntimeError(f"Cannot generate video for segment {idx+1}. All regeneration attempts failed.")
 
             # Final status report
             logger.info("📋 Final segment status:")
@@ -4763,13 +5742,13 @@ class Segment{index:03d}(Scene):
             logger.info(f"✅ Generated video created: {final_output_path} ({final_size/1024/1024:.1f}MB)")
             
             # Add intro video using FFmpeg (if exists)
-            final_output_with_intro = self._add_intro_with_ffmpeg(final_output_path)
-            logger.info(f"✅ Final video with intro: {final_output_with_intro}")
+            final_output_complete = self._add_intro_with_ffmpeg(final_output_path)
+            logger.info(f"✅ Final video complete: {final_output_complete}")
             
             # Cleanup temporary files
             self.cleanup_temp_files()
             
-            return final_output_with_intro
+            return final_output_complete
             
         except subprocess.CalledProcessError as e:
             error_msg = f"Final concatenation failed: {e.stderr if e.stderr else 'Unknown error'}"
@@ -4802,7 +5781,7 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="16:9",
+        aspect_ratio="9:16",
         use_quality_pipeline=True  
     )
     
@@ -4815,7 +5794,7 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="Explain about Datafication", 
+            topic="Explain about Deterministic Finite Automata (DFA)", 
             duration=60,
         )
 

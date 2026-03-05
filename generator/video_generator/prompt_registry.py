@@ -35,14 +35,24 @@ CONSTRAINTS
 - Duration: {duration}s
 - Segments: {num_segments}
 - Aspect Ratio: {aspect_ratio}
-- Final segment thanks "Code Tapasya"
+
+VIDEO STRUCTURE (BUILT-IN)
+- SEGMENT 1 (HOOK): Start with a friendly question or relatable scenario that hooks the viewer immediately. NO formal intro. Talk TO the viewer like a friend explaining something cool.
+- MIDDLE SEGMENTS: Core educational content
+- FINAL SEGMENT (OUTRO): Conclusion + brief "If this helped, subscribe to Code Tapasya!"
+
+TONE & STYLE
+- Talk like you're explaining to a curious friend over coffee
+- Use "you", "we", "let's" to create connection
+- Start with questions like "Ever wondered...", "What if I told you...", "You know how..."
+- Be genuinely enthusiastic, not scripted
 
 COGNITIVE LAWS
 1. One idea per segment.
 2. Each segment has ONE attention moment.
 3. Rhythm:
    Hook → Build → Reveal → Simplify → Payoff.
-4. Conversational tone only.
+4. Conversational and FRIENDLY tone only.
 5. Narration must naturally pause for visual emphasis.
 
 OUTPUT JSON
@@ -74,7 +84,9 @@ OUTPUT JSON
 }}
 
 RULES
-- Hook immediately.
+- Segment 1 MUST hook immediately with a question or relatable scenario. NO formal intro.
+- Final segment ends with a casual subscribe mention.
+- Talk TO the viewer, not AT them.
 - Concepts accumulate visually.
 - Durations sum EXACTLY to {duration}s.
 
@@ -406,57 +418,181 @@ class Segment001(Scene):
 
 DIRECTED_ERROR_CORRECTION_PROMPT = """
 ROLE
-Fix runtime errors WITHOUT altering direction.
+You are a senior Manim engineer repairing a broken animation script.
 
-ALLOWED
-- syntax fixes
-- API corrections
-- import fixes
-- safety positioning fixes
+Your goal is to make the script EXECUTE successfully while preserving the intended scene.
 
-FORBIDDEN
-- layout change
-- element removal
-- timing changes
-- meaning changes
+PRIORITY ORDER
+1. The script must run without errors.
+2. Preserve the visual intent of the animation.
+3. Maintain approximate timing and structure.
+4. PREVENT TEXT OVERLAP at all costs.
 
-VALIDATE AFTER FIX
-✓ camera movement exists
-✓ transformation animation exists
-✓ ≥3 animation types
-✓ no static screen >2s
-✓ duration preserved
+{locked_constraints}
+
+--------------------------------------------------
+
+SEGMENT INFORMATION
+
+Class name: Segment{index:03d}
+Aspect ratio: {aspect_ratio}
+
+Frame size:
+width = {frame_width}
+height = {frame_height}
+
+Target duration ≈ {duration:.2f}s
+
+--------------------------------------------------
+
+🚨 ABSOLUTE TEXT OVERLAP PREVENTION RULES (CRITICAL)
+
+1. **MANDATORY TEXT WIDTH CONSTRAINT:**
+   - EVERY Text/MarkupText object MUST have .scale_to_fit_width({max_text_width})
+   - NO EXCEPTIONS - even single words need scaling
+   - Pattern: text = Text("...").scale_to_fit_width({max_text_width})
+
+2. **STRICT FONT SIZE LIMITS:**
+   - Titles: MAX {max_font_title}px
+   - Body text: MAX {max_font_body}px
+   - Never exceed these limits
+
+3. **MANDATORY VERTICAL SPACING:**
+   - Minimum 1.5 units between ANY two text objects
+   - Use .next_to(other_object, DOWN, buff=1.5)
+   - Never place text without proper spacing
+
+4. **ASPECT RATIO CONFIG MUST BE PRESENT:**
+   Immediately after imports, include:
+{aspect_ratio_config}
+
+5. **LAYOUT GUIDE FOR {aspect_ratio}:**
+{layout_guide}
+
+--------------------------------------------------
+
+ALLOWED FIXES
+
+You MAY:
+
+• fix syntax errors
+• fix Manim API usage
+• correct object initialization
+• add missing imports
+• define missing variables
+• correct animation arguments
+• adjust run_time if necessary
+• fix invalid positions
+• repair Transform / ReplacementTransform usage
+• ADD .scale_to_fit_width() to ALL text objects
+• ADD proper spacing (buff=1.5) between elements
+
+If timing is broken, you MAY rebalance animations but keep duration close to {duration:.2f}s.
+
+--------------------------------------------------
+
+DO NOT CHANGE
+
+• the class name
+• the core concept of the animation
+• the main visual objects
+
+You may reorganize animation code if required for correctness.
+
+--------------------------------------------------
+
+COMMON MANIM REPAIRS
+
+Use correct patterns:
+
+# CORRECT - with scaling
+text = Text("Title", font_size={max_font_title}).scale_to_fit_width({max_text_width})
+
+# CORRECT - with spacing
+text2 = Text("Body", font_size={max_font_body}).scale_to_fit_width({max_text_width})
+text2.next_to(text, DOWN, buff=1.5)
+
+circle = Circle()
+self.play(Create(circle))
+self.play(circle.animate.shift(RIGHT))
+Transform(obj1, obj2)
+self.play(..., run_time=2)
+
+Avoid:
+
+• undefined variables
+• using objects before creation
+• invalid Transform usage
+• incorrect Text parameters
+• missing imports
+• Text without .scale_to_fit_width()
+• Elements placed without proper buff spacing
+
+--------------------------------------------------
+
+VALIDATION CHECKLIST
+
+Ensure the corrected script:
+
+✓ defines class Segment{index:03d}
+✓ has construct(self)
+✓ imports manim correctly
+✓ defines objects before using them
+✓ uses self.play() for animations
+✓ does not crash at runtime
+✓ ALL Text objects have .scale_to_fit_width({max_text_width})
+✓ ALL elements have minimum buff=1.5 spacing
+✓ Aspect ratio config is present after imports
+
+--------------------------------------------------
+
+ERROR TRACEBACK
+
+{error}
+
+--------------------------------------------------
+
+BROKEN SCRIPT
+
+{script}
+
+--------------------------------------------------
+
+OUTPUT
+
+Return ONLY corrected Python code.
+
+Do not include markdown.
+Do not explain changes.
+"""
+
+
+DIRECTED_ERROR_CORRECTION_MINIMAL_PROMPT = """
+Fix Manim script error. Class: Segment{index:03d}, Duration: {duration:.2f}s, Aspect: {aspect_ratio}
 
 ERROR:
 {error}
 
 SCRIPT:
-{script}
+{script_content}
 
-Return corrected Python code only.
+🚨 CRITICAL TEXT OVERLAP RULES:
+1. ALL Text objects MUST have .scale_to_fit_width({max_text_width})
+2. Font limits: Title={max_font_title}px, Body={max_font_body}px
+3. Minimum buff=1.5 spacing between elements
+4. Include aspect ratio config after imports
+
+Fix syntax/API errors. Preserve layout and timing.
+Return ONLY corrected Python code, no markdown.
 """
-
-DIRECTED_ERROR_CORRECTION_MINIMAL_PROMPT = """
-Fix Manim script.
-
-Error: {error}
-Duration: {duration:.2f}s
-Class: Segment{index:03d}
-
-Fix syntax/API only.
-Preserve layout and timing.
-
-Return corrected Python code only.
-"""
-
 # ===============================================================
 # ASPECT RATIO SYSTEM
 # ===============================================================
 
 ASPECT_RATIO_PARAMS = {
     "16:9": dict(width_factor=0.85, max_font_title=48, max_font_body=36),
-    "9:16": dict(width_factor=0.65, max_font_title=32, max_font_body=24),
-    "1:1": dict(width_factor=0.75, max_font_title=42, max_font_body=30),
+    "9:16": dict(width_factor=0.55, max_font_title=28, max_font_body=22),
+    "1:1": dict(width_factor=0.70, max_font_title=38, max_font_body=28),
     "4:3": dict(width_factor=0.80, max_font_title=44, max_font_body=32),
     "21:9": dict(width_factor=0.90, max_font_title=48, max_font_body=36),
 }
@@ -566,17 +702,78 @@ def format_manim_execution_batch_prompt(
     )
 
 def format_error_correction_prompt(index, duration, error, script, **kwargs):
+    aspect_ratio = kwargs.get('aspect_ratio', '9:16')
+    params = get_aspect_params(aspect_ratio)
+    
+    # Calculate max_text_width based on frame_width and width_factor
+    frame_width = kwargs.get('frame_width', 9)
+    frame_height = kwargs.get('frame_height', 16)
+    max_text_width = frame_width * params['width_factor']
+    
+    # Get aspect ratio config string
+    aspect_configs = {
+        "16:9": {"fw": 16, "fh": 9, "pw": 1920, "ph": 1080},
+        "9:16": {"fw": 9, "fh": 16, "pw": 1080, "ph": 1920},
+        "1:1": {"fw": 1, "fh": 1, "pw": 1080, "ph": 1080},
+        "4:3": {"fw": 4, "fh": 3, "pw": 1440, "ph": 1080},
+        "21:9": {"fw": 21, "fh": 9, "pw": 2560, "ph": 1080},
+    }
+    ar_cfg = aspect_configs.get(aspect_ratio, aspect_configs["9:16"])
+    
+    aspect_ratio_config = f"""# Aspect Ratio Configuration: {aspect_ratio}
+config.frame_width = {ar_cfg['fw']}
+config.frame_height = {ar_cfg['fh']}
+config.pixel_width = {ar_cfg['pw']}
+config.pixel_height = {ar_cfg['ph']}"""
+    
+    # Layout guide per aspect ratio
+    layout_guides = {
+        "9:16": "VERTICAL layout - stack elements top to bottom, use UP/DOWN positioning",
+        "16:9": "HORIZONTAL layout - spread elements left to right, use LEFT/RIGHT positioning",
+        "1:1": "CENTERED layout - keep elements near center, balanced spacing",
+        "4:3": "BALANCED layout - slightly horizontal bias, moderate spacing",
+        "21:9": "WIDE layout - maximize horizontal space, cinematic feel",
+    }
+    layout_guide = layout_guides.get(aspect_ratio, layout_guides["9:16"])
+    
     return DIRECTED_ERROR_CORRECTION_PROMPT.format(
         index=index,
         duration=duration,
         error=error,
         script=script,
+        aspect_ratio=aspect_ratio,
+        frame_width=frame_width,
+        frame_height=frame_height,
+        locked_constraints=kwargs.get('locked_constraints', 'Fix syntax/API errors only.'),
+        max_text_width=f"{max_text_width:.1f}",
+        max_font_title=params['max_font_title'],
+        max_font_body=params['max_font_body'],
+        aspect_ratio_config=aspect_ratio_config,
+        layout_guide=layout_guide,
     )
 
 def format_error_correction_minimal_prompt(index, duration, error, script, **kwargs):
+    aspect_ratio = kwargs.get('aspect_ratio', '9:16')
+    params = get_aspect_params(aspect_ratio)
+    
+    # Get aspect ratio config
+    aspect_configs = {
+        "16:9": {"fw": 16, "fh": 9, "pw": 1920, "ph": 1080},
+        "9:16": {"fw": 9, "fh": 16, "pw": 1080, "ph": 1920},
+        "1:1": {"fw": 1, "fh": 1, "pw": 1080, "ph": 1080},
+        "4:3": {"fw": 4, "fh": 3, "pw": 1440, "ph": 1080},
+    }
+    ar_cfg = aspect_configs.get(aspect_ratio, aspect_configs["9:16"])
+    max_text_width = ar_cfg['fw'] * params['width_factor']
+    
     return DIRECTED_ERROR_CORRECTION_MINIMAL_PROMPT.format(
         index=index,
         duration=duration,
         error=error,
-        script=script,
+        script_content=script,
+        aspect_ratio=aspect_ratio,
+        config=ar_cfg,
+        max_text_width=f"{max_text_width:.1f}",
+        max_font_title=params['max_font_title'],
+        max_font_body=params['max_font_body'],
     )

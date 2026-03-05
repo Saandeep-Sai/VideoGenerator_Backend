@@ -125,7 +125,7 @@ def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limi
     }
 
 # Create a new job in Firestore with 'pending' status (for API/manual requests)
-def create_job(topic, duration, aspect_ratio="16:9", video_type="regular"):
+def create_job(topic, duration, aspect_ratio="16:9", video_type="regular", use_quality_pipeline=True):
     initialize_firebase()
     db = firestore.client()
 
@@ -135,6 +135,7 @@ def create_job(topic, duration, aspect_ratio="16:9", video_type="regular"):
         "duration": duration,
         "aspect_ratio": aspect_ratio,
         "video_type": video_type,
+        "use_quality_pipeline": use_quality_pipeline,
         "status": "pending",
         "created_at": firestore.SERVER_TIMESTAMP,
         "source": "manual_api"

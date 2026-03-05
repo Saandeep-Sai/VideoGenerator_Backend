@@ -32,12 +32,38 @@ def make_visual_contract(
     behaviors: Optional[List[str]] = None,
     animation_primitives: Optional[List[str]] = None,
     camera_strategy: str = "follow_process",
+    transformation_chain: Optional[List[dict]] = None,
 ) -> dict:
     """
     Build a canonical visual_contract dict.
 
     This object is the SINGLE SOURCE OF TRUTH for what must appear
     on screen.  It persists unchanged through every pipeline stage.
+
+    Fields
+    ------
+    depiction_mode : "simulation" | "diagram"
+        When "simulation" — the scene MUST show moving entities,
+        state changes, and continuous motion.  Downstream stages
+        MUST NOT convert this into labeled boxes / glass_cards.
+
+    entities : list[dict]
+        Objects that MUST appear on screen.  Each dict has at least
+        ``{"type": ..., "semantic_role": ...}``.
+
+    behaviors : list[str]
+        Verbs that MUST be animated (e.g. "propagate", "activate").
+
+    transformation_chain : list[dict]
+        Ordered sequence of state transitions the scene MUST walk
+        through.  Each entry: ``{"from_state": ..., "to_state": ...,
+        "trigger": ...}``.  Quality pipeline may NOT skip entries.
+
+    animation_primitives : list[str]
+        Manim-level primitives expected (e.g. "MoveAlongPath").
+
+    camera_strategy : str
+        Camera intent ("follow_process", "zoom_to_detail", …).
     """
     return {
         "visual_model": visual_model,
@@ -46,16 +72,30 @@ def make_visual_contract(
             {"type": "node", "semantic_role": "primary element"},
         ],
         "behaviors": behaviors or ["appear", "transform"],
+        "transformation_chain": transformation_chain or [],
         "animation_primitives": animation_primitives or ["sequential_stages"],
         "camera_strategy": camera_strategy,
         # Enforcement metadata
-        "_contract_version": 1,
+        "_contract_version": 2,
         "_frozen": True,  # Downstream stages MUST NOT mutate
     }
 
 
 def contract_from_visualizer(visualizer_output: dict) -> dict:
     """Convert raw concept_visualizer output into a frozen contract."""
+    # Build transformation_chain from visualizer's stages / sequence
+    raw_chain = visualizer_output.get("transformation_chain", [])
+    if not raw_chain:
+        # Derive from stages if available
+        stages = visualizer_output.get("stages", [])
+        if stages:
+            raw_chain = []
+            for idx in range(len(stages) - 1):
+                raw_chain.append({
+                    "from_state": stages[idx] if isinstance(stages[idx], str) else str(stages[idx]),
+                    "to_state": stages[idx + 1] if isinstance(stages[idx + 1], str) else str(stages[idx + 1]),
+                    "trigger": "progression",
+                })
     return make_visual_contract(
         visual_model=visualizer_output.get("visual_model", "data_flow"),
         depiction_mode=visualizer_output.get("depiction_type", "simulation"),
@@ -63,6 +103,7 @@ def contract_from_visualizer(visualizer_output: dict) -> dict:
         behaviors=visualizer_output.get("behaviors", []),
         animation_primitives=visualizer_output.get("animation_primitives", []),
         camera_strategy=visualizer_output.get("camera_strategy", "follow_process"),
+        transformation_chain=raw_chain,
     )
 
 
@@ -79,6 +120,78 @@ def deserialize_contract(contract_json: str) -> dict:
         return json.loads(contract_json)
     except (json.JSONDecodeError, TypeError):
         return make_visual_contract()
+
+
+def contract_prompt_block(contract: dict) -> str:
+    """
+    Render the contract as a prompt-injectable text block.
+
+    This is the HIGHEST-AUTHORITY section inserted at the TOP of any
+    LLM prompt that generates scene specifications, directions, or code.
+    """
+    mode = contract.get("depiction_mode", "simulation")
+    model = contract.get("visual_model", "")
+    entities = contract.get("entities", [])
+    behaviors = contract.get("behaviors", [])
+    chain = contract.get("transformation_chain", [])
+    primitives = contract.get("animation_primitives", [])
+    camera = contract.get("camera_strategy", "follow_process")
+
+    # Format entities
+    entity_lines = []
+    for e in entities[:8]:
+        if isinstance(e, dict):
+            entity_lines.append(f"  - {e.get('type', '?')} ({e.get('semantic_role', '')})")
+        else:
+            entity_lines.append(f"  - {e}")
+    entities_str = "\n".join(entity_lines) if entity_lines else "  (none specified)"
+
+    # Format transformation chain
+    chain_lines = []
+    for step in chain[:6]:
+        if isinstance(step, dict):
+            chain_lines.append(
+                f"  {step.get('from_state', '?')} → {step.get('to_state', '?')} "
+                f"[{step.get('trigger', '')}]"
+            )
+        else:
+            chain_lines.append(f"  {step}")
+    chain_str = "\n".join(chain_lines) if chain_lines else "  (derive from behaviors)"
+
+    behaviors_str = ", ".join(behaviors[:8]) if behaviors else "(none)"
+    primitives_str = ", ".join(primitives[:8]) if primitives else "(none)"
+
+    block = f"""
+╔══════════════════════════════════════════════════════════════╗
+║  VISUAL CONTRACT — HIGHEST AUTHORITY — DO NOT OVERRIDE      ║
+╚══════════════════════════════════════════════════════════════╝
+
+depiction_mode: {mode}
+visual_model:   {model}
+camera:         {camera}
+
+ENTITIES (must appear on screen):
+{entities_str}
+
+BEHAVIORS (must be animated):
+  {behaviors_str}
+
+TRANSFORMATION CHAIN (must be walked in order):
+{chain_str}
+
+ANIMATION PRIMITIVES:
+  {primitives_str}
+
+RULES WHEN depiction_mode == "simulation":
+  1. DO NOT replace entities with labeled boxes, glass_cards, or boundary_boxes.
+  2. DO NOT convert motion behaviors into static arrows or text descriptions.
+  3. EVERY entity above MUST appear as a MOVING object (Dot, Circle, Arrow path).
+  4. At least ONE ReplacementTransform or MoveAlongPath MUST exist.
+  5. Text objects (Text, MathTex, MarkupText) ≤ 20% of all scene objects.
+  6. Total active-motion runtime ≥ 50% of scene duration.
+  7. The transformation chain MUST be walked — you may NOT skip states.
+"""
+    return block.strip()
 
 
 # ================================================================

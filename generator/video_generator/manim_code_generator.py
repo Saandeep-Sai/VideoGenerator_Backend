@@ -1083,6 +1083,18 @@ ASPECT_RATIO_DIMENSIONS = {
     "21:9": {"frame_width": 21, "frame_height": 9},
 }
 
+# D4: Per-segment color palettes for visual variety
+SEGMENT_PALETTES = [
+    {"accent": "BLUE",   "bg_tint": "#0a1628"},
+    {"accent": "TEAL",   "bg_tint": "#0a1a1a"},
+    {"accent": "PURPLE", "bg_tint": "#140a28"},
+    {"accent": "GOLD",   "bg_tint": "#1a1408"},
+    {"accent": "GREEN",  "bg_tint": "#0a1a0f"},
+    {"accent": "RED",    "bg_tint": "#1a0a0a"},
+    {"accent": "ORANGE", "bg_tint": "#1a120a"},
+    {"accent": "PINK",   "bg_tint": "#1a0a14"},
+]
+
 
 @dataclass
 class GeneratorConfig:
@@ -1168,7 +1180,8 @@ class ManimCodeGenerator:
         self,
         spec: SceneSpecification,
         scene_index: int = 0,
-        timeline=None  # Optional[VisualTimeline]
+        timeline=None,  # Optional[VisualTimeline]
+        visual_contract=None,  # Optional[dict] — frozen contract for simulation integrity
     ) -> str:
         """Generate complete Manim code for a scene specification.
         
@@ -1176,11 +1189,14 @@ class ManimCodeGenerator:
             spec: SceneSpecification with elements and structure
             scene_index: Index for class naming
             timeline: Optional VisualTimeline from VisualDirector
+            visual_contract: Optional visual contract dict. When provided and
+                depiction_mode == "simulation", container element types are
+                enforced to simulation-appropriate types at code-gen time.
         """
         
         # Generate element creation code
         element_count = len(spec.visual_metaphor.visual_elements) if spec.visual_metaphor else 0
-        element_code = self._generate_element_code(spec, element_count)
+        element_code = self._generate_element_code(spec, element_count, visual_contract=visual_contract)
         
         # Generate animation sequence code
         if timeline and timeline.events:
@@ -1196,7 +1212,7 @@ class ManimCodeGenerator:
         accent_color_name = palette["accent"]
         
         # Extract audio duration for progress bar and timing
-        audio_duration = spec.timing.audio_duration_seconds or 10.0
+        audio_duration = getattr(spec.timing, 'audio_duration_seconds', None) or getattr(spec.timing, 'total_duration_seconds', None) or 10.0
         
         code = SCENE_TEMPLATE.format(
             aspect_ratio_config=ASPECT_RATIO_CONFIGS.get(
@@ -1218,9 +1234,23 @@ class ManimCodeGenerator:
         
         return code
     
-    def _generate_element_code(self, spec: SceneSpecification, element_count: int = 3) -> str:
+    def _generate_element_code(self, spec: SceneSpecification, element_count: int = 3, visual_contract: dict = None) -> str:
         """Generate code to create all visual elements with metaphor-aware layout,
-        auto-connection arrows, anti-stacking, and density-aware sizing."""
+        auto-connection arrows, anti-stacking, and density-aware sizing.
+        
+        When visual_contract is provided with depiction_mode == "simulation",
+        container element types (glass_card, boundary_box, etc.) are ENFORCED
+        to simulation-appropriate types BEFORE template selection.
+        """
+        # Import simulation integrity enforcement (last line of defense)
+        try:
+            from .simulation_integrity import get_enforced_element_type
+        except ImportError:
+            try:
+                from generator.video_generator.simulation_integrity import get_enforced_element_type
+            except ImportError:
+                get_enforced_element_type = None
+        
         lines = []
         position_counts = {}  # Track how many elements target each position
         element_ids_ordered = []  # Track creation order for auto-connections
@@ -1273,11 +1303,18 @@ class ManimCodeGenerator:
                         layout_overrides[elem.id] = container_positions[i]
         
         for elem in elems:
-            template = ELEMENT_TEMPLATES.get(elem.element_type)
+            # CREATIVE FREEDOM MODE: Element type enforcement DISABLED
+            # Use whatever element type the LLM chose
+            effective_type = elem.element_type
+            
+            template = ELEMENT_TEMPLATES.get(effective_type)
             
             if not template:
-                # Fallback to glass_card for premium look
-                template = ELEMENT_TEMPLATES.get(ElementType.GLASS_CARD, ELEMENT_TEMPLATES[ElementType.NODE])
+                # Fallback: use NODE for simulation mode, glass_card otherwise
+                if visual_contract and visual_contract.get("depiction_mode") == "simulation":
+                    template = ELEMENT_TEMPLATES[ElementType.NODE]
+                else:
+                    template = ELEMENT_TEMPLATES.get(ElementType.GLASS_CARD, ELEMENT_TEMPLATES[ElementType.NODE])
             
             # Prepare template parameters with aspect-ratio-aware + density-aware sizing
             size_dims = self.config.get_element_size_for_aspect(elem.size, element_count)
@@ -1951,22 +1988,28 @@ class ManimCodeGenerator:
     def generate_all_scenes(
         self,
         specs: List[SceneSpecification],
-        timelines: List = None
+        timelines: List = None,
+        visual_contracts: List = None,
     ) -> List[str]:
         """Generate code for all scenes.
         
         Args:
             specs: List of SceneSpecifications
             timelines: Optional list of VisualTimelines (from VisualDirector)
+            visual_contracts: Optional list of visual contract dicts (for simulation integrity)
         """
+        contracts = visual_contracts or [None] * len(specs)
+        if len(contracts) < len(specs):
+            contracts = contracts + [None] * (len(specs) - len(contracts))
+        
         if timelines and len(timelines) == len(specs):
             return [
-                self.generate_scene_code(spec, i, timeline=tl)
-                for i, (spec, tl) in enumerate(zip(specs, timelines))
+                self.generate_scene_code(spec, i, timeline=tl, visual_contract=vc)
+                for i, (spec, tl, vc) in enumerate(zip(specs, timelines, contracts))
             ]
         return [
-            self.generate_scene_code(spec, i)
-            for i, spec in enumerate(specs)
+            self.generate_scene_code(spec, i, visual_contract=vc)
+            for i, (spec, vc) in enumerate(zip(specs, contracts))
         ]
 
 

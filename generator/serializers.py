@@ -13,3 +13,8 @@ class VideoRequestSerializer(serializers.Serializer):
         default="regular",
         required=False
     )
+    use_quality_pipeline = serializers.BooleanField(
+        default=True,
+        required=False,
+        help_text="Use the optimized quality pipeline (default: True)"
+    )

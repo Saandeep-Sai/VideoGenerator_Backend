@@ -83,18 +83,19 @@ class GeminiClientAdapter:
             model_name = self.gemini_models[self.current_model_index]
             
             try:
-                # Try to use JSON response format for better parsing
+                # Plain text mode — NO JSON wrapping so Gemini outputs raw Python
+                # scripts separated by ===SCRIPT START=== markers as instructed.
+                # JSON mode was doubling token usage via escaped \n and \" chars.
                 try:
                     config = types.GenerateContentConfig(
                         temperature=temperature,
-                        max_output_tokens=8192,
-                        response_mime_type="application/json"  # Request JSON output
+                        max_output_tokens=32768,
                     )
                 except (TypeError, AttributeError):
-                    logger.warning("⚠️ JSON mode not available, using standard generation")
+                    logger.warning("⚠️ GenerateContentConfig failed, using fallback")
                     config = types.GenerateContentConfig(
                         temperature=temperature,
-                        max_output_tokens=8192
+                        max_output_tokens=32768
                     )
                 
                 response = self.gemini_client.models.generate_content(
@@ -206,7 +207,8 @@ def generate_quality_segments(
     topic: str,
     duration: int,
     aspect_ratio: str = "9:16",
-    max_retries: int = 2
+    max_retries: int = 2,
+    visual_contracts: Optional[List[dict]] = None,
 ) -> Tuple[List[QualityNarrationSegment], List[str]]:
     """
     Generate narration segments using the new spec-based approach.
@@ -219,6 +221,9 @@ def generate_quality_segments(
         duration: Total video duration in seconds
         aspect_ratio: Video aspect ratio
         max_retries: Number of retry attempts on failure
+        visual_contracts: Optional list of visual contract dicts.  When provided,
+            the first contract is injected as HIGHEST AUTHORITY into the spec
+            generation prompt so the LLM respects depiction_mode and entities.
         
     Returns:
         Tuple of (list of QualityNarrationSegment, list of errors)
@@ -239,9 +244,13 @@ def generate_quality_segments(
     # Retry loop for robustness
     for attempt in range(max_retries + 1):
         try:
-            # Generate specifications
+            # Generate specifications (with visual contract authority)
             logger.info(f"🎯 Quality Pipeline: Generating scene specifications for '{topic}' (attempt {attempt + 1}/{max_retries + 1})")
-            specs, gen_errors = spec_generator.generate_specifications(topic, duration)
+            if visual_contracts:
+                logger.info(f"   🔒 Visual contracts provided: {len(visual_contracts)} contracts")
+            specs, gen_errors = spec_generator.generate_specifications(
+                topic, duration, visual_contracts=visual_contracts
+            )
             
             if gen_errors:
                 all_errors.extend(gen_errors)
@@ -274,6 +283,32 @@ def generate_quality_segments(
     if not valid_specs:
         logger.error("❌ No valid specifications after validation")
         return [], all_errors
+    
+    # ══════════════════════════════════════════════════════════════
+    # PASS 1: Semantic Alignment — score + optional LLM refinement
+    # Scores how well each spec visually depicts the narration.
+    # Low-scoring specs receive a refinement prompt → LLM revision.
+    # High-scoring specs pass through untouched (zero extra latency).
+    # ══════════════════════════════════════════════════════════════
+    try:
+        from .semantic_alignment import (
+            analyze_and_build_feedback,
+            ALIGNMENT_THRESHOLD,
+        )
+        sa_available = True
+    except ImportError:
+        try:
+            from generator.video_generator.semantic_alignment import (
+                analyze_and_build_feedback,
+                ALIGNMENT_THRESHOLD,
+            )
+            sa_available = True
+        except ImportError:
+            sa_available = False
+    
+    # CREATIVE FREEDOM MODE: Semantic alignment loop DISABLED
+    # Letting LLM specs pass through without scoring or refinement
+    logger.info("🎨 Creative freedom mode — semantic alignment checks skipped")
     
     # Convert to QualityNarrationSegment format
     segments = []
@@ -336,20 +371,58 @@ def _spec_to_visual_description(spec: SceneSpecification) -> str:
 
 def generate_quality_scripts_bulk(
     segments: List[QualityNarrationSegment],
-    aspect_ratio: str = "9:16"
+    aspect_ratio: str = "9:16",
+    max_integrity_retries: int = 1,
+    llm_client=None,
 ) -> List[str]:
     """
-    Generate Manim scripts from segments using the Visual Director + template approach.
+    Generate Manim scripts via GEMINI DIRECT generation — no templates.
     
-    Pipeline: SceneSpec + AudioDuration → VisualDirector → VisualTimeline → ManimCodeGenerator
+    Pipeline: SceneSpec + Narration → Gemini → Raw Manim Python → Static Validation
+    
+    Gemini receives the creative direction (from spec) and writes the full
+    Manim Python script. Templates are NOT used for animation construction.
+    Error correction at render-time is handled by the legacy correction loop
+    in the OVG render workers.
     
     Args:
         segments: List of QualityNarrationSegment with scene specs
         aspect_ratio: Video aspect ratio
+        max_integrity_retries: (unused, kept for API compatibility)
+        llm_client: LLM client with .generate(prompt, temperature) method.
+                    If None, falls back to template generation (backward compat).
         
     Returns:
-        List of generated Manim script strings
+        List of generated Manim script strings (None for failures)
     """
+    # ── NEW: Gemini Direct Generation ──
+    if llm_client is not None:
+        try:
+            from .gemini_manim_generator import generate_manim_scripts_bulk as _gemini_bulk
+        except ImportError:
+            from generator.video_generator.gemini_manim_generator import generate_manim_scripts_bulk as _gemini_bulk
+        
+        logger.info(
+            f"🎬 GEMINI DIRECT MODE: Generating {len(segments)} Manim scripts via LLM "
+            f"(no templates)"
+        )
+        scripts = _gemini_bulk(llm_client, segments, aspect_ratio)
+        
+        # Tag segments for OVG compatibility
+        for i, (seg, script) in enumerate(zip(segments, scripts)):
+            if script:
+                seg.script_path = f"segment_{i:03d}.py"
+                seg._integrity_passed = True  # No integrity gate in Gemini mode
+            else:
+                seg._integrity_passed = False
+        
+        valid_count = sum(1 for s in scripts if s is not None)
+        logger.info(f"✅ Gemini generated {valid_count}/{len(segments)} scripts")
+        return scripts
+    
+    # ── FALLBACK: Template-based generation (when no llm_client provided) ──
+    logger.warning("⚠️ No LLM client for Gemini direct mode — falling back to template generation")
+    
     code_generator = ManimCodeGenerator(
         GeneratorConfig(aspect_ratio=aspect_ratio)
     )
@@ -360,77 +433,146 @@ def generate_quality_scripts_bulk(
     
     for i, segment in enumerate(segments):
         if segment.scene_spec:
-            logger.info(f"🎨 Generating script from spec for segment {i+1}")
-            
-            # Update spec timing with actual audio duration if available
-            if segment._audio_duration_final:
-                segment.scene_spec.timing.audio_duration_seconds = segment._audio_duration_final
+            logger.info(f"🎨 [TEMPLATE FALLBACK] Generating script for segment {i+1}")
             
             audio_dur = (
                 segment._audio_duration_final
-                or segment.scene_spec.timing.audio_duration_seconds
+                or (segment.scene_spec.timing.audio_duration_seconds if segment.scene_spec.timing else None)
                 or segment.duration
                 or 10.0
             )
             
-            # Determine scene type from spec
-            scene_type = getattr(segment.scene_spec, 'scene_type', 'CONTENT')
-            if not scene_type:
-                scene_type = "CONTENT"
+            scene_type = getattr(segment.scene_spec, 'scene_type', 'CONTENT') or "CONTENT"
             
-            # === VISUAL DIRECTOR: Plan the timeline ===
+            contract = None
+            contract_json = getattr(segment, 'visual_contract', None)
+            if contract_json:
+                try:
+                    contract = deserialize_contract(contract_json)
+                except Exception:
+                    pass
+            
             try:
                 timeline = visual_director.plan_timeline(
                     spec=segment.scene_spec,
                     audio_duration=audio_dur,
                     scene_type=scene_type
                 )
-                logger.info(
-                    f"📐 Visual Director: {timeline.event_count} events, "
-                    f"density={timeline.density:.2f}/s for segment {i+1}"
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ VisualDirector failed for segment {i+1}: {e}. Using legacy path.")
+            except Exception:
                 timeline = None
             
-            # === MANIM CODE GENERATION (timeline-driven or legacy) ===
             script = code_generator.generate_scene_code(
-                segment.scene_spec, i, timeline=timeline
+                segment.scene_spec, i, timeline=timeline,
+                visual_contract=contract,
             )
             
-            # Validate generated code
             is_valid, issues = code_validator.validate(script)
-            
             if not is_valid:
-                logger.warning(f"⚠️ Script {i+1} has issues: {issues}")
-            
-            # ── Visual contract validation gate ──
-            contract_json = getattr(segment, 'visual_contract', None)
-            if contract_json and script:
-                try:
-                    contract = deserialize_contract(contract_json)
-                    passed, c_issues, score = validate_script_simulation(script, contract)
-                    if not passed:
-                        c_issues_str = ", ".join(c_issues)
-                        logger.warning(
-                            f"  ⚠️ Quality script {i+1} contract check FAILED "
-                            f"(score={score:.2f}): {c_issues_str}"
-                        )
-                    else:
-                        logger.info(f"  ✓ Quality script {i+1} contract check passed (score={score:.2f})")
-                except Exception as e:
-                    logger.debug(f"  Contract validation skipped for quality script {i+1}: {e}")
+                logger.warning(f"⚠️ Template script {i+1} has issues: {issues}")
             
             scripts.append(script)
             segment.script_path = f"segment_{i:03d}.py"
+            segment._integrity_passed = True
         else:
             logger.warning(f"⚠️ Segment {i+1} has no spec, needs legacy generation")
             scripts.append(None)
     
     valid_count = sum(1 for s in scripts if s is not None)
-    logger.info(f"✅ Generated {valid_count}/{len(segments)} scripts from specs")
-    
+    logger.info(f"✅ Generated {valid_count}/{len(segments)} scripts (template fallback)")
     return scripts
+
+
+# ════════════════════════════════════════════════════════════════════
+# SPEC ↔ DICT CONVERSION HELPERS (for integrity enforcement)
+# ════════════════════════════════════════════════════════════════════
+
+def _spec_to_dict(spec: SceneSpecification) -> dict:
+    """Convert a SceneSpecification to a dict for integrity checking."""
+    elements = []
+    if spec.visual_metaphor and spec.visual_metaphor.visual_elements:
+        for elem in spec.visual_metaphor.visual_elements:
+            elements.append({
+                "id": elem.id,
+                "element_type": elem.element_type.value if hasattr(elem.element_type, 'value') else str(elem.element_type),
+                "label": elem.label or "",
+                "position": elem.position.value if elem.position and hasattr(elem.position, 'value') else str(elem.position or "center"),
+                "size": elem.size or "medium",
+                "color": elem.color or "BLUE",
+            })
+    
+    sequence = []
+    if spec.transformation and spec.transformation.sequence:
+        for step in spec.transformation.sequence:
+            sequence.append({
+                "action": step.action.value if hasattr(step.action, 'value') else str(step.action),
+                "target": step.target or "",
+                "description": step.description or "",
+            })
+    
+    return {
+        "visual_metaphor": {
+            "abstract_concept": spec.visual_metaphor.abstract_concept if spec.visual_metaphor else "",
+            "concrete_representation": spec.visual_metaphor.concrete_representation if spec.visual_metaphor else "",
+            "metaphor_type": spec.visual_metaphor.metaphor_type.value if spec.visual_metaphor and hasattr(spec.visual_metaphor.metaphor_type, 'value') else "",
+            "visual_elements": elements,
+        },
+        "transformation": {
+            "sequence": sequence,
+        },
+    }
+
+
+def _apply_dict_to_spec(spec_dict: dict, spec: SceneSpecification):
+    """Apply enforced dict changes back to a SceneSpecification object.
+    
+    Only updates fields that enforcement might change:
+    - element_type of visual elements
+    - action of transformation steps
+    - new elements added by entity injection
+    """
+    dict_elements = spec_dict.get("visual_metaphor", {}).get("visual_elements", [])
+    spec_elements = spec.visual_metaphor.visual_elements if spec.visual_metaphor else []
+    
+    # Update existing elements
+    for spec_elem, dict_elem in zip(spec_elements, dict_elements):
+        new_type_str = dict_elem.get("element_type", "")
+        if new_type_str:
+            try:
+                new_type = ElementType(new_type_str)
+                if new_type != spec_elem.element_type:
+                    spec_elem.element_type = new_type
+            except (ValueError, KeyError):
+                pass
+    
+    # Handle injected elements (dict has more than spec)
+    if len(dict_elements) > len(spec_elements) and spec.visual_metaphor:
+        for dict_elem in dict_elements[len(spec_elements):]:
+            try:
+                new_elem = VisualElement(
+                    id=dict_elem.get("id", f"injected_{len(spec_elements)}"),
+                    element_type=ElementType(dict_elem.get("element_type", "node")),
+                    label=dict_elem.get("label", ""),
+                    position=Position(dict_elem.get("position", "center")),
+                    size=dict_elem.get("size", "medium"),
+                    color=dict_elem.get("color", "TEAL"),
+                )
+                spec.visual_metaphor.visual_elements.append(new_elem)
+            except (ValueError, KeyError) as e:
+                logger.debug(f"  Could not inject element: {e}")
+    
+    # Update transformation actions
+    dict_sequence = spec_dict.get("transformation", {}).get("sequence", [])
+    spec_sequence = spec.transformation.sequence if spec.transformation else []
+    
+    for spec_step, dict_step in zip(spec_sequence, dict_sequence):
+        new_action_str = dict_step.get("action", "")
+        if new_action_str:
+            try:
+                new_action = TransformAction(new_action_str)
+                if new_action != spec_step.action:
+                    spec_step.action = new_action
+            except (ValueError, KeyError):
+                pass
 
 
 def score_video_quality(

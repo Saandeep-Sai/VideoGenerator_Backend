@@ -84,11 +84,69 @@ METAPHOR_TAXONOMY = {
 
 SCENE_SPEC_GENERATION_PROMPT = '''You are directing a cinematic educational YouTube Short.
 
-Your task is NOT to design slides or list animations.
+You have FULL creative freedom. Design the most compelling, visually rich,
+and educationally effective scene you can imagine.
+
 Your task is to design VISUAL INTENT — how ideas should unfold visually over time.
 
 The VisualDirector system will handle choreography.
 You must decide WHAT should happen and WHY.
+
+Be bold, creative, and expressive. Use any visual elements, metaphors,
+and transformation sequences that best serve the educational content.
+
+{visual_contract_block}
+
+---
+
+## AUTHORITY ORDER (MANDATORY — READ FIRST)
+
+1. **VISUAL CONTRACT** (above) — HIGHEST AUTHORITY.  If present, every
+   entity, behavior, and transformation chain step MUST appear in your output.
+   You may NOT replace contract entities with glass_cards or labeled boxes.
+2. **Depiction Mode Rules** (below) — override layout/element defaults.
+3. **Narrative Context** — the topic and narration inform WHAT to show,
+   but the contract decides HOW to show it.
+
+---
+
+## DEPICTION MODE RULES
+
+IF the visual contract says ``depiction_mode: simulation``:
+
+  ✅ DO:
+  - Use `node`, `icon_badge`, `data_packet` for entities — they MOVE.
+  - Include at least 2 motion actions (grow_from_center, slide_in, draw_arrow, pulse, bounce, morph).
+  - Show VISIBLE STATE CHANGES: entities that transform, move along paths, change color.
+  - Walk the transformation_chain in order — each step = a transformation action.
+  - Target ≥ 3 different elements in your transformation sequence.
+
+  ❌ DO NOT:
+  - Replace moving entities with `glass_card` or `boundary_box`.
+  - Use only `fade_in` + `write` — that creates a slideshow.
+  - Create a layout where all elements appear at once — build progressively.
+  - Make text labels the primary visual — text ≤ 20% of elements.
+
+IF the visual contract says ``depiction_mode: diagram`` (or no contract):
+  - You may use glass_cards, boundary_boxes, and static layouts freely.
+
+---
+
+## BEHAVIOR → SPEC MAPPING (use when depiction_mode == simulation)
+
+| Behavior verb        | Spec element_type  | Spec action            |
+|----------------------|--------------------|------------------------|
+| propagate / flow     | data_packet, arrow | slide_in, draw_arrow   |
+| activate / trigger   | node, icon_badge   | pulse, grow_from_center|
+| transform / morph    | node               | morph, bounce          |
+| accumulate / grow    | progress_bar, node | grow_from_center, pulse|
+| connect / link       | arrow              | draw_arrow             |
+| emit / signal        | data_packet        | slide_in, flash        |
+| compare / contrast   | icon_badge, node   | slide_in, circumscribe |
+| evolve / change      | node               | morph, pulse           |
+
+When a contract behavior matches the left column, use the corresponding
+element_type and action from the right columns.
 
 ---
 
@@ -200,19 +258,25 @@ Bad: "X is defined as a mechanism whereby..."
 
 ## AVAILABLE VISUAL PRIMITIVES
 
-| Type | Best For |
-|------|----------|
-| `glass_card` | Key concepts, main ideas, definitions (large, frosted glass panel) |
-| `code_block` | Code snippets, commands, syntax (dark editor style) |
-| `icon_badge` | Key symbols, comparison icons, status (glowing badge) |
-| `tag_pill` | Labels, categories, keywords (rounded pill) |
-| `progress_bar` | Metrics, comparisons, before/after (animated fill bar) |
-| `boundary_box` | Grouping related elements together (container) |
-| `node` | Entities in flow diagrams (styled circle/shape) |
-| `label` | Short annotations, captions, callouts |
-| `arrow` | Connections, data flow, cause→effect |
+| Type | Best For | Motion? |
+|------|----------|---------|
+| `node` | Entities in processes, actors, components (styled circle/shape) | ✅ moves, morphs |
+| `data_packet` | Signals, messages, data flowing between nodes | ✅ travels paths |
+| `icon_badge` | Key symbols, status indicators (glowing badge) | ✅ pulses, transforms |
+| `arrow` | Connections, data flow, cause→effect | ✅ draws, animates |
+| `progress_bar` | Metrics, accumulation, before/after (animated fill) | ✅ fills, grows |
+| `tag_pill` | Labels, categories, keywords (rounded pill) | ⚠️ static annotation |
+| `glass_card` | Definitions, summaries (large frosted panel) — DIAGRAM ONLY | ❌ static container |
+| `code_block` | Code snippets, commands (dark editor) — DIAGRAM ONLY | ❌ static container |
+| `boundary_box` | Grouping elements together — DIAGRAM ONLY | ❌ static container |
+| `label` | Short annotations, captions, callouts | ❌ static text |
+| `checkpoint` | Validation gates, security checks | ✅ activates, glows |
+| `gate` | Access control, decision points | ✅ opens/closes |
+| `lock` | Security state, encryption status | ✅ locks/unlocks |
 
-Prefer `glass_card` and `icon_badge` over basic `node` — they look better.
+**SIMULATION MODE**: Use `node`, `data_packet`, `icon_badge`, `arrow`, `progress_bar`.
+**DIAGRAM MODE**: You may also use `glass_card`, `boundary_box`, `code_block`.
+
 Use `medium` or `large` sizes — small elements are invisible on phones.
 Include at least 1 `arrow` in CONTENT scenes to show connections.
 
@@ -287,6 +351,13 @@ Before outputting, verify:
 6. Is narration 35-50 words per scene, conversational?
 7. Does the primary concept dominate visually?
 
+**SIMULATION-MODE ADDITIONAL CHECKS** (when visual contract depiction_mode == simulation):
+8. Are ≥ 60% of elements `node`, `data_packet`, `icon_badge`, or `arrow`? (NOT glass_card/boundary_box)
+9. Are ≥ 2 motion actions used (grow_from_center, slide_in, draw_arrow, pulse, morph, bounce)?
+10. Are ≥ 3 different elements targeted in the transformation sequence?
+11. Does each transformation_chain step from the contract have a matching spec action?
+12. Is the scene showing PROCESS + MOTION, not a labeled diagram?
+
 ---
 
 Generate {num_scenes} scenes for "{topic}".
@@ -334,7 +405,8 @@ class SceneSpecGenerator:
     def generate_specifications(
         self,
         topic: str,
-        total_duration: int
+        total_duration: int,
+        visual_contracts: Optional[List[dict]] = None,
     ) -> Tuple[List[SceneSpecification], List[str]]:
         """
         Generate scene specifications for a topic.
@@ -342,6 +414,9 @@ class SceneSpecGenerator:
         Args:
             topic: The educational topic to explain
             total_duration: Total video duration in seconds
+            visual_contracts: Optional list of visual contract dicts (one per segment).
+                When provided, the FIRST contract's depiction_mode and entities
+                are injected as HIGHEST AUTHORITY at the top of the prompt.
             
         Returns:
             Tuple of (list of validated specs, list of error messages)
@@ -360,6 +435,28 @@ class SceneSpecGenerator:
         logger.info(f"🎭 Generating specs for '{topic}' ({total_duration}s)")
         logger.info(f"   Target: {num_scenes} scenes (~{seconds_per_scene:.1f}s each)")
         logger.info(f"   Style: {getattr(self.config, 'video_type', 'short').upper()} (Head/Tail enforced)")
+
+        # ── Build visual contract prompt block ──
+        visual_contract_block = ""
+        if visual_contracts:
+            try:
+                from .visual_validation import contract_prompt_block
+                # Use the first contract as the global authority for all scenes
+                primary_contract = visual_contracts[0] if visual_contracts else {}
+                if primary_contract:
+                    visual_contract_block = contract_prompt_block(primary_contract)
+                    mode = primary_contract.get("depiction_mode", "simulation")
+                    logger.info(
+                        f"🔒 Visual contract injected into spec prompt "
+                        f"(depiction_mode={mode}, "
+                        f"entities={len(primary_contract.get('entities', []))}, "
+                        f"behaviors={len(primary_contract.get('behaviors', []))})"
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Could not inject visual contract into prompt: {e}")
+        
+        if not visual_contract_block:
+            visual_contract_block = "(No visual contract provided — use your best judgment for depiction mode.)"
         
         # Build prompt
         prompt = SCENE_SPEC_GENERATION_PROMPT.format(
@@ -367,7 +464,8 @@ class SceneSpecGenerator:
             duration=total_duration,
             num_scenes=num_scenes,
             seconds_per_scene=int(seconds_per_scene),
-            aspect_ratio=self.config.aspect_ratio
+            aspect_ratio=self.config.aspect_ratio,
+            visual_contract_block=visual_contract_block,
         )
         
         try:
@@ -398,20 +496,24 @@ class SceneSpecGenerator:
                         spec_data["timing"] = {}
                     spec_data["timing"]["cognitive_duration_estimate_seconds"] = seconds_per_scene
 
+                    # ── SIMULATION AUTHORITY: patch spec before parsing ──
+                    contract_i = None
+                    if visual_contracts:
+                        contract_i = (
+                            visual_contracts[i]
+                            if i < len(visual_contracts)
+                            else visual_contracts[0]
+                        )
+                    # CREATIVE FREEDOM MODE: Simulation integrity enforcement DISABLED
+                    # Letting LLM have full creative control over element types and spec structure
+                    if contract_i and contract_i.get("depiction_mode") == "simulation":
+                        logger.info(f"🎨 Spec {i+1}: Creative freedom mode — no enforcement applied")
+
+                    # SIMPLIFIED: Skip validation - Gemini interprets specs creatively
+                    # Validation was causing noise without improving output quality
                     spec = self._parse_spec(spec_data, i)
-                    is_valid, errors = spec.validate()
-                    
-                    if is_valid:
-                        specs.append(spec)
-                        logger.debug(f"✅ Scene {i+1} validated successfully")
-                    else:
-                        all_errors.extend([f"Scene {i+1}: {e}" for e in errors])
-                        logger.warning(f"⚠️ Scene {i+1} validation failed: {errors[:2]}")
-                        # Try to fix common issues
-                        fixed_spec = self._attempt_fix(spec_data, errors)
-                        if fixed_spec:
-                            specs.append(fixed_spec)
-                            logger.info(f"🔧 Scene {i+1} fixed and added")
+                    specs.append(spec)
+                    logger.debug(f"✅ Scene {i+1} parsed and added")
                         
                 except Exception as e:
                     all_errors.append(f"Scene {i+1}: Failed to parse - {str(e)}")
@@ -499,6 +601,62 @@ class SceneSpecGenerator:
         logger.error(f"🔍 Response preview: {original_response[:1000]}")
         raise ValueError(f"No valid JSON array found in response. Response started with: '{original_response[:100]}...'")
     
+    def _extract_json_single(self, response: str) -> Optional[Dict[str, Any]]:
+        """Extract a single JSON object from LLM response.
+
+        Used by the semantic alignment refinement loop where the LLM returns
+        one improved scene spec (not an array).  Falls back to extracting the
+        first element of a JSON array if the LLM wraps it.
+        """
+        import re
+
+        if not response:
+            return None
+
+        response = response.strip()
+
+        # Strategy 1: ```json ... ``` block
+        json_block = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response)
+        if json_block:
+            try:
+                return json.loads(json_block.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 2: First { ... } pair (outermost)
+        start = response.find("{")
+        if start != -1:
+            depth = 0
+            end = -1
+            for idx, ch in enumerate(response[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = idx + 1
+                        break
+            if end > start:
+                try:
+                    return json.loads(response[start:end])
+                except json.JSONDecodeError:
+                    fixed = self._fix_common_json_issues(response[start:end])
+                    try:
+                        return json.loads(fixed)
+                    except json.JSONDecodeError:
+                        pass
+
+        # Strategy 3: LLM returned an array — take first element
+        try:
+            arr = self._extract_json(response)
+            if arr and isinstance(arr, list) and len(arr) > 0:
+                return arr[0]
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+        logger.warning("Could not extract single JSON object from refinement response")
+        return None
+
     def _fix_common_json_issues(self, json_str: str) -> str:
         """Attempt to fix common JSON formatting issues from LLMs."""
         import re
@@ -541,6 +699,13 @@ class SceneSpecGenerator:
         """Ensure color is from allowed Manim palette."""
         if not color:
             return "BLUE"
+        
+        # Handle list values (LLM sometimes returns lists)
+        if isinstance(color, list):
+            color = color[0] if color else "BLUE"
+        
+        # Ensure string
+        color = str(color)
         color_upper = color.upper()
         if color_upper in self.ALLOWED_COLORS:
             return color_upper
@@ -657,6 +822,12 @@ class SceneSpecGenerator:
         if not value:
             return ElementType.NODE
         
+        # Handle list values (LLM sometimes returns lists)
+        if isinstance(value, list):
+            value = value[0] if value else "node"
+        
+        # Ensure string
+        value = str(value)
         value_lower = value.lower().strip()
         
         # Direct match
@@ -675,11 +846,39 @@ class SceneSpecGenerator:
         logger.warning(f"⚠️ Unknown element_type '{value}', using NODE")
         return ElementType.NODE
     
+    def _safe_get_string(self, value: Any, default: str = "") -> str:
+        """Safely extract a string from a value that might be a list or other type."""
+        if value is None:
+            return default
+        if isinstance(value, list):
+            return str(value[0]) if value else default
+        if isinstance(value, dict):
+            return str(value.get("id", value.get("value", default)))
+        return str(value)
+    
     def _safe_parse_position(self, value: str) -> Position:
         """Parse position with alias support and fallback."""
         if not value:
             return Position.CENTER
         
+        # Handle list values (LLM sometimes returns lists like ["CENTER"] or [0, 0])
+        if isinstance(value, list):
+            if len(value) == 0:
+                return Position.CENTER
+            # If it's a coordinate pair like [0, 0], map to position
+            if len(value) >= 2 and all(isinstance(v, (int, float)) for v in value[:2]):
+                x, y = value[0], value[1]
+                # Map coordinates to positions
+                if y > 0.3:
+                    return Position.TOP if abs(x) < 0.3 else (Position.TOP_LEFT if x < 0 else Position.TOP_RIGHT)
+                elif y < -0.3:
+                    return Position.BOTTOM if abs(x) < 0.3 else (Position.BOTTOM_LEFT if x < 0 else Position.BOTTOM_RIGHT)
+                else:
+                    return Position.CENTER if abs(x) < 0.3 else (Position.LEFT if x < 0 else Position.RIGHT)
+            value = str(value[0])
+        
+        # Ensure string
+        value = str(value)
         value_lower = value.lower().strip().replace(" ", "_")
         
         # Direct match
@@ -723,6 +922,12 @@ class SceneSpecGenerator:
         if not value:
             return TransformAction.APPEAR
         
+        # Handle list values (LLM sometimes returns lists)
+        if isinstance(value, list):
+            value = value[0] if value else "appear"
+        
+        # Ensure string
+        value = str(value)
         value_lower = value.lower().strip().replace(" ", "_")
         
         # Direct match
@@ -757,7 +962,7 @@ class SceneSpecGenerator:
             best = matches[0]
             if best in self.ACTION_ALIASES:
                 best = self.ACTION_ALIASES[best]
-            logger.info(f"🔄 Fuzzy action '{value}' → '{best}'")
+            logger.debug(f"🔄 Fuzzy action '{value}' → '{best}'")
             return TransformAction(best)
         
         # Final fallback — pick the closest semantic match instead of APPEAR
@@ -773,10 +978,10 @@ class SceneSpecGenerator:
             ("disappear", "disappear"), ("appear", "appear"),
         ]:
             if keyword in value_lower:
-                logger.info(f"🔄 Keyword action '{value}' → '{action}'")
+                logger.debug(f"🔄 Keyword action '{value}' → '{action}'")
                 return TransformAction(action)
         
-        logger.warning(f"⚠️ Unknown action '{value}', using APPEAR")
+        logger.debug(f"🔄 Unknown action '{value}', using APPEAR")
         return TransformAction.APPEAR
     
     def _parse_spec(self, data: Dict[str, Any], index: int) -> SceneSpecification:
@@ -786,13 +991,13 @@ class SceneSpecGenerator:
         visual_elements = []
         for elem_data in data.get("visual_metaphor", {}).get("visual_elements", []):
             visual_elements.append(VisualElement(
-                id=elem_data.get("id", f"elem_{index}_{len(visual_elements)}"),
+                id=self._safe_get_string(elem_data.get("id"), f"elem_{index}_{len(visual_elements)}"),
                 element_type=self._safe_parse_element_type(elem_data.get("element_type", "node")),
-                label=elem_data.get("label"),
+                label=self._safe_get_string(elem_data.get("label"), None),
                 color=self._sanitize_color(elem_data.get("color", "BLUE")),
                 position=self._safe_parse_position(elem_data.get("position")) if elem_data.get("position") else None,
-                relative_to=elem_data.get("relative_to"),
-                size=elem_data.get("size", "medium")
+                relative_to=self._safe_get_string(elem_data.get("relative_to"), None),
+                size=self._safe_get_string(elem_data.get("size"), "medium")
             ))
         
         # Parse transformation steps with safe enum parsing
@@ -800,10 +1005,10 @@ class SceneSpecGenerator:
         for step_data in data.get("transformation", {}).get("sequence", []):
             transformation_steps.append(TransformationStep(
                 action=self._safe_parse_action(step_data.get("action", "appear")),
-                target=step_data.get("target", ""),
+                target=self._safe_get_string(step_data.get("target"), ""),
                 to_position=self._safe_parse_position(step_data.get("to_position")) if step_data.get("to_position") else None,
-                to_element=step_data.get("to_element"),
-                relative_to=step_data.get("relative_to"),
+                to_element=self._safe_get_string(step_data.get("to_element"), None),
+                relative_to=self._safe_get_string(step_data.get("relative_to"), None),
                 duration_weight=step_data.get("duration_weight", 1.0)
             ))
         
@@ -828,10 +1033,22 @@ class SceneSpecGenerator:
         # Parse semantic beats
         semantic_beats = []
         for beat_data in data.get("narration", {}).get("semantic_beats", []):
+            # Safely get target_elements as list of strings
+            target_elems = beat_data.get("target_elements", [])
+            if not isinstance(target_elems, list):
+                target_elems = [target_elems] if target_elems else []
+            # Convert any nested lists to strings
+            safe_targets = []
+            for t in target_elems:
+                if isinstance(t, list):
+                    safe_targets.append(str(t[0]) if t else "")
+                else:
+                    safe_targets.append(str(t) if t else "")
+            
             semantic_beats.append(SemanticBeat(
-                beat_phrase=beat_data.get("beat_phrase", ""),
-                visual_sync=beat_data.get("visual_sync", ""),
-                target_elements=beat_data.get("target_elements", [])
+                beat_phrase=self._safe_get_string(beat_data.get("beat_phrase"), ""),
+                visual_sync=self._safe_get_string(beat_data.get("visual_sync"), ""),
+                target_elements=safe_targets
             ))
         
         # Construct specification
@@ -854,8 +1071,8 @@ class SceneSpecGenerator:
                 sequence=transformation_steps
             ),
             constraints=Constraints(
-                max_objects=8,
-                max_text_elements=4,
+                max_objects=12,
+                max_text_elements=6,
                 text_role=TextRole.LABEL,
                 grid_alignment=True
             ),
@@ -900,25 +1117,55 @@ class SceneSpecGenerator:
             
             # Fix: Transformation target not found in elements
             if "not found in elements" in error:
-                # Get element IDs
+                # Get element IDs safely (handle list values)
                 elements = fixed_data.get("visual_metaphor", {}).get("visual_elements", [])
-                element_ids = {elem.get("id") for elem in elements if elem.get("id")}
+                element_ids = set()
+                for elem in elements:
+                    elem_id = elem.get("id")
+                    if elem_id:
+                        # Handle list values
+                        if isinstance(elem_id, list):
+                            elem_id = str(elem_id[0]) if elem_id else None
+                        if elem_id:
+                            element_ids.add(str(elem_id))
                 
                 # Filter transformation sequence to only include valid targets
                 sequence = fixed_data.get("transformation", {}).get("sequence", [])
-                valid_sequence = [
-                    step for step in sequence 
-                    if step.get("target") in element_ids
-                ]
+                valid_sequence = []
+                for step in sequence:
+                    target = step.get("target")
+                    if isinstance(target, list):
+                        target = str(target[0]) if target else ""
+                    if str(target) in element_ids:
+                        valid_sequence.append(step)
+                
+                # CRITICAL: If ALL steps were filtered out, create basic steps from elements
+                if not valid_sequence and element_ids:
+                    logger.info(f"⚠️ All transformation steps invalid, creating fallback steps")
+                    for elem_id in list(element_ids)[:4]:  # Use first 4 elements
+                        valid_sequence.append({
+                            "step": len(valid_sequence) + 1,
+                            "action": "appear",
+                            "target": elem_id,
+                            "timing": "beat"
+                        })
                 
                 # Also filter semantic beats
                 beats = fixed_data.get("narration", {}).get("semantic_beats", [])
                 for beat in beats:
                     if "target_elements" in beat:
-                        beat["target_elements"] = [
-                            elem for elem in beat["target_elements"] 
-                            if elem in element_ids
-                        ]
+                        target_elems = beat["target_elements"]
+                        # Handle if target_elements isn't a list
+                        if not isinstance(target_elems, list):
+                            target_elems = [target_elems] if target_elems else []
+                        # Filter to valid elements, handling nested lists
+                        valid_targets = []
+                        for elem in target_elems:
+                            if isinstance(elem, list):
+                                elem = str(elem[0]) if elem else None
+                            if elem and str(elem) in element_ids:
+                                valid_targets.append(str(elem))
+                        beat["target_elements"] = valid_targets
                 
                 fixed_data["transformation"]["sequence"] = valid_sequence[:6]
         

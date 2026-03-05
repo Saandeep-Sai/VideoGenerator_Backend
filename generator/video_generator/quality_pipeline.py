@@ -293,11 +293,60 @@ class QualityVideoPipeline:
                         logger.warning(f"  ⚠️ Spec {i+1} vs visual contract: {', '.join(issues)}")
                     else:
                         logger.info(f"  ✓ Spec {i+1} passes visual contract check")
+                    
+                    # ── HARD: Simulation integrity enforcement (replaces warning-only validation) ──
+                    if contract.get("depiction_mode") == "simulation":
+                        try:
+                            try:
+                                from .simulation_integrity import (
+                                    enforce_simulation_elements,
+                                    validate_spec_integrity,
+                                )
+                            except ImportError:
+                                from generator.video_generator.simulation_integrity import (
+                                    enforce_simulation_elements,
+                                    validate_spec_integrity,
+                                )
+                            
+                            # Enforce: replace container elements with simulation types
+                            spec_dict_enforced, enforcements = enforce_simulation_elements(
+                                spec_dict, contract
+                            )
+                            if enforcements:
+                                logger.info(f"  🔒 Spec {i+1}: {len(enforcements)} simulation enforcements")
+                            
+                            # Validate: hard pass/fail check
+                            integrity_result = validate_spec_integrity(
+                                spec_dict_enforced, contract
+                            )
+                            if not integrity_result.passed:
+                                logger.warning(
+                                    f"  🚫 Spec {i+1} INTEGRITY FAILED: "
+                                    f"{integrity_result.summary()}"
+                                )
+                            else:
+                                logger.info(
+                                    f"  ✅ Spec {i+1} integrity passed: "
+                                    f"{integrity_result.summary()}"
+                                )
+                        except ImportError:
+                            pass
+                        except Exception as ve:
+                            logger.debug(f"  Simulation validation skipped: {ve}")
             except Exception as e:
                 logger.warning(f"⚠️ Visual contract creation skipped: {e}")
             
-            # Stage 3: Generate Manim Code
-            stage3 = self._stage_generate_code(valid_specs)
+            # Stage 2.7: Semantic Alignment — PASS 1 (Enhancement)
+            # Scores how well each spec visually depicts the narration.
+            # Low-scoring specs get a refinement prompt → LLM revision.
+            # High-scoring specs pass through untouched (zero extra latency).
+            stage27 = self._stage_semantic_alignment(valid_specs)
+            self.stages.append(stage27)
+            if stage27.success and stage27.result:
+                valid_specs = stage27.result  # refined specs
+            
+            # Stage 3: Generate Manim Code — PASS 2 (Visual Polish)
+            stage3 = self._stage_generate_code(valid_specs, visual_contracts=visual_contracts)
             self.stages.append(stage3)
             
             if not stage3.success:
@@ -418,18 +467,172 @@ class QualityVideoPipeline:
         stage.duration_seconds = time.time() - start
         return stage
     
+    def _stage_semantic_alignment(
+        self,
+        specs: List[SceneSpecification],
+    ) -> PipelineStage:
+        """Stage 2.7: Semantic Alignment — score + optional LLM refinement.
+
+        PASS 1 of the two-pass quality system.
+        Scores how well each spec visually depicts the narration.
+        Low-scoring specs receive a refinement prompt and are re-generated.
+        High-scoring specs pass through untouched (no extra LLM call).
+        """
+        import time
+        start = time.time()
+
+        stage = PipelineStage(name="semantic_alignment")
+
+        try:
+            from .semantic_alignment import (
+                compute_semantic_alignment,
+                build_refinement_prompt,
+                ALIGNMENT_THRESHOLD,
+            )
+        except ImportError:
+            try:
+                from generator.video_generator.semantic_alignment import (
+                    compute_semantic_alignment,
+                    build_refinement_prompt,
+                    ALIGNMENT_THRESHOLD,
+                )
+            except ImportError:
+                logger.debug("Semantic alignment module not available — skipping")
+                stage.success = True
+                stage.result = specs
+                stage.duration_seconds = time.time() - start
+                return stage
+
+        refined_specs = list(specs)  # shallow copy
+        refined_count = 0
+
+        for i, spec in enumerate(specs):
+            narration = spec.narration.text if spec.narration else ""
+            if not narration:
+                continue
+
+            spec_dict = spec.to_dict() if hasattr(spec, 'to_dict') else {}
+            alignment = compute_semantic_alignment(narration, spec_dict)
+
+            logger.info(
+                f"  📊 Scene {i+1} semantic alignment: {alignment.summary()}"
+            )
+
+            if alignment.score >= ALIGNMENT_THRESHOLD:
+                continue  # Already well-aligned — skip refinement
+
+            # Build refinement prompt and call LLM
+            prompt = build_refinement_prompt(
+                alignment, narration, spec_dict, scene_index=i
+            )
+            if not prompt:
+                continue
+
+            try:
+                logger.info(
+                    f"  🔄 Scene {i+1} below threshold ({alignment.score}<{ALIGNMENT_THRESHOLD})"
+                    f" — requesting LLM refinement"
+                )
+                response = self.llm_client.generate(prompt, temperature=0.7)
+                if response:
+                    improved_data = self.spec_generator._extract_json_single(response)
+                    if improved_data:
+                        # Preserve timing from original
+                        improved_data["timing"] = spec_dict.get("timing", {})
+                        improved_spec = self.spec_generator._parse_spec(
+                            improved_data, i
+                        )
+                        is_valid, errors = improved_spec.validate()
+                        if is_valid:
+                            refined_specs[i] = improved_spec
+                            refined_count += 1
+                            logger.info(
+                                f"  ✅ Scene {i+1} refined (alignment {alignment.score}→improved)"
+                            )
+                        else:
+                            logger.warning(
+                                f"  ⚠️ Refined scene {i+1} failed validation: {errors[:2]}"
+                            )
+            except Exception as ref_err:
+                logger.warning(
+                    f"  ⚠️ Scene {i+1} refinement failed: {ref_err} — keeping original"
+                )
+
+        if refined_count > 0:
+            logger.info(
+                f"📊 Semantic alignment: {refined_count}/{len(specs)} scenes refined"
+            )
+        else:
+            logger.info("📊 Semantic alignment: all scenes above threshold — no refinement needed")
+
+        stage.result = refined_specs
+        stage.success = True
+        stage.duration_seconds = time.time() - start
+        return stage
+
     def _stage_generate_code(
         self,
-        specs: List[SceneSpecification]
+        specs: List[SceneSpecification],
+        visual_contracts: Optional[List[dict]] = None,
     ) -> PipelineStage:
-        """Stage 3: Generate Manim code."""
+        """Stage 3: Generate Manim code.
+        
+        Args:
+            specs: Validated scene specifications.
+            visual_contracts: Optional visual contracts for simulation enforcement.
+                When provided, contracts are passed to generate_all_scenes so the
+                code generator can inject contract context into its prompts.
+        """
         import time
         start = time.time()
         
         stage = PipelineStage(name="generate_code")
         
         try:
-            scripts = self.code_generator.generate_all_scenes(specs)
+            # Pass visual_contracts to code generator for element-type enforcement
+            scripts = self.code_generator.generate_all_scenes(
+                specs, visual_contracts=visual_contracts
+            )
+            
+            # ── Post-generation: HARD simulation integrity gate ──
+            if visual_contracts:
+                try:
+                    from .simulation_integrity import (
+                        validate_script_integrity,
+                        enforce_simulation_elements,
+                    )
+                except ImportError:
+                    try:
+                        from generator.video_generator.simulation_integrity import (
+                            validate_script_integrity,
+                            enforce_simulation_elements,
+                        )
+                    except ImportError:
+                        validate_script_integrity = None
+                
+                if validate_script_integrity:
+                    for i, script in enumerate(scripts):
+                        contract_i = (
+                            visual_contracts[i]
+                            if i < len(visual_contracts)
+                            else visual_contracts[0] if visual_contracts else None
+                        )
+                        if contract_i and script and contract_i.get("depiction_mode") == "simulation":
+                            result = validate_script_integrity(script, contract_i)
+                            if not result.passed:
+                                logger.warning(
+                                    f"  🚫 Code {i+1} SIMULATION INTEGRITY FAILED: "
+                                    f"{result.summary()}"
+                                )
+                                stage.errors.append(
+                                    f"Script {i+1} integrity failure: {', '.join(result.issues[:2])}"
+                                )
+                            else:
+                                logger.info(
+                                    f"  ✅ Code {i+1} simulation integrity PASSED: "
+                                    f"{result.summary()}"
+                                )
+            
             stage.result = scripts
             stage.success = True
             
