@@ -1,0 +1,21 @@
+# Minimal requirements for API-only deployment on Render
+# No video generation packages needed - just API + Firebase
+
+# Django & API
+Django>=5.0,<6.0
+djangorestframework>=3.14
+django-cors-headers>=4.0
+gunicorn>=21.0
+
+# Firebase
+firebase_admin>=6.0,<7.1
+google-cloud-firestore>=2.0
+google-cloud-storage>=2.0
+google-auth>=2.0
+
+# HTTP clients
+requests>=2.30
+httpx>=0.24
+
+# Utils
+python-dotenv>=1.0

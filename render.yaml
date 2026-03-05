@@ -1,11 +1,13 @@
 services:
   - type: web
     name: video-gen-api
-    env: python
+    runtime: python
     plan: free
 
     # API only - no video processing on Render
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    buildCommand: |
+      pip install --upgrade pip setuptools wheel
+      pip install -r requirements-api.txt
 
     startCommand: python run_api_only.py
     healthCheckPath: /api/health/
