@@ -61,8 +61,8 @@ pipeline = OptimizedVideoGenerationPipeline(config)
 # ✅ Initialize Oracle Storage Client
 oracle_storage = OracleStorageClient()
 
-# ✅ Initialize Dynamic Content Generator with all keys for rotation
-dynamic_content = DynamicContentGenerator(gemini_api_keys=GEMINI_API_KEYS)
+# ✅ Initialize Dynamic Content Generator (uses first Gemini key, or loads from env)
+dynamic_content = DynamicContentGenerator(gemini_api_key=GEMINI_API_KEYS[0] if GEMINI_API_KEYS else None)
 
 logger.info("=" * 60)
 logger.info("🎬 VIDEO GENERATION WORKER INITIALIZED")
