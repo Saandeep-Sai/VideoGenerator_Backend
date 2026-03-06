@@ -1305,7 +1305,7 @@ class GeneratedAnimation{segment_number}(Scene):
             # Build Manim command - use correct class name based on segment index
             # Aspect ratio is now configured inside the script itself
             # Use -qp (production quality, 1440p60) which Manim handles correctly
-            # Alternative: -qh (high quality, 1080p60), -qm (medium, 720p30), -ql (low, 480p15)
+            # Alternative: -qm (high quality, 1080p60), -qm (medium, 720p30), -ql (low, 480p15)
             # We use -qm for 720p30 as balanced quality & speed (better quality than -ql)
             # On Windows, use "python -m manim" instead of just "manim"
             # Caching is enabled by default and controlled via script config
@@ -1327,14 +1327,14 @@ class GeneratedAnimation{segment_number}(Scene):
             cmd = [
                 sys.executable, "-m", "manim", 
                 filename, class_name,  # Use correct class name
-                "-qh",                        # HIGH quality: 1080p60 (professional output)
+                "-qm",                        # HIGH quality: 1080p60 (professional output)
                 "--format", "mp4",
                 "--disable_caching",          # Disable caching to save RAM
                 "--flush_cache",              # Clear cache after render
                 "--renderer=cairo",           # Cairo renderer for better quality
             ]
             
-            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (1080p60 -qh quality - professional output)")
+            logger.info(f"🎬 Rendering: {filename} → Class: {class_name} (1080p60 -qm quality - professional output)")
             
             # Stream output with progress bar
             process = subprocess.Popen(
@@ -1412,7 +1412,7 @@ class GeneratedAnimation{segment_number}(Scene):
             full_output = '\n'.join(output_lines) if output_lines else "No output captured"
             return None, f"❌ Manim failed with code {process.returncode}:\n{full_output}"
 
-        # Expected output file path - 1080p60 quality (-qh flag) outputs to 1080p60 folder
+        # Expected output file path - 1080p60 quality (-qm flag) outputs to 1080p60 folder
         if segment_index is not None:
             # Manim outputs video with the class name as filename
             # Expected: Segment000.mp4, Segment001.mp4, etc.
@@ -1606,7 +1606,7 @@ class IntroAnimation(Scene):
         try:
             cmd = [
                 'manim', 'render',
-                '-qh',  # High quality
+                '-qm',  # Medium quality
                 '--disable_caching',
                 '--media_dir', str(temp_dir / 'media_intro'),
                 str(script_path),
@@ -5326,7 +5326,7 @@ class Segment{index:03d}(Scene):
         
         cmd = [
             'manim', 'render',
-            '-qh',  # High quality 1080p60
+            '-qm',  # High quality 1080p60
             '--disable_caching',
             '--media_dir', str(Path(self.config.temp_dir) / 'media'),
             str(script_path),
