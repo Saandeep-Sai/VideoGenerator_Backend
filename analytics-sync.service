@@ -1,0 +1,23 @@
+[Unit]
+Description=Analytics Sync for Smart Topic Selection (One Shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/VideoGenerator_Backend
+
+Environment="PATH=/home/ubuntu/VideoGenerator_Backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+ExecStart=/home/ubuntu/VideoGenerator_Backend/venv/bin/python3 /home/ubuntu/VideoGenerator_Backend/sync_analytics.py
+
+# Lightweight — doesn't generate video, just API calls
+MemoryMax=300M
+CPUQuota=50%
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

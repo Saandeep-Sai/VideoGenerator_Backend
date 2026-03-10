@@ -1,0 +1,272 @@
+from manim import *
+import numpy as np
+
+# ASPECT RATIO CONFIG
+config.frame_width = 9
+config.frame_height = 16
+config.pixel_width = 1080
+config.pixel_height = 1920
+
+class Segment000(Scene):
+    def construct(self):
+        # 17.18s Total Duration
+        
+        # Elements
+        earth_system = VGroup(
+            Circle(radius=2, color=BLUE_E, stroke_width=8),
+            Circle(radius=1.8, color=BLUE_D, stroke_width=2, stroke_opacity=0.5),
+            NumberPlane(x_range=[-2, 2, 1], y_range=[-2, 2, 1], 
+                        background_line_style={"stroke_opacity": 0.2}).scale(0.5)
+        ).move_to(ORIGIN)
+        
+        dharma_trigger = Star(n=8, outer_radius=0.8, inner_radius=0.4, color=GOLD).to_corner(UR, buff=1.5)
+        
+        avatar_packet = VGroup(
+            Dot(color=GOLD, radius=0.2),
+            Circle(radius=0.3, color=GOLD_A).set_stroke(width=2)
+        ).move_to(UP * 8)
+        
+        title = Text("COSMIC RESET", weight=BOLD, color=GOLD).scale_to_fit_width(config.frame_width * 0.6)
+        title.to_edge(UP, buff=1.0)
+
+        # Sequence
+        # 0.0 - 2.0: Earth system node appears
+        self.play(GrowFromCenter(earth_system), Write(title), run_time=2.0)
+        
+        # 2.0 - 4.0: Pulse glitch effect
+        self.play(
+            earth_system.animate.scale(1.1).set_color(RED_E),
+            Wiggle(earth_system, scale_value=1.1, rotation_angle=0.02),
+            run_time=1.0
+        )
+        self.play(
+            earth_system.animate.scale(1/1.1).set_color(BLUE_E),
+            run_time=1.0
+        )
+        
+        # 4.0 - 6.0: Dharma trigger flash
+        self.play(FadeIn(dharma_trigger, shift=DOWN), run_time=1.0)
+        self.play(Circumscribe(dharma_trigger, color=WHITE, time_width=1.5), run_time=1.0)
+        
+        # 6.0 - 9.0: Avatar packet descends
+        self.play(avatar_packet.animate.move_to(ORIGIN), rate_func=slow_into, run_time=3.0)
+        
+        # 9.0 - 12.0: Interaction/Merge
+        self.play(
+            avatar_packet.animate.scale(5).set_opacity(0),
+            earth_system.animate.set_color(GOLD_E).scale(1.2),
+            Flash(ORIGIN, color=GOLD, flash_radius=2.5, num_lines=20),
+            run_time=3.0
+        )
+        
+        # 12.0 - 15.0: System update rings
+        rings = VGroup(*[Circle(radius=0.5*i, color=GOLD, stroke_opacity=1-0.2*i) for i in range(1, 6)])
+        self.play(
+            LaggedStartMap(GrowFromCenter, rings, lag_ratio=0.2),
+            earth_system.animate.scale(0.8).set_color(BLUE_A),
+            run_time=3.0
+        )
+        
+        # 15.0 - 17.18: Final Wait
+        self.wait(2.18)
+from manim import *
+import numpy as np
+
+# ASPECT RATIO CONFIG
+config.frame_width = 9
+config.frame_height = 16
+config.pixel_width = 1080
+config.pixel_height = 1920
+
+class Segment001(Scene):
+    def construct(self):
+        # 16.18s Total Duration
+        
+        # Elements
+        processor = RoundedRectangle(corner_radius=0.5, height=3, width=4, color=PURPLE_E, fill_opacity=0.3)
+        processor_label = Text("GITA PROCESSOR", weight=BOLD, font_size=24).next_to(processor, UP)
+        
+        # Packets
+        karma_inputs = VGroup(*[Square(side_length=0.3, color=WHITE, fill_opacity=0.8) for _ in range(5)])
+        karma_inputs.arrange(DOWN, buff=0.4).move_to(LEFT * 5)
+        
+        refined_outputs = VGroup(*[Star(n=5, outer_radius=0.2, color=GOLD, fill_opacity=1) for _ in range(5)])
+        refined_outputs.arrange(DOWN, buff=0.4).move_to(RIGHT * 5)
+        
+        flow_arrow = Arrow(LEFT * 2, RIGHT * 2, color=WHITE)
+
+        # Sequence
+        # 0.0 - 2.0: Processor appears
+        self.play(Create(processor), Write(processor_label), run_time=2.0)
+        
+        # 2.0 - 5.0: Action packets flow in
+        self.play(
+            LaggedStart(*[
+                mob.animate.move_to(processor.get_center()).set_opacity(0)
+                for mob in karma_inputs
+            ], lag_ratio=0.4),
+            processor.animate.set_fill(PURPLE_A, opacity=0.6),
+            run_time=3.0
+        )
+        
+        # 5.0 - 8.0: Processing animation
+        self.play(
+            Rotating(processor, angle=TAU, run_time=3.0),
+            Indicate(processor, color=PURPLE_A, scale_factor=1.1)
+        )
+        
+        # 8.0 - 11.0: Refined packets emerge
+        self.play(
+            LaggedStart(*[
+                mob.animate.move_to(RIGHT * 3.5).set_opacity(1)
+                for mob in refined_outputs
+            ], lag_ratio=0.4),
+            processor.animate.set_fill(PURPLE_E, opacity=0.3),
+            run_time=3.0
+        )
+        
+        # 11.0 - 14.0: Flow arrow and final transformation
+        self.play(
+            GrowArrow(flow_arrow),
+            refined_outputs.animate.shift(RIGHT * 1.5).scale(1.2),
+            run_time=3.0
+        )
+        
+        # 14.0 - 16.18: Final Wait
+        self.wait(2.18)
+from manim import *
+import numpy as np
+
+# ASPECT RATIO CONFIG
+config.frame_width = 9
+config.frame_height = 16
+config.pixel_width = 1080
+config.pixel_height = 1920
+
+class Segment002(Scene):
+    def construct(self):
+        # 17.45s Total Duration
+        
+        # Elements
+        devotee = LabeledDot(Text("DEVOTEE", font_size=20, color=BLACK), radius=0.8, color=WHITE).move_to(DOWN * 4 + LEFT * 2)
+        grace_node = VGroup(
+            Circle(radius=1.2, color=BLUE_E, fill_opacity=0.5),
+            Star(n=12, outer_radius=1.0, inner_radius=0.8, color=BLUE_A)
+        ).move_to(UP * 2)
+        
+        surrender_packet = Dot(color=YELLOW, radius=0.15).move_to(devotee.get_center())
+        
+        shield = AnnularSector(inner_radius=1.5, outer_radius=1.7, angle=TAU, color=BLUE_B, fill_opacity=0.3).move_to(devotee.get_center())
+
+        # Sequence
+        # 0.0 - 2.0: Nodes appear
+        self.play(FadeIn(devotee, shift=UP), DrawBorderThenFill(grace_node), run_time=2.0)
+        
+        # 2.0 - 5.0: Surrender signal
+        self.play(
+            surrender_packet.animate.move_to(grace_node.get_center()),
+            rate_func=rush_into,
+            run_time=3.0
+        )
+        
+        # 5.0 - 8.0: Grace expands (Mountain lifting)
+        self.play(
+            grace_node.animate.scale(2).shift(UP * 2),
+            ApplyWave(grace_node),
+            run_time=3.0
+        )
+        
+        # 8.0 - 11.0: Shield activation
+        self.play(
+            Create(shield),
+            Flash(devotee, color=BLUE_A, flash_radius=1.8),
+            run_time=3.0
+        )
+        
+        # 11.0 - 14.0: Environment transformation
+        bg_glow = Circle(radius=6, color=BLUE_E, fill_opacity=0.15).move_to(devotee.get_center())
+        self.play(
+            FadeIn(bg_glow, scale=0.1),
+            devotee.animate.set_color(GOLD),
+            shield.animate.set_opacity(0.6).scale(1.1),
+            run_time=3.0
+        )
+        
+        # 14.0 - 17.45: Final Wait
+        self.wait(3.45)
+from manim import *
+import numpy as np
+
+# ASPECT RATIO CONFIG
+config.frame_width = 9
+config.frame_height = 16
+config.pixel_width = 1080
+config.pixel_height = 1920
+
+class Segment003(Scene):
+    def construct(self):
+        # 16.58s Total Duration
+        
+        # Elements
+        vishwaroop = VGroup(
+            RegularPolygon(n=20, radius=2.5, color=GOLD_E, fill_opacity=0.2),
+            Star(n=30, outer_radius=2.3, inner_radius=2.0, color=GOLD_A, stroke_width=1),
+            Circle(radius=0.5, color=GOLD, fill_opacity=1)
+        ).move_to(ORIGIN)
+        
+        souls = VGroup(*[
+            Dot(radius=0.1, color=WHITE).move_to([
+                np.cos(i * TAU / 8) * 4,
+                np.sin(i * TAU / 8) * 6,
+                0
+            ]) for i in range(8)
+        ])
+        
+        sub_badge = RoundedRectangle(corner_radius=0.2, height=0.8, width=3, color=RED, fill_opacity=1).to_edge(DOWN, buff=2)
+        sub_text = Text("SUBSCRIBE", font_size=24, weight=BOLD).move_to(sub_badge.get_center())
+        sub_group = VGroup(sub_badge, sub_text)
+
+        # Sequence
+        # 0.0 - 3.0: Universal form appears
+        self.play(
+            SpinInFromNothing(vishwaroop),
+            Rotating(vishwaroop[1], angle=TAU/4),
+            run_time=3.0
+        )
+        
+        # 3.0 - 6.0: Souls emerge
+        self.play(
+            LaggedStart(*[
+                FadeIn(soul, scale=0.5, shift=soul.get_center()*0.2)
+                for soul in souls
+            ], lag_ratio=0.2),
+            vishwaroop.animate.scale(1.1),
+            run_time=3.0
+        )
+        
+        # 6.0 - 9.0: Souls return to source
+        self.play(
+            LaggedStart(*[
+                soul.animate.move_to(ORIGIN).set_opacity(0)
+                for soul in souls
+            ], lag_ratio=0.1),
+            vishwaroop.animate.scale(1.2).set_color(WHITE),
+            run_time=3.0
+        )
+        
+        # 9.0 - 12.0: Final Pulse
+        self.play(
+            vishwaroop.animate.scale(0.8).set_color(GOLD),
+            Flash(ORIGIN, color=GOLD, flash_radius=3, num_lines=30),
+            run_time=3.0
+        )
+        
+        # 12.0 - 14.0: Subscribe
+        self.play(
+            FadeIn(sub_group, shift=UP),
+            Wiggle(sub_group),
+            run_time=2.0
+        )
+        
+        # 14.0 - 16.58: Final Wait
+        self.wait(2.58)

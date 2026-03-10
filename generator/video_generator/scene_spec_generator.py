@@ -254,6 +254,23 @@ Good: "Boom! That's actually it. Simple, right?"
 Bad: "Today we will explore the concept of..."
 Bad: "X is defined as a mechanism whereby..."
 
+## OUTRO SIGN-OFF (MANDATORY for final scene)
+
+The LAST scene (type: OUTRO) MUST end with a friendly, casual sign-off.
+Sound like you're saying bye to a friend, NOT reading a script.
+
+Good examples:
+- "That's it! Thanks for watching, and don't forget to subscribe to Code Tapasya!"
+- "That's all for now! Meet you again with more cool stuff — like and subscribe to Code Tapasya!"
+- "And there you have it! Hope this helped — drop a like and subscribe to Code Tapasya!"
+- "Pretty cool, right? Catch you in the next one — subscribe to Code Tapasya!"
+
+Bad (too formal):
+- "Thank you for watching this educational content. Please subscribe."
+- "This concludes our video. Don't forget to like and subscribe."
+
+The narration MUST mention "Code Tapasya" and feel like a friendly goodbye.
+
 ---
 
 ## AVAILABLE VISUAL PRIMITIVES
@@ -362,6 +379,8 @@ Before outputting, verify:
 
 Generate {num_scenes} scenes for "{topic}".
 Focus on visual intent and meaning. VisualDirector handles the rest.
+
+REMINDER: The FINAL scene (OUTRO) narration MUST end with "Code Tapasya" sign-off and subscribe CTA!
 '''
 
 

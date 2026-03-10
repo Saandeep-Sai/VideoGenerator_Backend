@@ -315,6 +315,13 @@ config.pixel_height = {pixel_height}
 8. Process visualization > labeled diagrams
 9. End with self.wait() to fill remaining duration exactly
 
+## FINAL SEGMENT SIGN-OFF
+If this is the LAST segment (OUTRO), the narration should end with a friendly, casual goodbye:
+- "That's it! Thanks for watching, don't forget to subscribe to Code Tapasya!"
+- "That's all for now! Meet you again — like and subscribe to Code Tapasya!"
+- "Pretty cool, right? Catch you next time — subscribe to Code Tapasya!"
+Keep it warm and human, like saying bye to a friend.
+
 ## STABILITY GUIDELINES
 - Prefer well-known Manim patterns. Avoid experimental APIs.
 - Always check that objects exist before transforming them.

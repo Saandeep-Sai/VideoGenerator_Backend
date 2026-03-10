@@ -39,7 +39,11 @@ CONSTRAINTS
 VIDEO STRUCTURE (BUILT-IN)
 - SEGMENT 1 (HOOK): Start with a friendly question or relatable scenario that hooks the viewer immediately. NO formal intro. Talk TO the viewer like a friend explaining something cool.
 - MIDDLE SEGMENTS: Core educational content
-- FINAL SEGMENT (OUTRO): Conclusion + brief "If this helped, subscribe to Code Tapasya!"
+- FINAL SEGMENT (OUTRO): Wrap up the concept naturally, then end with a warm, friendly sign-off like:
+  "That's it! Thanks for watching, and don't forget to subscribe to Code Tapasya!"
+  OR "That's all for now! Meet you again with more cool stuff — like and subscribe to Code Tapasya!"
+  OR "And there you have it! Hope this helped — drop a like and subscribe to Code Tapasya!"
+  OR "Pretty cool, right? See you in the next one — don't forget to subscribe to Code Tapasya!"
 
 TONE & STYLE
 - Talk like you're explaining to a curious friend over coffee
@@ -85,7 +89,7 @@ OUTPUT JSON
 
 RULES
 - Segment 1 MUST hook immediately with a question or relatable scenario. NO formal intro.
-- Final segment ends with a casual subscribe mention.
+- Final segment MUST end with a friendly, casual "Code Tapasya" sign-off (like talking to a friend).
 - Talk TO the viewer, not AT them.
 - Concepts accumulate visually.
 - Durations sum EXACTLY to {duration}s.

@@ -1,0 +1,655 @@
+2026-03-08 14:07:05,191 - root - WARNING - APScheduler not installed. Manual trigger only.
+--- Logging error ---
+Traceback (most recent call last):
+2026-03-08 14:07:05,296 - __main__ - INFO - ======================================================================
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f9ea' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 424, in main
+    bootstrapper = AnalyticsBootstrapper(dry_run=args.dry_run, limit=args.limit)
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 181, in __init__
+    self.firestore = BootstrapFirestoreClient(dry_run=dry_run)
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 100, in __init__
+    logger.info("\U0001f9ea DRY RUN MODE ù no data will be written to Firestore")
+Message: '\U0001f9ea DRY RUN MODE ù no data will be written to Firestore'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f9ea' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 424, in main
+    bootstrapper = AnalyticsBootstrapper(dry_run=args.dry_run, limit=args.limit)
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 181, in __init__
+    self.firestore = BootstrapFirestoreClient(dry_run=dry_run)
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 100, in __init__
+    logger.info("\U0001f9ea DRY RUN MODE ù no data will be written to Firestore")
+Message: '\U0001f9ea DRY RUN MODE ù no data will be written to Firestore'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f680' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 344, in run
+    logger.info("\U0001f680 ANALYTICS BOOTSTRAP")
+Message: '\U0001f680 ANALYTICS BOOTSTRAP'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f680' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 344, in run
+    logger.info("\U0001f680 ANALYTICS BOOTSTRAP")
+Message: '\U0001f680 ANALYTICS BOOTSTRAP'
+Arguments: ()
+2026-03-08 14:07:05,298 - __main__ - INFO -    Mode: DRY RUN
+2026-03-08 14:07:05,298 - __main__ - INFO -    Limit: 5 videos
+2026-03-08 14:07:05,298 - __main__ - INFO - ======================================================================
+2026-03-08 14:07:05,305 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-03-08 14:07:05,313 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-03-08 14:07:05,313 - analytics.youtube_oauth_analytics - INFO - YouTube API services initialized
+2026-03-08 14:07:05,932 - analytics.youtube_oauth_analytics - INFO - Connected to channel: CodeTapasya (UCactopFoLgFXRkBf91brwPQ)
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 350, in run
+    if not self.connect_youtube():
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 206, in connect_youtube
+    logger.info("\u2705 YouTube API connected")
+Message: '\u2705 YouTube API connected'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 350, in run
+    if not self.connect_youtube():
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 206, in connect_youtube
+    logger.info("\u2705 YouTube API connected")
+Message: '\u2705 YouTube API connected'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4fa' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 230, in fetch_all_videos
+    logger.info(f"\U0001f4fa Channel: {channel_title}")
+Message: '\U0001f4fa Channel: CodeTapasya'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4fa' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 230, in fetch_all_videos
+    logger.info(f"\U0001f4fa Channel: {channel_title}")
+Message: '\U0001f4fa Channel: CodeTapasya'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 231, in fetch_all_videos
+    logger.info(f"\U0001f4ca Total videos on channel: {total_videos}")
+Message: '\U0001f4ca Total videos on channel: 253'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 231, in fetch_all_videos
+    logger.info(f"\U0001f4ca Total videos on channel: {total_videos}")
+Message: '\U0001f4ca Total videos on channel: 253'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4cb' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 232, in fetch_all_videos
+    logger.info(f"\U0001f4cb Fetching up to {self.limit} videos...")
+Message: '\U0001f4cb Fetching up to 5 videos...'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4cb' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 232, in fetch_all_videos
+    logger.info(f"\U0001f4cb Fetching up to {self.limit} videos...")
+Message: '\U0001f4cb Fetching up to 5 videos...'
+Arguments: ()
+2026-03-08 14:07:06,431 - __main__ - INFO -   Fetched 50 videos so far...
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 263, in fetch_all_videos
+    logger.info(f"\u2705 Found {len(videos)} videos total")
+Message: '\u2705 Found 50 videos total'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 355, in run
+    videos = self.fetch_all_videos()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 263, in fetch_all_videos
+    logger.info(f"\u2705 Found {len(videos)} videos total")
+Message: '\u2705 Found 50 videos total'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 361, in run
+    logger.info(f"\n\U0001f4ca Processing {len(videos)} videos...")
+Message: '\n\U0001f4ca Processing 5 videos...'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 361, in run
+    logger.info(f"\n\U0001f4ca Processing {len(videos)} videos...")
+Message: '\n\U0001f4ca Processing 5 videos...'
+Arguments: ()
+2026-03-08 14:07:07,660 - __main__ - INFO -   [1/5] Dev Environments You Can TRASH?! Ephemeral Magic! ... [general]
+2026-03-08 14:07:10,322 - __main__ - INFO -   [DRY RUN] Would save: EQiuLY54JqY
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f680' in position 85: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [2/5] Trunk-Based Dev is a SPEED HACK! \U0001f680 #Shorts... [general]'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f680' in position 85: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [2/5] Trunk-Based Dev is a SPEED HACK! \U0001f680 #Shorts... [general]'
+Arguments: ()
+2026-03-08 14:07:11,371 - __main__ - INFO -   [DRY RUN] Would save: jmppvpTFFJw
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f92f' in position 93: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [3/5] My Mind Was BLOWN by AI Agents for Devs! \U0001f92f #Shorts... [ai_ml]'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f92f' in position 93: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [3/5] My Mind Was BLOWN by AI Agents for Devs! \U0001f92f #Shorts... [ai_ml]'
+Arguments: ()
+2026-03-08 14:07:12,453 - __main__ - INFO -   [DRY RUN] Would save: hfVlrOsSb90
+2026-03-08 14:07:12,453 - __main__ - INFO -   [4/5] The Feature Flag Secret for ZERO Deployment Fear! ... [general]
+2026-03-08 14:07:13,508 - __main__ - INFO -   [DRY RUN] Would save: RBTRAq21mHU
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f92f' in position 101: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [5/5] Wait, WebAssembly is Doing WHAT to Backend Dev?! \U0001f92f... [web]'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f92f' in position 101: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 368, in run
+    logger.info(f"  [{i}/{len(videos)}] {title_short}... [{cluster}]")
+Message: '  [5/5] Wait, WebAssembly is Doing WHAT to Backend Dev?! \U0001f92f... [web]'
+Arguments: ()
+2026-03-08 14:07:14,587 - __main__ - INFO -   [DRY RUN] Would save: pqPmqmu_38Q
+2026-03-08 14:07:14,587 - __main__ - INFO - 
+======================================================================
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 388, in _print_summary
+    logger.info("\U0001f4ca BOOTSTRAP COMPLETE")
+Message: '\U0001f4ca BOOTSTRAP COMPLETE'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4ca' in position 44: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 388, in _print_summary
+    logger.info("\U0001f4ca BOOTSTRAP COMPLETE")
+Message: '\U0001f4ca BOOTSTRAP COMPLETE'
+Arguments: ()
+2026-03-08 14:07:14,592 - __main__ - INFO - ======================================================================
+2026-03-08 14:07:14,592 - __main__ - INFO -   Total videos found:       50
+2026-03-08 14:07:14,592 - __main__ - INFO -   Already tracked (skipped): 0
+2026-03-08 14:07:14,593 - __main__ - INFO -   Newly saved to Firestore:  5
+2026-03-08 14:07:14,593 - __main__ - INFO -   Statistics fetched:        5
+2026-03-08 14:07:14,593 - __main__ - INFO -   Analytics fetched:         0
+2026-03-08 14:07:14,593 - __main__ - INFO -   Failed:                    0
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4cb' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 398, in _print_summary
+    logger.info(f"\n\U0001f4cb Topic Cluster Distribution:")
+Message: '\n\U0001f4cb Topic Cluster Distribution:'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4cb' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 398, in _print_summary
+    logger.info(f"\n\U0001f4cb Topic Cluster Distribution:")
+Message: '\n\U0001f4cb Topic Cluster Distribution:'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 66-68: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  general           3 \u2588\u2588\u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 66-68: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  general           3 \u2588\u2588\u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2588' in position 66: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  ai_ml             1 \u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2588' in position 66: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  ai_ml             1 \u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2588' in position 66: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  web               1 \u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2588' in position 66: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 402, in _print_summary
+    logger.info(f"  {cluster:15s} {count:3d} {bar}")
+Message: '  web               1 \u2588'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 408, in _print_summary
+    logger.info("\n\u2705 Next steps:")
+Message: '\n\u2705 Next steps:'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "D:\python3.11.9\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "D:\python3.11.9\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 46: character maps to <undefined>
+Call stack:
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 431, in <module>
+    main()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 425, in main
+    success = bootstrapper.run()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 382, in run
+    self._print_summary()
+  File "D:\Video_Generator\backend\bootstrap_analytics.py", line 408, in _print_summary
+    logger.info("\n\u2705 Next steps:")
+Message: '\n\u2705 Next steps:'
+Arguments: ()
+2026-03-08 14:07:14,610 - __main__ - INFO -    1. Run: python -m analytics.smart_topic_selector
+2026-03-08 14:07:14,611 - __main__ - INFO -    2. Check cluster priorities are now based on REAL data
+2026-03-08 14:07:14,611 - __main__ - INFO - ======================================================================

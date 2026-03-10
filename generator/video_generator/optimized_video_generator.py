@@ -5794,7 +5794,7 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="Explain about Deterministic Finite Automata (DFA)", 
+            topic="Explain about Lord Krishna", 
             duration=60,
         )
 

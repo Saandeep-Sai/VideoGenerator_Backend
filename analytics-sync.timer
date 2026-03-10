@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Analytics Sync (Every Sunday 2:00 AM IST / Saturday 20:30 UTC)
+Requires=analytics-sync.service
+
+[Timer]
+# Sunday 2:00 AM IST = Saturday 20:30 UTC
+OnCalendar=Sat *-*-* 20:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
