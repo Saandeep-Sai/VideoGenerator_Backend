@@ -15,6 +15,7 @@ Usage:
 
 import os
 import sys
+import io
 import time
 import logging
 import argparse
@@ -26,12 +27,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+# Force UTF-8 for stdout on Windows
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('sync_analytics.log')
+        logging.FileHandler('sync_analytics.log', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -217,7 +222,113 @@ def sync_analytics(dry_run: bool = False):
     logger.info(f"  New:     {stats['new']}")
     logger.info(f"  Failed:  {stats['failed']}")
     logger.info("=" * 60)
+    
+    # Step 4: Generate winning patterns
+    if not dry_run and db:
+        generate_winning_patterns(db, collection)
+    elif dry_run:
+        logger.info("  [DRY RUN] Would generate winning_patterns.json")
+    
     return True
+
+
+def generate_winning_patterns(db, collection: str = "video_analytics"):
+    """
+    Analyze all tracked videos, tag as win/loss, and save winning patterns.
+    
+    Win = views above channel average
+    Loss = views below channel average
+    
+    Saves winning_patterns.json for the smart topic selector.
+    """
+    import json
+    
+    logger.info("\n🏆 Generating winning patterns...")
+    
+    try:
+        # Read all videos from Firestore
+        docs = db.collection(collection).limit(500).get()
+        videos = []
+        for doc in docs:
+            data = doc.to_dict()
+            metrics = data.get("metrics", {})
+            views = metrics.get("views_total", 0)
+            if isinstance(views, str):
+                views = int(views) if views.isdigit() else 0
+            
+            videos.append({
+                "video_id": doc.id,
+                "title": data.get("title", data.get("topic", "")),
+                "views": views,
+                "retention": metrics.get("avg_view_percentage", 0),
+                "likes": metrics.get("likes", 0),
+                "comments": metrics.get("comments", 0),
+                "cluster": data.get("topic_cluster", "general"),
+                "published_at": data.get("published_at", ""),
+            })
+        
+        if not videos:
+            logger.warning("  No videos found in Firestore")
+            return
+        
+        # Calculate channel average
+        total_views = sum(v["views"] for v in videos)
+        avg_views = total_views / len(videos)
+        
+        # Tag videos as win/loss
+        wins = []
+        losses = 0
+        for v in videos:
+            if v["views"] >= avg_views:
+                wins.append(v)
+            else:
+                losses += 1
+        
+        # Sort wins by views (best first)
+        wins.sort(key=lambda x: x["views"], reverse=True)
+        
+        # Save winning patterns
+        patterns = {
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "total_videos": len(videos),
+            "channel_avg_views": round(avg_views, 1),
+            "win_count": len(wins),
+            "loss_count": losses,
+            "winners": [
+                {
+                    "title": w["title"],
+                    "views": w["views"],
+                    "retention": round(w["retention"], 1),
+                    "likes": w["likes"],
+                    "cluster": w["cluster"],
+                }
+                for w in wins[:10]  # Top 10 winners
+            ]
+        }
+        
+        patterns_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                      "winning_patterns.json")
+        with open(patterns_path, 'w') as f:
+            json.dump(patterns, f, indent=2)
+        
+        logger.info(f"  ✅ Saved winning_patterns.json")
+        logger.info(f"  📊 Channel avg: {avg_views:.0f} views")
+        logger.info(f"  🏆 Winners: {len(wins)} | 📉 Losses: {losses}")
+        logger.info(f"  🥇 Top: \"{wins[0]['title'][:45]}...\" ({wins[0]['views']} views)")
+        
+        # Also update Firestore with win/loss tags
+        batch = db.batch()
+        for v in videos:
+            outcome = "win" if v["views"] >= avg_views else "loss"
+            ref = db.collection(collection).document(v["video_id"])
+            batch.update(ref, {"outcome": outcome})
+        batch.commit()
+        logger.info(f"  ✅ Tagged {len(videos)} videos with win/loss in Firestore")
+        
+    except Exception as e:
+        logger.error(f"  ❌ Failed to generate winning patterns: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def main():
@@ -231,3 +342,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

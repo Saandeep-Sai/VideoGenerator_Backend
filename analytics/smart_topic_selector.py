@@ -422,17 +422,11 @@ class SmartTopicSelector:
 # INTEGRATION WITH CONTENT GENERATOR
 # =============================================================================
 
-def get_smart_topic() -> str:
-    """
-    Get a smart topic suggestion based on analytics.
-    
-    This function can be called instead of generate_trending_topic()
-    to use analytics-driven topic selection.
-    """
+def get_smart_topic_from_clusters() -> str:
+    """Legacy: Get topic from cluster analytics (used as fallback)."""
     selector = SmartTopicSelector()
     cluster, topic = selector.get_next_topic_suggestion()
-    
-    logger.info(f"Smart topic selection: [{cluster}] {topic}")
+    logger.info(f"Cluster-based topic: [{cluster}] {topic}")
     return topic
 
 
@@ -440,6 +434,148 @@ def get_prioritized_cluster() -> str:
     """Get the highest priority cluster for next video."""
     selector = SmartTopicSelector()
     return selector.select_cluster_for_next_video()
+
+
+def _load_winning_patterns() -> list:
+    """Load winning patterns from file."""
+    import json
+    patterns_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                  "winning_patterns.json")
+    try:
+        if os.path.exists(patterns_path):
+            with open(patterns_path, 'r') as f:
+                data = json.load(f)
+                return data.get("winners", [])
+    except Exception as e:
+        logger.debug(f"Could not load winning patterns: {e}")
+    return []
+
+
+def _load_used_topics(days: int = 30) -> set:
+    """Load recently used topics from history file."""
+    import json
+    from datetime import timedelta
+    
+    history_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                 "youtube_shorts_history.json")
+    used = set()
+    try:
+        if os.path.exists(history_path):
+            with open(history_path, 'r') as f:
+                history = json.load(f)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            for topic, ts in history.items():
+                try:
+                    t = datetime.fromisoformat(ts)
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=timezone.utc)
+                    if t > cutoff:
+                        used.add(topic.lower().strip())
+                except (ValueError, TypeError):
+                    used.add(topic.lower().strip())
+    except Exception as e:
+        logger.debug(f"Could not load topic history: {e}")
+    return used
+
+
+def get_smart_topic() -> str:
+    """
+    Get a smart topic using trending-NOW generation + winning patterns feedback.
+    
+    Strategy:
+    1. Load winning title patterns from past performance
+    2. Ask Gemini for a trending tech topic RIGHT NOW
+    3. Cross-reference against used topics to avoid repeats
+    4. Fall back to cluster-based selection if Gemini fails
+    """
+    import json
+    
+    # Load context
+    winners = _load_winning_patterns()
+    used_topics = _load_used_topics(days=30)
+    
+    # Build winning context for Gemini
+    winning_context = ""
+    if winners:
+        winner_titles = [w["title"] for w in winners[:8]]
+        winning_context = f"""
+These recent video titles performed BEST with our audience:
+{chr(10).join(f'  - "{t}"' for t in winner_titles)}
+
+Generate a topic that follows similar ENERGY and patterns — but on a DIFFERENT subject."""
+
+    # Build exclusion list
+    exclusion_text = ""
+    if used_topics:
+        recent = list(used_topics)[:15]
+        exclusion_text = f"""
+DO NOT generate anything similar to these recently covered topics:
+{chr(10).join(f'  - {t}' for t in recent)}"""
+
+    prompt = f"""You are a YouTube Shorts content strategist for a programming/tech channel called "Code Tapasya".
+
+Generate ONE specific topic for a 60-second YouTube Short that is:
+1. TRENDING RIGHT NOW in tech/programming (March 2026)
+2. Highly searchable — something developers are actively Googling
+3. Perfect for a punchy, scroll-stopping 60-second explainer
+4. Beginner to intermediate level
+
+{winning_context}
+{exclusion_text}
+
+THINK about what's hot in tech RIGHT NOW:
+- New framework releases, language updates, AI tool launches
+- Viral dev debates (tabs vs spaces, is X dead, etc.)
+- Emerging trends that developers are buzzing about
+- Security incidents or breaking changes developers need to know about
+
+OUTPUT: Return ONLY the topic title. Make it specific, curiosity-driven, and click-worthy.
+Example good outputs:
+"Why Every Developer is Switching to Bun in 2026"
+"The AI Coding Tool That's Replacing Stack Overflow"
+"This New CSS Feature Makes Flexbox Obsolete"
+
+Your topic:"""
+
+    # Try Gemini for trending topic
+    try:
+        from google import genai
+        from google.genai import types
+        
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("No GEMINI_API_KEY")
+        
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(temperature=0.8, max_output_tokens=200)
+        
+        for attempt in range(3):
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config=config
+            )
+            
+            if response and response.text:
+                topic = response.text.strip().replace('"', '').replace("'", "")
+                # Check it's not a repeat
+                if topic.lower().strip() not in used_topics:
+                    logger.info(f"🔥 Trending topic: {topic}")
+                    return topic
+                else:
+                    logger.warning(f"⚠️ Trending topic '{topic}' already used, retrying...")
+        
+        logger.warning("⚠️ Trending generation exhausted, falling back to clusters")
+    except Exception as e:
+        logger.warning(f"⚠️ Trending topic generation failed: {e}, falling back to clusters")
+    
+    # Fallback to cluster-based selection
+    return get_smart_topic_from_clusters()
+
+
+def get_winning_patterns() -> list:
+    """Get winning patterns for use by other modules."""
+    return _load_winning_patterns()
 
 
 # =============================================================================
@@ -451,19 +587,24 @@ if __name__ == "__main__":
     
     print("=== Smart Topic Selector ===\n")
     
-    selector = SmartTopicSelector()
+    # Test trending topic
+    print("--- Trending Topic (Gemini) ---")
+    topic = get_smart_topic()
+    print(f"  → {topic}")
     
-    # Get cluster analytics
-    print("Cluster Performance:")
+    # Show cluster analytics
+    print("\n--- Cluster Performance ---")
+    selector = SmartTopicSelector()
     for cluster in selector.get_cluster_priorities():
         trend_emoji = {"rising": "📈", "stable": "➡️", "declining": "📉"}.get(cluster.trend, "❓")
         print(f"  {cluster.cluster_name}: priority={cluster.priority_score:.2f} {trend_emoji} ({cluster.video_count} videos)")
     
-    print("\n--- Topic Suggestions ---")
-    for i in range(5):
-        cluster, topic = selector.get_next_topic_suggestion()
-        print(f"  [{cluster}] {topic}")
-    
-    print("\n--- Analytics Summary ---")
-    summary = selector.get_analytics_summary()
-    print(f"  Recommended cluster: {summary['recommendation']}")
+    # Show winning patterns
+    print("\n--- Winning Patterns ---")
+    winners = _load_winning_patterns()
+    if winners:
+        for w in winners[:5]:
+            print(f"  ✅ {w['title']} ({w.get('views', '?')} views)")
+    else:
+        print("  (none yet — run sync_analytics.py first)")
+

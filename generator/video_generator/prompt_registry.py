@@ -36,20 +36,31 @@ CONSTRAINTS
 - Segments: {num_segments}
 - Aspect Ratio: {aspect_ratio}
 
+{winning_patterns_context}
+
 VIDEO STRUCTURE (BUILT-IN)
-- SEGMENT 1 (HOOK): Start with a friendly question or relatable scenario that hooks the viewer immediately. NO formal intro. Talk TO the viewer like a friend explaining something cool.
+- SEGMENT 1 (HOOK — SCROLL STOPPER):
+  The FIRST SENTENCE must stop the viewer from scrolling. Use ONE of these patterns:
+  • CONTROVERSY: "Most developers get this completely wrong..."
+  • SHOCKING FACT: "This one trick saved 10 hours of debugging..."
+  • DIRECT CHALLENGE: "I bet you can't explain why this works..."
+  • MYSTERY: "There's a hidden feature in {topic} nobody talks about..."
+  • URGENCY: "Stop doing this. Seriously. Here's why."
+  • BOLD CLAIM: "This will change how you code forever."
+  
+  NO "Hey everyone", NO "Today we'll learn", NO "Welcome back".
+  The FIRST WORD must grab attention. Talk AS IF revealing a secret.
+
 - MIDDLE SEGMENTS: Core educational content
-- FINAL SEGMENT (OUTRO): Wrap up the concept naturally, then end with a warm, friendly sign-off like:
+- FINAL SEGMENT (OUTRO): Wrap up naturally, then end with a warm sign-off like:
   "That's it! Thanks for watching, and don't forget to subscribe to Code Tapasya!"
-  OR "That's all for now! Meet you again with more cool stuff — like and subscribe to Code Tapasya!"
-  OR "And there you have it! Hope this helped — drop a like and subscribe to Code Tapasya!"
   OR "Pretty cool, right? See you in the next one — don't forget to subscribe to Code Tapasya!"
 
 TONE & STYLE
-- Talk like you're explaining to a curious friend over coffee
+- Talk like you're revealing an insider secret to a friend
 - Use "you", "we", "let's" to create connection
-- Start with questions like "Ever wondered...", "What if I told you...", "You know how..."
-- Be genuinely enthusiastic, not scripted
+- Be genuinely enthusiastic with ENERGY, not scripted
+- Create curiosity gaps — tease what's coming before revealing
 
 COGNITIVE LAWS
 1. One idea per segment.
@@ -608,9 +619,17 @@ def get_aspect_params(aspect_ratio: str) -> dict:
 # FORMAT FUNCTIONS
 # ===============================================================
 
-def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16") -> str:
+def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16", winning_patterns: list = None) -> str:
     num_segments = max(3, round(duration / 15))
     seconds_per_segment = duration // num_segments
+
+    # Build winning patterns context
+    winning_patterns_context = ""
+    if winning_patterns:
+        titles = "\n".join(f"  - \"{p['title']}\" ({p.get('views', '?')} views)" for p in winning_patterns[:5])
+        winning_patterns_context = f"""WINNING PATTERNS (these titles performed well with YOUR audience — learn from them):
+{titles}
+Generate a topic and narration style that follows similar energy and patterns."""
 
     return NARRATIVE_DIRECTOR_PROMPT.format(
         topic=topic,
@@ -618,6 +637,7 @@ def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16")
         num_segments=num_segments,
         seconds_per_segment=seconds_per_segment,
         aspect_ratio=aspect_ratio,
+        winning_patterns_context=winning_patterns_context,
     )
 
 def format_narrative_retry_prompt(topic: str, duration: int) -> str:

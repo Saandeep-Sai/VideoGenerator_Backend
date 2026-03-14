@@ -1,7 +1,6 @@
 from manim import *
 import numpy as np
 
-# ASPECT RATIO CONFIG
 config.frame_width = 9
 config.frame_height = 16
 config.pixel_width = 1080
@@ -9,70 +8,73 @@ config.pixel_height = 1920
 
 class Segment000(Scene):
     def construct(self):
-        # 17.18s Total Duration
+        # 1. Setup WebGL Bottleneck (0-2s)
+        pipe = Rectangle(height=12, width=1.5, color=GREY_B, stroke_width=4)
+        pipe.to_edge(LEFT, buff=1.5)
         
-        # Elements
-        earth_system = VGroup(
-            Circle(radius=2, color=BLUE_E, stroke_width=8),
-            Circle(radius=1.8, color=BLUE_D, stroke_width=2, stroke_opacity=0.5),
-            NumberPlane(x_range=[-2, 2, 1], y_range=[-2, 2, 1], 
-                        background_line_style={"stroke_opacity": 0.2}).scale(0.5)
-        ).move_to(ORIGIN)
+        webgl_circle = Circle(radius=0.6, color=RED, fill_opacity=0.3)
+        webgl_text = Text("WebGL", font_size=32, weight=BOLD, color=RED)
+        webgl_text.scale_to_fit_width(webgl_circle.get_width() * 0.8)
+        webgl_node = VGroup(webgl_circle, webgl_text).move_to(pipe.get_center() + UP * 4)
         
-        dharma_trigger = Star(n=8, outer_radius=0.8, inner_radius=0.4, color=GOLD).to_corner(UR, buff=1.5)
-        
-        avatar_packet = VGroup(
-            Dot(color=GOLD, radius=0.2),
-            Circle(radius=0.3, color=GOLD_A).set_stroke(width=2)
-        ).move_to(UP * 8)
-        
-        title = Text("COSMIC RESET", weight=BOLD, color=GOLD).scale_to_fit_width(config.frame_width * 0.6)
-        title.to_edge(UP, buff=1.0)
+        self.play(
+            Create(pipe),
+            FadeIn(webgl_node, shift=DOWN),
+            run_time=2.0
+        )
 
-        # Sequence
-        # 0.0 - 2.0: Earth system node appears
-        self.play(GrowFromCenter(earth_system), Write(title), run_time=2.0)
-        
-        # 2.0 - 4.0: Pulse glitch effect
+        # 2. Hitting a wall (2-5s)
+        # The node struggles to move down the narrow pipe
         self.play(
-            earth_system.animate.scale(1.1).set_color(RED_E),
-            Wiggle(earth_system, scale_value=1.1, rotation_angle=0.02),
-            run_time=1.0
+            webgl_node.animate.shift(DOWN * 2),
+            rate_func=slow_into,
+            run_time=1.5
         )
         self.play(
-            earth_system.animate.scale(1/1.1).set_color(BLUE_E),
-            run_time=1.0
+            Indicate(webgl_node, color=RED_E, scale_factor=1.2),
+            webgl_node.animate.set_color(RED_E),
+            Flash(webgl_node, color=RED, flash_radius=0.8),
+            run_time=1.5
         )
-        
-        # 4.0 - 6.0: Dharma trigger flash
-        self.play(FadeIn(dharma_trigger, shift=DOWN), run_time=1.0)
-        self.play(Circumscribe(dharma_trigger, color=WHITE, time_width=1.5), run_time=1.0)
-        
-        # 6.0 - 9.0: Avatar packet descends
-        self.play(avatar_packet.animate.move_to(ORIGIN), rate_func=slow_into, run_time=3.0)
-        
-        # 9.0 - 12.0: Interaction/Merge
+
+        # 3. WebGPU Takeover / Highway (5-8s)
+        highway = Rectangle(height=14, width=7, color=GOLD_E, stroke_width=2, fill_opacity=0.1)
+        webgpu_circle = Circle(radius=1.2, color=GOLD, fill_opacity=0.5)
+        webgpu_text = Text("WebGPU", font_size=40, weight=BOLD, color=GOLD)
+        webgpu_text.scale_to_fit_width(webgpu_circle.get_width() * 0.8)
+        webgpu_node = VGroup(webgpu_circle, webgpu_text).move_to(ORIGIN)
+
         self.play(
-            avatar_packet.animate.scale(5).set_opacity(0),
-            earth_system.animate.set_color(GOLD_E).scale(1.2),
-            Flash(ORIGIN, color=GOLD, flash_radius=2.5, num_lines=20),
+            ReplacementTransform(pipe, highway),
+            ReplacementTransform(webgl_node, webgpu_node),
+            run_time=3.0,
+            rate_func=rate_functions.ease_in_out_expo
+        )
+
+        # 4. Total Takeover - Expansion (8-11s)
+        self.play(
+            webgpu_node.animate.scale(1.5).set_color(TEAL),
+            highway.animate.set_stroke(TEAL, width=8),
+            run_time=3.0,
+            rate_func=wiggle
+        )
+
+        # 5. Direct Access - Arrow (11-14s)
+        access_arrow = Arrow(start=webgpu_node.get_right(), end=RIGHT * 4, color=WHITE, stroke_width=10)
+        hardware_label = Text("HARDWARE", font_size=24, color=WHITE).next_to(access_arrow, UP)
+        hardware_label.scale_to_fit_width(config.frame_width * 0.4)
+
+        self.play(
+            GrowArrow(access_arrow),
+            Write(hardware_label),
             run_time=3.0
         )
-        
-        # 12.0 - 15.0: System update rings
-        rings = VGroup(*[Circle(radius=0.5*i, color=GOLD, stroke_opacity=1-0.2*i) for i in range(1, 6)])
-        self.play(
-            LaggedStartMap(GrowFromCenter, rings, lag_ratio=0.2),
-            earth_system.animate.scale(0.8).set_color(BLUE_A),
-            run_time=3.0
-        )
-        
-        # 15.0 - 17.18: Final Wait
-        self.wait(2.18)
+
+        # 6. Final Wait (14-16.27s)
+        self.wait(2.27)
 from manim import *
 import numpy as np
 
-# ASPECT RATIO CONFIG
 config.frame_width = 9
 config.frame_height = 16
 config.pixel_width = 1080
@@ -80,64 +82,81 @@ config.pixel_height = 1920
 
 class Segment001(Scene):
     def construct(self):
-        # 16.18s Total Duration
+        # 1. Setup Stages (0-2s)
+        input_stage = RoundedRectangle(height=2, width=3, color=BLUE, corner_radius=0.2)
+        input_stage.to_corner(UL, buff=1.0)
+        input_label = Text("INPUT", font_size=24).move_to(input_stage)
         
-        # Elements
-        processor = RoundedRectangle(corner_radius=0.5, height=3, width=4, color=PURPLE_E, fill_opacity=0.3)
-        processor_label = Text("GITA PROCESSOR", weight=BOLD, font_size=24).next_to(processor, UP)
+        compute_stage = RegularPolygon(n=6, color=PURPLE, fill_opacity=0.2).scale(2)
+        compute_stage.move_to(ORIGIN)
+        compute_label = Text("COMPUTE\nSHADER", font_size=28, weight=BOLD).move_to(compute_stage)
+        compute_label.scale_to_fit_width(compute_stage.get_width() * 0.7)
         
-        # Packets
-        karma_inputs = VGroup(*[Square(side_length=0.3, color=WHITE, fill_opacity=0.8) for _ in range(5)])
-        karma_inputs.arrange(DOWN, buff=0.4).move_to(LEFT * 5)
-        
-        refined_outputs = VGroup(*[Star(n=5, outer_radius=0.2, color=GOLD, fill_opacity=1) for _ in range(5)])
-        refined_outputs.arrange(DOWN, buff=0.4).move_to(RIGHT * 5)
-        
-        flow_arrow = Arrow(LEFT * 2, RIGHT * 2, color=WHITE)
+        render_stage = RoundedRectangle(height=2, width=3, color=GREEN, corner_radius=0.2)
+        render_stage.to_corner(DR, buff=1.0)
+        render_label = Text("RENDER", font_size=24).move_to(render_stage)
 
-        # Sequence
-        # 0.0 - 2.0: Processor appears
-        self.play(Create(processor), Write(processor_label), run_time=2.0)
-        
-        # 2.0 - 5.0: Action packets flow in
+        self.play(
+            Create(input_stage), Write(input_label),
+            Create(compute_stage), Write(compute_label),
+            Create(render_stage), Write(render_label),
+            run_time=2.0
+        )
+
+        # 2. Data flows in (2-5s)
+        particles = VGroup(*[Dot(color=BLUE_A, radius=0.1) for _ in range(8)])
+        particles.arrange_in_grid(rows=2, cols=4, buff=0.2).move_to(input_stage)
+
         self.play(
             LaggedStart(*[
-                mob.animate.move_to(processor.get_center()).set_opacity(0)
-                for mob in karma_inputs
-            ], lag_ratio=0.4),
-            processor.animate.set_fill(PURPLE_A, opacity=0.6),
+                p.animate.move_to(compute_stage.get_center() + np.array([np.random.uniform(-0.5, 0.5), np.random.uniform(-0.5, 0.5), 0]))
+                for p in particles
+            ], lag_ratio=0.1),
             run_time=3.0
         )
-        
-        # 5.0 - 8.0: Processing animation
+
+        # 3. Massive Calculations - Morph (5-10s)
+        stars = VGroup(*[Star(n=5, outer_radius=0.2, inner_radius=0.1, color=GOLD) for _ in range(8)])
+        for i, s in enumerate(stars):
+            s.move_to(particles[i].get_center())
+
         self.play(
-            Rotating(processor, angle=TAU, run_time=3.0),
-            Indicate(processor, color=PURPLE_A, scale_factor=1.1)
+            ReplacementTransform(particles, stars),
+            stars.animate.rotate(TAU).scale(1.2),
+            run_time=5.0,
+            rate_func=smooth
         )
-        
-        # 8.0 - 11.0: Refined packets emerge
+
+        # 4. Supercomputer Brain - Pulse (10-14s)
+        rings = VGroup(*[Circle(radius=r, color=PURPLE, stroke_opacity=1-r/3) for r in np.linspace(0.5, 3, 5)])
+        rings.move_to(compute_stage)
+
         self.play(
             LaggedStart(*[
-                mob.animate.move_to(RIGHT * 3.5).set_opacity(1)
-                for mob in refined_outputs
-            ], lag_ratio=0.4),
-            processor.animate.set_fill(PURPLE_E, opacity=0.3),
-            run_time=3.0
+                Succession(
+                    FadeIn(ring, scale=0.5),
+                    ring.animate.scale(1.5).set_stroke(opacity=0),
+                ) for ring in rings
+            ], lag_ratio=0.3),
+            compute_stage.animate.set_fill(PURPLE, opacity=0.6),
+            run_time=4.0
         )
-        
-        # 11.0 - 14.0: Flow arrow and final transformation
+
+        # 5. Every Pixel - Multiply (14-17s)
+        pixel_grid = VGroup(*[Dot(radius=0.05, color=GREEN_A) for _ in range(64)])
+        pixel_grid.arrange_in_grid(rows=8, cols=8, buff=0.1).move_to(render_stage)
+
         self.play(
-            GrowArrow(flow_arrow),
-            refined_outputs.animate.shift(RIGHT * 1.5).scale(1.2),
+            TransformFromCopy(stars, pixel_grid),
+            stars.animate.set_opacity(0),
             run_time=3.0
         )
-        
-        # 14.0 - 16.18: Final Wait
-        self.wait(2.18)
+
+        # 6. Final Wait (17-19.03s)
+        self.wait(2.03)
 from manim import *
 import numpy as np
 
-# ASPECT RATIO CONFIG
 config.frame_width = 9
 config.frame_height = 16
 config.pixel_width = 1080
@@ -145,59 +164,76 @@ config.pixel_height = 1920
 
 class Segment002(Scene):
     def construct(self):
-        # 17.45s Total Duration
+        # 1. Setup GPU Core & AI Nodes (0-2s)
+        gpu_core = RoundedRectangle(height=3, width=3, color=GOLD, corner_radius=0.5, fill_opacity=0.2)
+        gpu_label = Text("WebGPU\nCORE", font_size=32, weight=BOLD, color=GOLD).move_to(gpu_core)
+        gpu_label.scale_to_fit_width(gpu_core.get_width() * 0.8)
         
-        # Elements
-        devotee = LabeledDot(Text("DEVOTEE", font_size=20, color=BLACK), radius=0.8, color=WHITE).move_to(DOWN * 4 + LEFT * 2)
-        grace_node = VGroup(
-            Circle(radius=1.2, color=BLUE_E, fill_opacity=0.5),
-            Star(n=12, outer_radius=1.0, inner_radius=0.8, color=BLUE_A)
-        ).move_to(UP * 2)
+        ai_node_1 = Circle(radius=0.8, color=TEAL, fill_opacity=0.3).shift(UP * 4 + RIGHT * 2)
+        ai_label_1 = Text("LLM", font_size=24).move_to(ai_node_1)
         
-        surrender_packet = Dot(color=YELLOW, radius=0.15).move_to(devotee.get_center())
-        
-        shield = AnnularSector(inner_radius=1.5, outer_radius=1.7, angle=TAU, color=BLUE_B, fill_opacity=0.3).move_to(devotee.get_center())
+        ai_node_2 = Circle(radius=0.8, color=PURPLE, fill_opacity=0.3).shift(DOWN * 4 + RIGHT * 2)
+        ai_label_2 = Text("Stable\nDiff", font_size=20).move_to(ai_node_2)
 
-        # Sequence
-        # 0.0 - 2.0: Nodes appear
-        self.play(FadeIn(devotee, shift=UP), DrawBorderThenFill(grace_node), run_time=2.0)
-        
-        # 2.0 - 5.0: Surrender signal
         self.play(
-            surrender_packet.animate.move_to(grace_node.get_center()),
-            rate_func=rush_into,
-            run_time=3.0
+            DrawBorderThenFill(gpu_core), Write(gpu_label),
+            FadeIn(ai_node_1, shift=LEFT), Write(ai_label_1),
+            FadeIn(ai_node_2, shift=LEFT), Write(ai_label_2),
+            run_time=2.0
         )
-        
-        # 5.0 - 8.0: Grace expands (Mountain lifting)
+
+        # 2. Emit Particles (2-6s)
+        def get_stream(start, end, color):
+            return VGroup(*[
+                Dot(radius=0.08, color=color).move_to(start)
+                for _ in range(5)
+            ])
+
+        stream1 = get_stream(gpu_core.get_center(), ai_node_1.get_center(), TEAL)
+        stream2 = get_stream(gpu_core.get_center(), ai_node_2.get_center(), PURPLE)
+
         self.play(
-            grace_node.animate.scale(2).shift(UP * 2),
-            ApplyWave(grace_node),
-            run_time=3.0
+            LaggedStart(*[
+                p.animate.move_to(ai_node_1.get_center())
+                for p in stream1
+            ], lag_ratio=0.2),
+            LaggedStart(*[
+                p.animate.move_to(ai_node_2.get_center())
+                for p in stream2
+            ], lag_ratio=0.2),
+            run_time=4.0
         )
+
+        # 3. Privacy Shield (6-10s)
+        shield = SurroundingRectangle(gpu_core, color=WHITE, buff=0.3, corner_radius=0.6)
+        shield_icon = Triangle(color=WHITE).scale(0.3).next_to(gpu_core, UP, buff=0.5)
         
-        # 8.0 - 11.0: Shield activation
         self.play(
             Create(shield),
-            Flash(devotee, color=BLUE_A, flash_radius=1.8),
-            run_time=3.0
+            FadeIn(shield_icon, shift=DOWN),
+            gpu_core.animate.set_fill(GREEN, opacity=0.4),
+            run_time=4.0
         )
-        
-        # 11.0 - 14.0: Environment transformation
-        bg_glow = Circle(radius=6, color=BLUE_E, fill_opacity=0.15).move_to(devotee.get_center())
+
+        # 4. Light Speed - Rapid Flashes (10-15s)
+        lines = VGroup(
+            Line(gpu_core.get_center(), ai_node_1.get_center(), color=GOLD_A, stroke_width=2),
+            Line(gpu_core.get_center(), ai_node_2.get_center(), color=GOLD_A, stroke_width=2),
+            Line(ai_node_1.get_center(), ai_node_2.get_center(), color=GOLD_A, stroke_width=1)
+        )
+
         self.play(
-            FadeIn(bg_glow, scale=0.1),
-            devotee.animate.set_color(GOLD),
-            shield.animate.set_opacity(0.6).scale(1.1),
-            run_time=3.0
+            LaggedStartMap(ShowPassingFlash, lines, run_time=5.0, time_width=0.5, lag_ratio=0.1),
+            ai_node_1.animate.scale(1.2),
+            ai_node_2.animate.scale(1.2),
+            rate_func=linear
         )
-        
-        # 14.0 - 17.45: Final Wait
-        self.wait(3.45)
+
+        # 5. Final Wait (15-17.86s)
+        self.wait(2.86)
 from manim import *
 import numpy as np
 
-# ASPECT RATIO CONFIG
 config.frame_width = 9
 config.frame_height = 16
 config.pixel_width = 1080
@@ -205,68 +241,49 @@ config.pixel_height = 1920
 
 class Segment003(Scene):
     def construct(self):
-        # 16.58s Total Duration
-        
-        # Elements
-        vishwaroop = VGroup(
-            RegularPolygon(n=20, radius=2.5, color=GOLD_E, fill_opacity=0.2),
-            Star(n=30, outer_radius=2.3, inner_radius=2.0, color=GOLD_A, stroke_width=1),
-            Circle(radius=0.5, color=GOLD, fill_opacity=1)
-        ).move_to(ORIGIN)
-        
-        souls = VGroup(*[
-            Dot(radius=0.1, color=WHITE).move_to([
-                np.cos(i * TAU / 8) * 4,
-                np.sin(i * TAU / 8) * 6,
-                0
-            ]) for i in range(8)
-        ])
-        
-        sub_badge = RoundedRectangle(corner_radius=0.2, height=0.8, width=3, color=RED, fill_opacity=1).to_edge(DOWN, buff=2)
-        sub_text = Text("SUBSCRIBE", font_size=24, weight=BOLD).move_to(sub_badge.get_center())
-        sub_group = VGroup(sub_badge, sub_text)
+        # 1. The Future Node (0-3s)
+        future_circle = Circle(radius=1.5, color=WHITE, stroke_width=2)
+        future_circle.set_fill(color=[BLUE, PURPLE, GOLD], opacity=0.3)
+        future_text = Text("THE FUTURE", font_size=42, weight=BOLD)
+        future_text.scale_to_fit_width(future_circle.get_width() * 0.8)
+        future_node = VGroup(future_circle, future_text).move_to(UP * 2)
 
-        # Sequence
-        # 0.0 - 3.0: Universal form appears
+        glow = future_circle.copy().scale(1.2).set_stroke(width=0).set_fill(WHITE, opacity=0.1)
+
         self.play(
-            SpinInFromNothing(vishwaroop),
-            Rotating(vishwaroop[1], angle=TAU/4),
+            SpinInFromNothing(future_node),
+            FadeIn(glow, scale=0.8),
             run_time=3.0
         )
-        
-        # 3.0 - 6.0: Souls emerge
+
+        # 2. Ultimate Platform - Expand (3-7s)
+        platform_rect = RoundedRectangle(height=4, width=7, color=BLUE_D, fill_opacity=0.1)
+        platform_rect.next_to(future_node, DOWN, buff=1)
+        platform_label = Text("ULTIMATE PLATFORM", font_size=32, color=BLUE_A)
+        platform_label.scale_to_fit_width(platform_rect.get_width() * 0.9)
+        platform_label.move_to(platform_rect)
+
         self.play(
-            LaggedStart(*[
-                FadeIn(soul, scale=0.5, shift=soul.get_center()*0.2)
-                for soul in souls
-            ], lag_ratio=0.2),
-            vishwaroop.animate.scale(1.1),
-            run_time=3.0
+            future_node.animate.scale(1.2).shift(UP * 1),
+            Create(platform_rect),
+            Write(platform_label),
+            run_time=4.0
         )
-        
-        # 6.0 - 9.0: Souls return to source
+
+        # 3. Subscribe to Code Tapasya (7-11s)
+        subscribe_badge = VGroup(
+            RoundedRectangle(height=1.5, width=6, color=RED, fill_opacity=0.8, corner_radius=0.4),
+            Text("SUBSCRIBE TO CODE TAPASYA", font_size=28, weight=BOLD, color=WHITE)
+        )
+        subscribe_badge[1].scale_to_fit_width(subscribe_badge[0].get_width() * 0.9)
+        subscribe_badge.move_to(DOWN * 5)
+
         self.play(
-            LaggedStart(*[
-                soul.animate.move_to(ORIGIN).set_opacity(0)
-                for soul in souls
-            ], lag_ratio=0.1),
-            vishwaroop.animate.scale(1.2).set_color(WHITE),
-            run_time=3.0
+            FadeIn(subscribe_badge, shift=UP),
+            Wiggle(subscribe_badge, scale_value=1.1),
+            Circumscribe(subscribe_badge, color=GOLD, time_width=2),
+            run_time=4.0
         )
-        
-        # 9.0 - 12.0: Final Pulse
-        self.play(
-            vishwaroop.animate.scale(0.8).set_color(GOLD),
-            Flash(ORIGIN, color=GOLD, flash_radius=3, num_lines=30),
-            run_time=3.0
-        )
-        
-        # 12.0 - 14.0: Subscribe
-        self.play(
-            FadeIn(sub_group, shift=UP),
-            Wiggle(sub_group),
-            run_time=2.0
-        )
-        
-        # 14.0 - 16.58: Final Wait
-        self.wait(2.58)
+
+        # 4. Final Wait (11-14.88s)
+        self.wait(3.88)
