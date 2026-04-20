@@ -365,7 +365,7 @@ class VideoGenerationPipeline:
             }
         }
         
-        config = aspect_ratio_configs.get(self.config.aspect_ratio, aspect_ratio_configs["16:9"])
+        config = aspect_ratio_configs.get(self.config.aspect_ratio, aspect_ratio_configs["9:16"])
         
         return f"""# Aspect Ratio Configuration: {self.config.aspect_ratio}
 config.frame_width = {config['frame_width']}
@@ -2341,19 +2341,19 @@ def render_single_video_worker(args):
                 logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 1)")
                 script_content = _fix_script_errors_with_groq(
                     script_content, error, i, config_dict['groq_api_key'], 
-                    config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                    config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
                 )
             elif correction_cycle == 2:
                 logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 2)")
                 script_content = _fix_script_errors_with_groq(
                     script_content, error, i, config_dict['groq_api_key'],
-                    config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                    config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
                 )
             elif correction_cycle == 3:
                 logger.info(f"🔧 STAGE 3: Fixing with OpenRouter (final attempt)")
                 script_content = _fix_script_errors_with_openrouter(
                     script_content, error, i, config_dict['openrouter_key_manager'], 
-                    config_dict.get('aspect_ratio', '16:9'), segment_data
+                    config_dict.get('aspect_ratio', '9:16'), segment_data
                 )
             Path(script_path).write_text(script_content, encoding="utf-8")
         
@@ -2375,7 +2375,7 @@ def render_single_video_worker(args):
                 # Pass previous_error so Gemini can avoid same mistakes
                 script_content = _regenerate_script_from_scratch_enhanced(
                     segment_data, i, config_dict['gemini_api_key'], 
-                    config_dict.get('aspect_ratio', '16:9'),
+                    config_dict.get('aspect_ratio', '9:16'),
                     config_dict.get('gemini_models'),
                     previous_error=last_error_for_regen  # NEW: Pass error context
                 )
@@ -2383,7 +2383,7 @@ def render_single_video_worker(args):
                 # CRITICAL: Inject premium background after regeneration
                 duration = segment_data.get('duration', 5.0)
                 script_content = _inject_premium_background_standalone(
-                    script_content, i, duration, config_dict.get('aspect_ratio', '16:9')
+                    script_content, i, duration, config_dict.get('aspect_ratio', '9:16')
                 )
                 
                 Path(script_path).write_text(script_content, encoding="utf-8")
@@ -2410,17 +2410,17 @@ def render_single_video_worker(args):
                         if fix_attempt == 0:
                             script_content = _fix_script_errors_with_groq(
                                 script_content, error, i, config_dict['groq_api_key'],
-                                config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                                config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
                             )
                         elif fix_attempt == 1:
                             script_content = _fix_script_errors_with_groq(
                                 script_content, error, i, config_dict['groq_api_key'],
-                                config_dict.get('aspect_ratio', '16:9'), segment_data, model_name="llama-3.1-8b-instant"
+                                config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
                             )
                         else:
                             script_content = _fix_script_errors_with_openrouter(
                                 script_content, error, i, config_dict['openrouter_key_manager'],
-                                config_dict.get('aspect_ratio', '16:9'), segment_data
+                                config_dict.get('aspect_ratio', '9:16'), segment_data
                             )
                         
                         Path(script_path).write_text(script_content, encoding="utf-8")
@@ -2465,19 +2465,19 @@ def render_single_video_worker(args):
                     # Try basic fallback with text (reduced from 5 to 3)
                     logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using basic fallback with text")
                     script_content = _generate_absolute_fallback_script(
-                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '9:16')
                     )
                 elif fallback_attempts <= 6:
                     # Try ultra-minimal fallback (shapes only, no text)
                     logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using minimal fallback (shapes only)")
                     script_content = _generate_minimal_fallback_script(
-                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                        segment_data, i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '9:16')
                     )
                 else:
                     # Try absolute bare-bones fallback (single circle)
                     logger.info(f"🔄 Fallback attempt {fallback_attempts}/{max_fallback_attempts}: Using bare-bones fallback")
                     script_content = _generate_bare_bones_fallback_script(
-                        i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '16:9')
+                        i, segment_data.get('duration', 5.0), config_dict.get('aspect_ratio', '9:16')
                     )
                 
                 Path(script_path).write_text(script_content, encoding="utf-8")
@@ -2533,7 +2533,7 @@ class Segment{i:03d}(Scene):
         logger.error(f"❌ Critical error in video rendering for segment {i+1}: {e}")
         return {'success': False, 'error': str(e), 'index': i}
 
-def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gemini_api_key: str, aspect_ratio: str = "16:9", gemini_models: list = None, previous_error: str = None) -> str:
+def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gemini_api_key: str, aspect_ratio: str = "9:16", gemini_models: list = None, previous_error: str = None) -> str:
     """
     Fully regenerate the script using Gemini directly with automatic model rotation.
     
@@ -2901,7 +2901,7 @@ from manim import *
         logger.error(f"❌ Script regeneration failed: {e}")
         # Return absolute fallback
         return _generate_absolute_fallback_script(segment_data, index, segment_data.get('duration', 5.0), aspect_ratio)
-def _generate_absolute_fallback_script(segment_data: dict, index: int, duration: float, aspect_ratio: str = "16:9") -> str:
+def _generate_absolute_fallback_script(segment_data: dict, index: int, duration: float, aspect_ratio: str = "9:16") -> str:
     """
     Generate an absolutely reliable fallback script that will always work.
     This is the last resort when all AI methods fail.
@@ -2965,7 +2965,7 @@ class Segment{index:03d}(Scene):
     return script
 
 
-def _generate_minimal_fallback_script(segment_data: dict, index: int, duration: float, aspect_ratio: str = "16:9") -> str:
+def _generate_minimal_fallback_script(segment_data: dict, index: int, duration: float, aspect_ratio: str = "9:16") -> str:
     """
     Generate ultra-minimal fallback script with just shapes (no text).
     This should almost always work.
@@ -3007,7 +3007,7 @@ class Segment{index:03d}(Scene):
     return script
 
 
-def _generate_bare_bones_fallback_script(index: int, duration: float, aspect_ratio: str = "16:9") -> str:
+def _generate_bare_bones_fallback_script(index: int, duration: float, aspect_ratio: str = "9:16") -> str:
     """
     Generate bare-bones fallback script - absolute minimum complexity.
     Just a single circle. This MUST work.
@@ -3068,7 +3068,7 @@ def _clean_script_for_execution(script_content: str, index: int) -> str:
         logger.warning(f"⚠️ Script cleaning failed: {e}")
         return script_content
 
-def _fix_script_errors_with_openrouter(script_content: str, error: str, index: int, openrouter_key_manager, aspect_ratio: str = "16:9", segment_data: dict = None) -> str:
+def _fix_script_errors_with_openrouter(script_content: str, error: str, index: int, openrouter_key_manager, aspect_ratio: str = "9:16", segment_data: dict = None) -> str:
     """
     STAGE 4: Script Correction with OpenRouter (Structural Repair Only)
     Uses prompt registry for consistent error correction.
@@ -3210,7 +3210,7 @@ def _fix_script_errors_with_openrouter(script_content: str, error: str, index: i
         logger.warning(f"OpenRouter script correction failed: {e}")
         return script_content
 
-def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "16:9", segment_data: dict = None, model_name: str = "llama-3.1-8b-instant") -> str:
+def _fix_script_errors_with_groq(script_content: str, error: str, index: int, groq_api_key: str, aspect_ratio: str = "9:16", segment_data: dict = None, model_name: str = "llama-3.1-8b-instant") -> str:
     """
     STAGE 3: Script Correction with Groq (Structural Repair Only).
     Uses prompt registry for consistent error correction.
@@ -5419,10 +5419,17 @@ class Segment{index:03d}(Scene):
     
     async def _create_black_video_ffmpeg(self, duration: float, output_path: Path) -> str:
         """Create a simple black video using FFmpeg as absolute last resort."""
+        # Use aspect-ratio-aware resolution (9:16 for Shorts, 16:9 for landscape)
+        if self.config.aspect_ratio == "9:16":
+            resolution = "1080x1920"
+        elif self.config.aspect_ratio == "1:1":
+            resolution = "1080x1080"
+        else:
+            resolution = "1920x1080"
         cmd = [
             'ffmpeg', '-y',
             '-f', 'lavfi',
-            '-i', f'color=black:s=1920x1080:d={duration:.2f}',
+            '-i', f'color=black:s={resolution}:d={duration:.2f}',
             '-c:v', 'libx264',
             '-pix_fmt', 'yuv420p',
             str(output_path)
@@ -5649,6 +5656,7 @@ class Segment{index:03d}(Scene):
             'temp_dir': self.config.temp_dir,
             'output_dir': self.config.output_dir,
             'ffmpeg_timeout': self.config.ffmpeg_timeout,
+            'aspect_ratio': self.config.aspect_ratio,  # CRITICAL: Ensures Shorts stay 9:16
         }
         
         for i, segment in enumerate(segments):
