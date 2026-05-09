@@ -27,17 +27,30 @@ class DynamicContentGenerator:
         self.history_file = Path(history_file)
         self.gemini_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"]
         self.current_model_index = 0
+        self.current_key_index = 0
         
-        # Initialize Gemini client
+        # Initialize Gemini clients — load ALL keys
         try:
             from google import genai
             
-            api_key = gemini_api_key or os.getenv('GEMINI_API_KEY')
-            if not api_key:
-                raise ValueError("GEMINI_API_KEY not found in environment")
+            self.gemini_api_keys = []
+            # Primary key (explicit or env)
+            primary = gemini_api_key or os.getenv('GEMINI_API_KEY')
+            if primary:
+                self.gemini_api_keys.append(primary)
+            # Load numbered backup keys
+            for i in range(2, 10):
+                key = os.getenv(f'GEMINI_API_KEY_{i}')
+                if key:
+                    self.gemini_api_keys.append(key)
             
-            self.gemini_client = genai.Client(api_key=api_key)
-            logger.info(f"✅ Dynamic Content Generator initialized with Gemini")
+            if not self.gemini_api_keys:
+                raise ValueError("No GEMINI_API_KEY found in environment")
+            
+            self.gemini_clients = [genai.Client(api_key=k) for k in self.gemini_api_keys]
+            self.gemini_client = self.gemini_clients[0]
+            
+            logger.info(f"✅ Dynamic Content Generator initialized with {len(self.gemini_clients)} key(s)")
             logger.info(f"📝 Topic Generation Models: {', '.join(self.gemini_models)}")
         except ImportError:
             logger.error("❌ google-genai not installed. Run: pip install google-genai")
@@ -80,17 +93,25 @@ class DynamicContentGenerator:
         return topic.lower().strip().replace('"', '').replace("'", "")
     
     def _call_gemini_with_rotation(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> str:
-        """Call Gemini with automatic model rotation on errors"""
-        from google.genai import types
+        """Call Gemini with key-first-then-model rotation.
         
-        while True:
+        Order: Key1+Model1 → Key2+Model1 → Key3+Model1
+             → Key1+Model2 → Key2+Model2 → ...
+        """
+        from google.genai import types
+        import time
+        
+        max_attempts = len(self.gemini_models) * len(self.gemini_clients) * 2
+        
+        for attempt in range(max_attempts):
             try:
                 model_name = self.gemini_models[self.current_model_index]
+                client = self.gemini_clients[self.current_key_index]
                 config = types.GenerateContentConfig(
                     temperature=temperature,
                     max_output_tokens=max_tokens
                 )
-                response = self.gemini_client.models.generate_content(
+                response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=config
@@ -108,19 +129,35 @@ class DynamicContentGenerator:
                     "429" in error_str or 
                     "503" in error_str or
                     "resource" in error_str or
-                    "overloaded" in error_str
+                    "overloaded" in error_str or
+                    "unavailable" in error_str or
+                    "rate limit" in error_str
                 )
                 
                 if is_rotation_error:
-                    logger.warning(f"⚠️ Gemini error with {model_name}: {str(e)[:100]}")
-                    self.current_model_index += 1
-                    if self.current_model_index >= len(self.gemini_models):
-                        logger.error("❌ All Gemini models exhausted")
-                        raise RuntimeError("All Gemini models failed")
+                    model_name = self.gemini_models[self.current_model_index]
+                    key_num = self.current_key_index + 1
+                    logger.warning(f"⚠️ {model_name} on key {key_num}/{len(self.gemini_clients)}: {str(e)[:100]}")
                     
-                    next_model = self.gemini_models[self.current_model_index]
-                    logger.info(f"🔄 Rotating to model: {next_model}")
-                    continue
+                    # Try next KEY with same model
+                    next_key = self.current_key_index + 1
+                    if next_key < len(self.gemini_clients):
+                        self.current_key_index = next_key
+                        logger.info(f"🔑 Trying next key for {model_name}...")
+                        time.sleep(2)
+                        continue
+                    
+                    # All keys exhausted → next model, reset keys
+                    next_model = self.current_model_index + 1
+                    if next_model < len(self.gemini_models):
+                        self.current_model_index = next_model
+                        self.current_key_index = 0
+                        new_model = self.gemini_models[next_model]
+                        logger.info(f"🔄 All keys exhausted for {model_name}, advancing to {new_model}...")
+                        time.sleep(2)
+                        continue
+                    
+                    raise RuntimeError(f"All models × all keys exhausted for topic generation")
                 else:
                     raise
     

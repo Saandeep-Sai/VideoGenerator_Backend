@@ -48,7 +48,10 @@ class GeminiClientAdapter:
     with the SceneSpecGenerator's expected interface.
     
     C4: If `pipeline` is provided, rotation state is shared bidirectionally —
-    any model rotation here is visible to the parent pipeline and vice-versa.
+    any model/key rotation here is visible to the parent pipeline and vice-versa.
+    
+    Rotation order: Key1+Model1 → Key2+Model1 → Key3+Model1
+                  → Key1+Model2 → Key2+Model2 → Key3+Model2 → ...
     """
     
     def __init__(self, gemini_client, gemini_models: List[str], current_model_index: int = 0, pipeline=None):
@@ -56,6 +59,13 @@ class GeminiClientAdapter:
         self.gemini_models = gemini_models
         self._pipeline = pipeline
         self._local_model_index = current_model_index
+        self._local_key_index = 0
+        
+        # Build client list from pipeline or single client
+        if pipeline and hasattr(pipeline, 'gemini_clients') and pipeline.gemini_clients:
+            self._clients = pipeline.gemini_clients
+        else:
+            self._clients = [gemini_client] if gemini_client else []
     
     @property
     def current_model_index(self):
@@ -70,42 +80,58 @@ class GeminiClientAdapter:
         else:
             self._local_model_index = value
     
+    @property
+    def current_key_index(self):
+        if self._pipeline is not None:
+            return self._pipeline.current_gemini_key_index
+        return self._local_key_index
+    
+    @current_key_index.setter
+    def current_key_index(self, value):
+        if self._pipeline is not None:
+            self._pipeline.current_gemini_key_index = value
+            self._pipeline.gemini_client = self._clients[value]
+        else:
+            self._local_key_index = value
+    
+    def _get_current_client(self):
+        """Get the genai.Client bound to the current key index."""
+        if self._clients:
+            idx = min(self.current_key_index, len(self._clients) - 1)
+            return self._clients[idx]
+        return self.gemini_client
+    
     def generate(self, prompt: str, temperature: float = 0.7) -> str:
-        """Generate response using Gemini client with JSON mode and automatic model rotation on 503."""
+        """Generate response with key-first-then-model rotation."""
         from google.genai import types
         import time
         
-        # Try each model in rotation before giving up
-        attempts = len(self.gemini_models)
+        max_attempts = len(self.gemini_models) * max(len(self._clients), 1) * 2
         last_error = None
         
-        for attempt in range(attempts):
+        for attempt in range(max_attempts):
             model_name = self.gemini_models[self.current_model_index]
+            client = self._get_current_client()
             
             try:
-                # Plain text mode — NO JSON wrapping so Gemini outputs raw Python
-                # scripts separated by ===SCRIPT START=== markers as instructed.
-                # JSON mode was doubling token usage via escaped \n and \" chars.
                 try:
                     config = types.GenerateContentConfig(
                         temperature=temperature,
                         max_output_tokens=32768,
                     )
                 except (TypeError, AttributeError):
-                    logger.warning("⚠️ GenerateContentConfig failed, using fallback")
                     config = types.GenerateContentConfig(
                         temperature=temperature,
                         max_output_tokens=32768
                     )
                 
-                response = self.gemini_client.models.generate_content(
+                response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=config
                 )
                 
                 if hasattr(response, 'text') and response.text:
-                    logger.debug(f"✅ Gemini response length: {len(response.text)} chars")
                     return response.text
                 
                 # Handle cases where text is None but candidates exist
@@ -115,7 +141,6 @@ class GeminiClientAdapter:
                             if hasattr(candidate.content, 'parts') and candidate.content.parts:
                                 for part in candidate.content.parts:
                                     if hasattr(part, 'text') and part.text:
-                                        logger.debug(f"✅ Extracted from candidate: {len(part.text)} chars")
                                         return part.text
                 
                 logger.error(f"❌ Could not extract text from Gemini response: {type(response)}")
@@ -125,7 +150,6 @@ class GeminiClientAdapter:
                 last_error = e
                 error_str = str(e).lower()
                 
-                # Check if this is a retryable error (503, quota, rate limit, etc.)
                 is_retryable = (
                     "503" in error_str or
                     "unavailable" in error_str or
@@ -138,17 +162,37 @@ class GeminiClientAdapter:
                     "high demand" in error_str
                 )
                 
-                if is_retryable and attempt < attempts - 1:
-                    old_model = model_name
-                    self.current_model_index = (self.current_model_index + 1) % len(self.gemini_models)
-                    new_model = self.gemini_models[self.current_model_index]
-                    logger.warning(f"⚠️ {old_model} failed ({str(e)[:100]}), cycling to {new_model}")
-                    time.sleep(3)  # Brief pause before retrying
-                    continue
+                if is_retryable:
+                    key_num = self.current_key_index + 1
+                    logger.warning(
+                        f"⚠️ {model_name} on key {key_num}/{len(self._clients)} "
+                        f"failed ({str(e)[:100]})"
+                    )
+                    
+                    # Try next KEY with same model
+                    next_key = self.current_key_index + 1
+                    if next_key < len(self._clients):
+                        self.current_key_index = next_key
+                        logger.info(f"🔑 Trying next key for same model ({model_name})...")
+                        time.sleep(2)
+                        continue
+                    
+                    # All keys exhausted → try next MODEL, reset keys
+                    next_model = self.current_model_index + 1
+                    if next_model < len(self.gemini_models):
+                        self.current_model_index = next_model
+                        self.current_key_index = 0
+                        new_model = self.gemini_models[next_model]
+                        logger.info(f"🔄 All keys exhausted for {model_name}, advancing to {new_model}...")
+                        time.sleep(2)
+                        continue
+                    
+                    # Everything exhausted
+                    raise RuntimeError(f"All {len(self.gemini_models)} models × {len(self._clients)} keys exhausted. Last: {e}")
                 else:
                     raise
         
-        raise RuntimeError(f"All {attempts} Gemini models failed. Last error: {last_error}")
+        raise RuntimeError(f"All {max_attempts} attempts failed. Last error: {last_error}")
 
 
 class OpenRouterAdapter:

@@ -1,159 +1,109 @@
 from manim import *
-import random
-class AraarambhTitle(Scene):
+import numpy as np
+
+class SphereVibration3D(ThreeDScene):
     def construct(self):
-        # Set background color to a deep gradient-like dark blue
-        self.camera.background_color = "#0a0e27"
-        
-        # Create the main title
-        title = Text("Araarambh", font_size=120, weight=BOLD, font="sans-serif")
-        title.set_color_by_gradient(GOLD, ORANGE, RED_E)
-        
-        # Create a glowing effect behind the text
-        glow_circles = VGroup(*[
-            Circle(radius=0.5 + i*0.3, color=GOLD, stroke_width=2, stroke_opacity=0.3-i*0.05)
-            for i in range(8)
-        ])
-        glow_circles.move_to(ORIGIN)
-        
-        # Create particles that will orbit around
-        particles = VGroup(*[
-            Dot(radius=0.04, color=random.choice([GOLD, YELLOW, ORANGE]))
-            for _ in range(30)
-        ])
-        
-        # Position particles randomly in a circle
-        for particle in particles:
-            angle = random.uniform(0, TAU)
-            radius = random.uniform(3, 5)
-            particle.move_to([radius * np.cos(angle), radius * np.sin(angle), 0])
-        
-        # Create decorative lines
-        lines = VGroup()
-        for i in range(12):
-            angle = i * TAU / 12
-            line = Line(
-                start=2.5 * np.array([np.cos(angle), np.sin(angle), 0]),
-                end=3.5 * np.array([np.cos(angle), np.sin(angle), 0]),
-                color=GOLD,
-                stroke_width=3
-            )
-            lines.add(line)
-        
-        # Animation sequence
-        
-        # 1. Fade in glow circles from center
-        self.play(
-            LaggedStart(*[
-                FadeIn(circle, scale=0.5)
-                for circle in glow_circles
-            ], lag_ratio=0.2),
-            run_time=1.5
+        # --- 1. SCENE SETUP ---
+        # Use a ValueTracker for rotation
+        theta_tracker = ValueTracker(-45 * DEGREES)
+
+        self.set_camera_orientation(
+            phi=75 * DEGREES,
+            theta=theta_tracker.get_value(),
+            zoom=0.8
         )
-        
-        # 2. Rotate glow circles
-        self.play(
-            Rotate(glow_circles, angle=PI, run_time=2),
-            rate_func=smooth
+
+        # Update camera every frame to create smooth rotation
+        self.add_updater(lambda: self.set_camera_orientation(
+            phi=75 * DEGREES,
+            theta=theta_tracker.get_value()
+        ))
+
+        self.camera.background_color = "#0f0f15"
+
+        # --- 2. DEFINE THE WAVE FUNCTION ---
+        def vibrating_geometry(u, v, t):
+            R = 2.5
+            x = R * np.cos(u) * np.cos(v)
+            y = R * np.cos(u) * np.sin(v)
+            z = R * np.sin(u)
+            r_vec = np.array([x, y, z])
+            norm = np.linalg.norm(r_vec)
+            direction = r_vec / norm
+
+            # Vibration modes
+            w1 = 0.25 * np.sin(4 * u) * np.cos(2 * t)
+            w2 = 0.15 * np.cos(u) * np.sin(3 * v - 1.5 * t)
+            w3 = 0.1 * np.sin(6 * v + t) * np.sin(2 * u)
+            total_amp = w1 + w2 + w3
+
+            return direction * (R + total_amp)
+
+        # --- 3. CREATE OBJECTS ---
+        core = Sphere(
+            radius=2.0,
+            resolution=(30, 30),
+            fill_opacity=1,
+            stroke_width=0,
+            color="#002b5c"
         )
-        
-        # 3. Bring in decorative lines with a burst effect
-        self.play(
-            LaggedStart(*[
-                GrowFromCenter(line)
-                for line in lines
-            ], lag_ratio=0.1),
-            run_time=1.5
+
+        core_wireframe = Sphere(
+            radius=2.01,
+            resolution=(20, 20),
+            stroke_color=GOLD,
+            stroke_width=2,
+            fill_opacity=0,
         )
-        
-        # 4. Bring in particles
-        self.play(
-            LaggedStart(*[
-                FadeIn(particle, scale=2)
-                for particle in particles
-            ], lag_ratio=0.05),
-            run_time=1
+
+        # Initialize surface at t=0
+        wave_shell = Surface(
+            lambda u, v: vibrating_geometry(u, v, 0),
+            resolution=(40, 40), # Slightly reduced for performance
+            u_range=[-PI / 2, PI / 2],
+            v_range=[0, TAU],
+            fill_opacity=0.7,
+            stroke_color=WHITE,
+            stroke_width=0.5,
+            stroke_opacity=0.4,
+            checkerboard_colors=["#8b0000", "#ff4500"]
         )
-        
-        # 5. Main title entrance - letters appear one by one with a wave effect
-        title_chars = VGroup(*[Text(char, font_size=120, weight=BOLD) for char in "Araarambh"])
-        title_chars.arrange(RIGHT, buff=0.1)
-        title_chars.set_color_by_gradient(GOLD, ORANGE, RED_E)
-        
-        self.play(
-            LaggedStart(*[
-                FadeIn(char, shift=UP*0.5, scale=0.5)
-                for char in title_chars
-            ], lag_ratio=0.15),
-            run_time=2
-        )
-        
-        # 6. Pulse effect on title
-        self.play(
-            title_chars.animate.scale(1.15),
-            rate_func=there_and_back,
-            run_time=0.8
-        )
-        
-        # 7. Create rotating animation for particles and lines
-        rotating_group = VGroup(glow_circles, lines, particles)
-        
-        # 8. Everything rotates together while title stays prominent
-        self.play(
-            Rotate(rotating_group, angle=TAU, run_time=4),
-            title_chars.animate.set_color_by_gradient(YELLOW, GOLD, ORANGE, RED),
-            rate_func=linear
-        )
-        
-        # 9. Create an expanding ring effect
-        rings = VGroup(*[
-            Circle(radius=0.1, color=GOLD, stroke_width=4)
-            for _ in range(3)
-        ])
-        rings.move_to(ORIGIN)
-        
-        self.play(
-            LaggedStart(*[
-                AnimationGroup(
-                    ring.animate.scale(50).set_stroke(opacity=0),
-                )
-                for ring in rings
-            ], lag_ratio=0.3),
-            run_time=2
-        )
-        
-        # 10. Final emphasis - title glows and everything else fades
-        self.play(
-            FadeOut(glow_circles),
-            FadeOut(lines),
-            FadeOut(particles),
-            title_chars.animate.scale(1.2).set_color(YELLOW),
-            run_time=1.5
-        )
-        
-        # 11. Add subtitle or tagline
-        subtitle = Text("The Beginning", font_size=36, color=GOLD, slant=ITALIC)
-        subtitle.next_to(title_chars, DOWN, buff=0.5)
-        
-        self.play(
-            Write(subtitle),
-            run_time=1.5
-        )
-        
-        # 12. Final hold with gentle pulsing
-        self.play(
-            title_chars.animate.scale(1.05),
-            rate_func=there_and_back_with_pause,
-            run_time=2
-        )
-        
-        self.wait(1)
-        
-        # 13. Fade everything out elegantly
-        self.play(
-            FadeOut(title_chars),
-            FadeOut(subtitle),
-            run_time=1.5
-        )
-        
+
+        # --- 4. ANIMATION SEQUENCE ---
+        self.play(FadeIn(core), FadeIn(core_wireframe), run_time=1.5)
         self.wait(0.5)
+        self.play(FadeIn(wave_shell))
+        self.wait(1)
+
+        # We define a function to update the surface based on elapsed time        
+        def update_wave(m, dt):
+            # self.time is not always reliable in all Manim versions,
+            # using a manual timer or the current scene time
+            t = self.time
+            m.become(
+                Surface(
+                    lambda u, v: vibrating_geometry(u, v, t),
+                    resolution=(40, 40),
+                    u_range=[-PI / 2, PI / 2],
+                    v_range=[0, TAU],
+                    fill_opacity=0.7,
+                    stroke_color=WHITE,
+                    stroke_width=0.5,
+                    stroke_opacity=0.4,
+                    checkerboard_colors=["#8b0000", "#ff4500"]
+                )
+            )
+
+        # Add the updater to the shell and start the rotation
+        wave_shell.add_updater(update_wave)
+
+        self.play(
+            theta_tracker.animate.set_value(theta_tracker.get_value() + TAU),     
+            run_time=10,
+            rate_function=linear
+        )
+
+        # Remove updater before fading out to prevent errors
+        wave_shell.remove_updater(update_wave)
+        self.wait(0.5)
+        self.play(FadeOut(Group(core, core_wireframe, wave_shell)))

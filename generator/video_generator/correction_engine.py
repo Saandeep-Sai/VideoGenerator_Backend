@@ -1,0 +1,415 @@
+"""
+Manim Correction Engine — Main Orchestrator
+=============================================
+
+Ties together:
+  - Error Classifier (deterministic classification + regex auto-fix)
+  - Pre-Render Validator (3-stage validation gate)
+  - Correction Memory (SQLite + ChromaDB dual storage)
+  - Ollama Client (Qwen 3.5 primary + Gemma 4 fallback)
+  - Correction Prompt Builder (7-section structured prompts)
+
+Pipeline flow:
+  1. Classify error + generate failure hash
+  2. Check hash cache for known fix
+  3. Try deterministic regex auto-fix
+  4. Static validation gate
+  5. Retrieve similar fixes from ChromaDB
+  6. Qwen 3.5 correction (with retrieval context)
+  7. Static validation gate
+  8. If Qwen fails → Gemma 4 fallback
+  9. Store ALL results (success + failure) to memory
+
+Creative Preservation: ONLY technical failures are corrected.
+Animation intent, scene composition, and cinematic pacing are preserved.
+"""
+
+import logging
+from dataclasses import dataclass, field
+from typing import Optional, List
+
+try:
+    from .error_classifier import (
+        classify_error,
+        auto_fix_common_errors,
+        ErrorClassification,
+        AutoFixResult,
+    )
+    from .pre_render_validator import validate_static, validate_semantic
+    from .correction_memory import (
+        CorrectionMemory,
+        CorrectionEntry,
+        generate_code_diff,
+        generate_retrieval_text,
+    )
+    from .ollama_client import OllamaCorrectionClient
+    from .correction_prompt_builder import (
+        build_correction_prompt,
+        extract_script_context,
+        clean_correction_response,
+    )
+except ImportError:
+    # Fallback for worker processes (spawned via ProcessPoolExecutor)
+    from error_classifier import (
+        classify_error,
+        auto_fix_common_errors,
+        ErrorClassification,
+        AutoFixResult,
+    )
+    from pre_render_validator import validate_static, validate_semantic
+    from correction_memory import (
+        CorrectionMemory,
+        CorrectionEntry,
+        generate_code_diff,
+        generate_retrieval_text,
+    )
+    from ollama_client import OllamaCorrectionClient
+    from correction_prompt_builder import (
+        build_correction_prompt,
+        extract_script_context,
+        clean_correction_response,
+    )
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CorrectionResult:
+    """Result of a correction attempt."""
+    corrected_script: str
+    success: bool
+    model_used: str = ""          # "regex_autofix" | "qwen3.5" | "gemma4" | "hash_cache" | "unchanged"
+    error_type: str = ""
+    method: str = ""              # Human-readable correction method
+    attempts: int = 0
+    retrieval_hits: int = 0
+    fixes_applied: List[str] = field(default_factory=list)
+
+
+class ManimCorrectionEngine:
+    """
+    Main orchestrator for the retrieval-augmented correction pipeline.
+    
+    Combines deterministic repair, semantic retrieval, and LLM correction
+    to fix Manim render failures with minimal changes and maximal reliability.
+    """
+
+    def __init__(
+        self,
+        memory: CorrectionMemory,
+        ollama: OllamaCorrectionClient,
+    ):
+        self.memory = memory
+        self.ollama = ollama
+        logger.info("✅ ManimCorrectionEngine initialized")
+
+    def correct_script(
+        self,
+        script: str,
+        error: str,
+        segment_index: int,
+        segment_data: dict,
+        aspect_ratio: str = "9:16",
+    ) -> CorrectionResult:
+        """
+        Full correction pipeline.
+        
+        Args:
+            script: The failing Manim script.
+            error: The error traceback from the failed render.
+            segment_index: Segment number (0-indexed).
+            segment_data: Dict with narration, duration, etc.
+            aspect_ratio: Video aspect ratio.
+        
+        Returns:
+            CorrectionResult with corrected script and metadata.
+        """
+        duration = segment_data.get("duration", 10.0)
+        scene_id = f"segment_{segment_index:03d}"
+        attempts = 0
+
+        # ── STEP 1: CLASSIFY ERROR ──
+        classification = classify_error(error)
+        logger.info(
+            f"🏷️ Correction Engine: {classification.error_type} "
+            f"(hash={classification.failure_hash[:12]}...)"
+        )
+
+        # ── STEP 2: HASH CACHE LOOKUP ──
+        cached_fix = self.memory.lookup_by_hash(classification.failure_hash)
+        if cached_fix and cached_fix.corrected_script:
+            logger.info(f"⚡ Hash cache HIT — applying known fix")
+            # Validate the cached fix still works statically
+            val = validate_static(cached_fix.corrected_script, segment_index)
+            if val.is_valid:
+                return CorrectionResult(
+                    corrected_script=cached_fix.corrected_script,
+                    success=True,
+                    model_used="hash_cache",
+                    error_type=classification.error_type,
+                    method="Hash cache — known successful fix reapplied",
+                    attempts=0,
+                    retrieval_hits=1,
+                )
+            else:
+                logger.warning(f"⚠️ Cached fix failed static validation, proceeding to repair")
+
+        # ── STEP 3: DETERMINISTIC PRE-REPAIR ──
+        auto_result = auto_fix_common_errors(script, error, segment_index)
+        attempts += 1
+
+        if auto_result.was_fixed:
+            # Validate the auto-fix
+            val = validate_static(auto_result.script, segment_index)
+            if val.is_valid:
+                logger.info(
+                    f"🔧 Deterministic auto-fix succeeded: {auto_result.fixes_applied}"
+                )
+                # Store success
+                self._store_result(
+                    original=script,
+                    corrected=auto_result.script,
+                    error=error,
+                    classification=classification,
+                    model_used="regex_autofix",
+                    scene_id=scene_id,
+                    fix_summary=f"Regex auto-fix: {', '.join(auto_result.fixes_applied)}",
+                    validation_passed=True,
+                    render_success=False,  # Not yet rendered
+                    retry_count=attempts,
+                )
+                return CorrectionResult(
+                    corrected_script=auto_result.script,
+                    success=True,
+                    model_used="regex_autofix",
+                    error_type=classification.error_type,
+                    method=f"Deterministic auto-fix: {', '.join(auto_result.fixes_applied)}",
+                    attempts=attempts,
+                    fixes_applied=auto_result.fixes_applied,
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Auto-fix applied but failed static validation: {val.errors}"
+                )
+                # Use auto-fixed version as base for LLM correction
+                script = auto_result.script
+
+        # Also apply static validation auto-fixes
+        val = validate_static(script, segment_index)
+        if val.auto_fixed_script:
+            script = val.auto_fixed_script
+            logger.info("🔧 Static validator applied auto-fixes")
+
+        # ── STEP 4: CHECK OLLAMA AVAILABILITY ──
+        if not self.ollama.is_available:
+            logger.warning("⚠️ Ollama not available — returning best auto-fix attempt")
+            return CorrectionResult(
+                corrected_script=script,
+                success=auto_result.was_fixed,
+                model_used="regex_autofix_only",
+                error_type=classification.error_type,
+                method="Regex auto-fix only (Ollama unavailable)",
+                attempts=attempts,
+                fixes_applied=auto_result.fixes_applied if auto_result.was_fixed else [],
+            )
+
+        # ── STEP 5: RETRIEVE SIMILAR FIXES ──
+        tb_summary = error[-500:] if len(error) > 500 else error
+        retrieved = self.memory.retrieve_similar_fixes(
+            classification.error_type, tb_summary
+        )
+        retrieval_hits = len(retrieved)
+
+        # Convert to dicts for prompt builder
+        retrieved_dicts = []
+        for entry in retrieved:
+            retrieved_dicts.append({
+                "error_type": entry.error_type,
+                "fix_summary": entry.fix_summary,
+                "code_diff": entry.code_diff,
+            })
+
+        if retrieval_hits:
+            logger.info(f"🔍 Retrieved {retrieval_hits} similar fixes from memory")
+
+        # ── STEP 6: QWEN 3.5 CORRECTION ──
+        script_context = extract_script_context(
+            script, classification.failing_line_number
+        )
+
+        prompt = build_correction_prompt(
+            error_type=classification.error_type,
+            traceback=error,
+            failing_line=classification.failing_line,
+            script_context=script_context,
+            segment_index=segment_index,
+            duration=duration,
+            aspect_ratio=aspect_ratio,
+            retrieved_fixes=retrieved_dicts if retrieved_dicts else None,
+        )
+
+        attempts += 1
+        corrected = self.ollama.correct(prompt, model="primary")
+
+        if corrected:
+            corrected = clean_correction_response(corrected)
+            val = validate_static(corrected, segment_index)
+
+            if val.is_valid:
+                logger.info("✅ Qwen 3.5 correction passed static validation")
+                self._store_result(
+                    original=script,
+                    corrected=corrected,
+                    error=error,
+                    classification=classification,
+                    model_used="qwen3.5:397b-cloud",
+                    scene_id=scene_id,
+                    fix_summary=f"Qwen correction for {classification.error_type}",
+                    validation_passed=True,
+                    render_success=False,
+                    retry_count=attempts,
+                )
+                return CorrectionResult(
+                    corrected_script=val.auto_fixed_script or corrected,
+                    success=True,
+                    model_used="qwen3.5:397b-cloud",
+                    error_type=classification.error_type,
+                    method=f"Qwen 3.5 correction ({classification.error_type})",
+                    attempts=attempts,
+                    retrieval_hits=retrieval_hits,
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Qwen correction failed static validation: {val.errors}"
+                )
+
+        # ── STEP 7: GEMMA 4 FALLBACK ──
+        logger.info("🔄 Qwen failed, falling back to Gemma 4...")
+        attempts += 1
+        corrected = self.ollama.correct(prompt, model="secondary")
+
+        if corrected:
+            corrected = clean_correction_response(corrected)
+            val = validate_static(corrected, segment_index)
+
+            if val.is_valid:
+                logger.info("✅ Gemma 4 fallback passed static validation")
+                self._store_result(
+                    original=script,
+                    corrected=corrected,
+                    error=error,
+                    classification=classification,
+                    model_used="gemma4:31b-cloud",
+                    scene_id=scene_id,
+                    fix_summary=f"Gemma fallback for {classification.error_type}",
+                    validation_passed=True,
+                    render_success=False,
+                    retry_count=attempts,
+                )
+                return CorrectionResult(
+                    corrected_script=val.auto_fixed_script or corrected,
+                    success=True,
+                    model_used="gemma4:31b-cloud",
+                    error_type=classification.error_type,
+                    method=f"Gemma 4 fallback ({classification.error_type})",
+                    attempts=attempts,
+                    retrieval_hits=retrieval_hits,
+                )
+            else:
+                logger.warning(
+                    f"❌ Gemma correction also failed static validation: {val.errors}"
+                )
+
+        # ── STEP 8: ALL CORRECTIONS FAILED ──
+        logger.error(
+            f"❌ Correction engine exhausted for segment {segment_index} "
+            f"({classification.error_type}) after {attempts} attempts"
+        )
+
+        # Store failure
+        self._store_result(
+            original=script,
+            corrected="",
+            error=error,
+            classification=classification,
+            model_used="all_failed",
+            scene_id=scene_id,
+            fix_summary=f"All correction methods failed for {classification.error_type}",
+            validation_passed=False,
+            render_success=False,
+            retry_count=attempts,
+        )
+
+        return CorrectionResult(
+            corrected_script=script,  # Return original
+            success=False,
+            model_used="all_failed",
+            error_type=classification.error_type,
+            method="All correction methods exhausted",
+            attempts=attempts,
+            retrieval_hits=retrieval_hits,
+        )
+
+    def mark_render_success(
+        self,
+        script: str,
+        segment_index: int,
+        error: str,
+        model_used: str,
+    ):
+        """
+        Called after a corrected script renders successfully.
+        Updates the correction memory with render_success=True.
+        """
+        classification = classify_error(error)
+        self._store_result(
+            original="",  # We don't have the original at this point
+            corrected=script,
+            error=error,
+            classification=classification,
+            model_used=model_used,
+            scene_id=f"segment_{segment_index:03d}",
+            fix_summary=f"Render-verified fix for {classification.error_type}",
+            validation_passed=True,
+            render_success=True,
+            retry_count=0,
+        )
+
+    def _store_result(
+        self,
+        original: str,
+        corrected: str,
+        error: str,
+        classification: ErrorClassification,
+        model_used: str,
+        scene_id: str,
+        fix_summary: str,
+        validation_passed: bool,
+        render_success: bool,
+        retry_count: int,
+    ):
+        """Store a correction result into dual memory."""
+        try:
+            entry = CorrectionEntry(
+                model_used=model_used,
+                scene_id=scene_id,
+                original_script=original,
+                error_traceback=error,
+                error_type=classification.error_type,
+                failing_line=classification.failing_line or "",
+                corrected_script=corrected,
+                validation_passed=validation_passed,
+                render_success=render_success,
+                retry_count=retry_count,
+                fix_summary=fix_summary,
+                failure_hash=classification.failure_hash,
+                code_diff=generate_code_diff(original, corrected) if original and corrected else "",
+            )
+            entry.retrieval_text = generate_retrieval_text(entry)
+            self.memory.store_correction(entry)
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to store correction result: {e}")
+
+    def get_stats(self) -> dict:
+        """Get correction memory statistics."""
+        return self.memory.get_stats()

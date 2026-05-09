@@ -283,8 +283,11 @@ class VideoGenerationPipeline:
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
         self.openrouter_key_manager = None
-        self.gemini_models = ["gemini-3-flash-preview","gemini-2.5-flash", "gemini-2.5-flash-lite"]
+        self.gemini_models = ["gemini-2.5-flash","gemini-3-flash-preview", "gemini-2.5-flash-lite"]
         self.current_gemini_model_index = 0
+        self.current_gemini_key_index = 0
+        self.gemini_api_keys = []  # Loaded in _initialize_gemini_client
+        self.gemini_clients = []   # One genai.Client per key
         self.groq_correction_models = ["llama-3.1-8b-instant"]
         self.groq_client = None
         self.tts_model = None   
@@ -2131,7 +2134,7 @@ def _inject_premium_background_standalone(script: str, index: int, duration: flo
     Standalone background injection for use in worker processes.
     
     Injects premium background (GradientBackground, SubtleGrid, AmbientParticles,
-    progress bar, channel watermark) into Manim scripts.
+    channel watermark) into Manim scripts.
     
     This is a module-level copy of OptimizedVideoGenerationPipeline._inject_premium_background()
     so that ProcessPoolExecutor workers can use it without access to the class instance.
@@ -2207,26 +2210,7 @@ class SubtleGrid(VGroup):
             _dx = random.uniform(-0.02, 0.02)
             _dy = random.uniform(0.01, 0.03)
             _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
-        # Progress bar
-        _pb_total_w = config.frame_width * 0.85
-        _pb_bg = Rectangle(width=_pb_total_w, height=0.06, fill_opacity=0.15,
-                           fill_color=WHITE, stroke_width=0)
-        _pb_bg.move_to(np.array([0, -config.frame_height/2 + 0.12, 0]))
-        self.add(_pb_bg)
-        _pb_bar = Rectangle(width=0.01, height=0.06, fill_opacity=0.6,
-                            fill_color={accent}, stroke_width=0)
-        _pb_bar.move_to(_pb_bg.get_center())
-        _pb_bar.align_to(_pb_bg, LEFT)
-        self.add(_pb_bar)
-        _pb_bar._pt = 0
-        _scene_dur = {duration:.1f}
-        def _pb_upd(m, dt):
-            m._pt += dt
-            frac = min(1.0, m._pt / max(0.1, _scene_dur))
-            new_w = max(0.01, _pb_total_w * frac)
-            m.stretch_to_fit_width(new_w)
-            m.align_to(_pb_bg, LEFT)
-        _pb_bar.add_updater(_pb_upd)
+
         # Channel watermark
         _wm = Text("Code Tapasya", font_size=14, color=WHITE,
                     font="sans-serif", fill_opacity=0.25)
@@ -2261,6 +2245,50 @@ class SubtleGrid(VGroup):
     
     logger.info(f"🎨 Injected premium background into regenerated segment {index}")
     return script
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CORRECTION ENGINE SINGLETON (module-level for worker processes)
+# ═══════════════════════════════════════════════════════════════════
+_correction_engine_instance = None
+
+def _get_correction_engine():
+    """
+    Lazy-initialize the ManimCorrectionEngine singleton.
+    Used by worker processes that can't access class instances.
+    """
+    global _correction_engine_instance
+    if _correction_engine_instance is not None:
+        return _correction_engine_instance
+
+    try:
+        # Try relative import first (when running as part of package)
+        try:
+            from .correction_engine import ManimCorrectionEngine
+            from .correction_memory import CorrectionMemory
+            from .ollama_client import OllamaCorrectionClient
+        except ImportError:
+            # Fallback: absolute import (worker processes / __mp_main__)
+            import sys
+            import os
+            _this_dir = os.path.dirname(os.path.abspath(__file__))
+            if _this_dir not in sys.path:
+                sys.path.insert(0, _this_dir)
+            from correction_engine import ManimCorrectionEngine
+            from correction_memory import CorrectionMemory
+            from ollama_client import OllamaCorrectionClient
+
+        memory = CorrectionMemory(
+            db_path="data/correction_memory/corrections.db",
+            chroma_path="data/correction_memory/chroma",
+        )
+        ollama = OllamaCorrectionClient()
+        _correction_engine_instance = ManimCorrectionEngine(memory, ollama)
+        logger.info("✅ Correction Engine singleton initialized")
+        return _correction_engine_instance
+    except Exception as e:
+        logger.warning(f"⚠️ Correction Engine init failed: {e} — using legacy correction")
+        return None
 
 
 # Global functions for ProcessPoolExecutor (must be at module level)
@@ -2314,8 +2342,10 @@ def render_single_video_worker(args):
         regeneration_count = 0
         last_correction_applied = False
         
-        # Phase 1: Try corrections with Groq/OpenRouter
-        # Loop allows: render attempt → correction → render attempt (to test correction)
+        # Phase 1: Retrieval-augmented correction via ManimCorrectionEngine
+        # Flow: render → classify → hash cache → regex fix → validate → retrieve → Qwen → Gemma
+        correction_engine = _get_correction_engine()
+        
         while correction_cycle <= max_correction_attempts:
             total_attempts += 1
             video_path, error = pipeline.create_video_file(script_content, filename=f"segment_{i:03d}.py", segment_index=i)
@@ -2326,6 +2356,14 @@ def render_single_video_worker(args):
                 expected_path = target_dir / f"Segment{i:03d}.mp4"
                 _safe_move_video(video_path, str(expected_path))
                 logger.info(f"✅ Video {i+1} saved to: {expected_path} (after {total_attempts} attempts)")
+                # Mark render success in correction memory if we used the engine
+                if correction_engine and correction_cycle > 0:
+                    try:
+                        correction_engine.mark_render_success(
+                            script_content, i, error or "", "render_verified"
+                        )
+                    except Exception:
+                        pass
                 return {'success': True, 'video_path': str(expected_path), 'index': i}
 
             # If we just tested the last correction and it failed, break
@@ -2335,25 +2373,38 @@ def render_single_video_worker(args):
             
             logger.warning(f"⚠️ Video {i+1} attempt {total_attempts} failed: {error[:200]}")
             
-            # STAGE 3: Correction ladder (strict order)
+            # Correction via ManimCorrectionEngine (replaces Groq/OpenRouter ladder)
             correction_cycle += 1
-            if correction_cycle == 1:
-                logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 1)")
-                script_content = _fix_script_errors_with_groq(
-                    script_content, error, i, config_dict['groq_api_key'], 
-                    config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
+            if correction_engine:
+                logger.info(f"🔧 Correction Engine: attempt {correction_cycle}/{max_correction_attempts}")
+                result = correction_engine.correct_script(
+                    script_content, error, i, segment_data,
+                    config_dict.get('aspect_ratio', '9:16')
                 )
-            elif correction_cycle == 2:
-                logger.info(f"🔧 STAGE 3: Fixing with Groq llama-3.1-8b-instant (attempt 2)")
+                script_content = result.corrected_script
+                logger.info(
+                    f"🔧 Correction result: method={result.method}, "
+                    f"model={result.model_used}, retrieval_hits={result.retrieval_hits}"
+                )
+                if not result.success:
+                    logger.warning(f"⚠️ Correction engine exhausted — breaking to regeneration")
+                    break
+                # Re-inject premium background (correction may have stripped it)
+                duration = segment_data.get('duration', 5.0)
+                script_content = _inject_premium_background_standalone(
+                    script_content, i, duration, config_dict.get('aspect_ratio', '9:16')
+                )
+            else:
+                # Fallback: use legacy Groq correction if engine not available
+                logger.info(f"🔧 STAGE 3 (legacy): Fixing with Groq llama-3.1-8b-instant")
                 script_content = _fix_script_errors_with_groq(
                     script_content, error, i, config_dict['groq_api_key'],
                     config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
                 )
-            elif correction_cycle == 3:
-                logger.info(f"🔧 STAGE 3: Fixing with OpenRouter (final attempt)")
-                script_content = _fix_script_errors_with_openrouter(
-                    script_content, error, i, config_dict['openrouter_key_manager'], 
-                    config_dict.get('aspect_ratio', '9:16'), segment_data
+                # Re-inject premium background (correction may have stripped it)
+                duration = segment_data.get('duration', 5.0)
+                script_content = _inject_premium_background_standalone(
+                    script_content, i, duration, config_dict.get('aspect_ratio', '9:16')
                 )
             Path(script_path).write_text(script_content, encoding="utf-8")
         
@@ -2397,31 +2448,46 @@ def render_single_video_worker(args):
                     expected_path = target_dir / f"Segment{i:03d}.mp4"
                     _safe_move_video(video_path, str(expected_path))
                     logger.info(f"✅ Regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
+                    # Store render success for regenerated scripts
+                    if correction_engine and last_error_for_regen:
+                        try:
+                            correction_engine.mark_render_success(
+                                script_content, i, last_error_for_regen, "gemini_regen_verified"
+                            )
+                        except Exception:
+                            pass
                     return {'success': True, 'video_path': str(expected_path), 'index': i}
                 else:
                     # Regenerated script failed - try fixing it before regenerating again
                     logger.warning(f"⚠️ Regeneration {regeneration_count} failed, attempting to fix it: {error[:200]}")
                     
-                    # Try 3 quick corrections on the regenerated script (correction ladder)
-                    for fix_attempt in range(3):
+                    # Try correction via engine on the regenerated script
+                    if correction_engine:
                         total_attempts += 1
-                        logger.info(f"🔧 STAGE 3: Fixing regenerated script {i+1} (attempt {fix_attempt + 1}/3)")
-                        
-                        if fix_attempt == 0:
-                            script_content = _fix_script_errors_with_groq(
-                                script_content, error, i, config_dict['groq_api_key'],
-                                config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
-                            )
-                        elif fix_attempt == 1:
-                            script_content = _fix_script_errors_with_groq(
-                                script_content, error, i, config_dict['groq_api_key'],
-                                config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
-                            )
-                        else:
-                            script_content = _fix_script_errors_with_openrouter(
-                                script_content, error, i, config_dict['openrouter_key_manager'],
-                                config_dict.get('aspect_ratio', '9:16'), segment_data
-                            )
+                        logger.info(f"🔧 Correction Engine: fixing regenerated script {i+1}")
+                        result = correction_engine.correct_script(
+                            script_content, error, i, segment_data,
+                            config_dict.get('aspect_ratio', '9:16')
+                        )
+                        script_content = result.corrected_script
+                        logger.info(f"🔧 Regen fix result: {result.method}")
+                        # Re-inject premium background after correction
+                        duration = segment_data.get('duration', 5.0)
+                        script_content = _inject_premium_background_standalone(
+                            script_content, i, duration, config_dict.get('aspect_ratio', '9:16')
+                        )
+                    else:
+                        # Legacy fallback
+                        total_attempts += 1
+                        script_content = _fix_script_errors_with_groq(
+                            script_content, error, i, config_dict['groq_api_key'],
+                            config_dict.get('aspect_ratio', '9:16'), segment_data, model_name="llama-3.1-8b-instant"
+                        )
+                        # Re-inject premium background after legacy correction
+                        duration = segment_data.get('duration', 5.0)
+                        script_content = _inject_premium_background_standalone(
+                            script_content, i, duration, config_dict.get('aspect_ratio', '9:16')
+                        )
                         
                         Path(script_path).write_text(script_content, encoding="utf-8")
                         
@@ -2434,6 +2500,14 @@ def render_single_video_worker(args):
                             expected_path = target_dir / f"Segment{i:03d}.mp4"
                             _safe_move_video(video_path, str(expected_path))
                             logger.info(f"✅ Fixed regenerated video {i+1} saved to: {expected_path} (after {total_attempts} total attempts)")
+                            # Store render success for legacy-corrected scripts
+                            if correction_engine and error:
+                                try:
+                                    correction_engine.mark_render_success(
+                                        script_content, i, error, "groq_legacy_verified"
+                                    )
+                                except Exception:
+                                    pass
                             return {'success': True, 'video_path': str(expected_path), 'index': i}
                     
                     # All fixes failed, will regenerate again in next iteration
@@ -3544,19 +3618,39 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
 
     def _initialize_gemini_client(self):
         """
-        Initialize Gemini client with model rotation support.
+        Initialize Gemini clients for ALL available API keys.
+        Keys are loaded from: GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3, ...
         """
         try:
             from google import genai
             
-            gemini_api_key = os.getenv('GEMINI_API_KEY')
-            if not gemini_api_key:
-                logger.warning("⚠️ GEMINI_API_KEY not found in environment")
+            # Load all keys
+            self.gemini_api_keys = []
+            primary = os.getenv('GEMINI_API_KEY')
+            if primary:
+                self.gemini_api_keys.append(primary)
+            for i in range(2, 10):
+                key = os.getenv(f'GEMINI_API_KEY_{i}')
+                if key:
+                    self.gemini_api_keys.append(key)
+            
+            if not self.gemini_api_keys:
+                logger.warning("⚠️ No GEMINI_API_KEY found in environment")
                 self.gemini_client = None
                 return
             
-            self.gemini_client = genai.Client(api_key=gemini_api_key)
-            logger.info(f"✅ Gemini client initialized: {self.gemini_models[0]}")
+            # Create one client per key
+            self.gemini_clients = [genai.Client(api_key=k) for k in self.gemini_api_keys]
+            self.gemini_client = self.gemini_clients[0]  # Default client for backward compat
+            self.current_gemini_key_index = 0
+            self.current_gemini_model_index = 0
+            
+            logger.info(
+                f"✅ Gemini initialized: {len(self.gemini_clients)} key(s), "
+                f"{len(self.gemini_models)} model(s) — "
+                f"rotation order: model across all keys, then next model"
+            )
+            logger.info(f"   Models: {', '.join(self.gemini_models)}")
             
         except ImportError:
             logger.error("❌ google-genai not installed. Run: pip install google-genai")
@@ -3565,19 +3659,42 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             logger.error(f"❌ Failed to initialize Gemini client: {e}")
             self.gemini_client = None
     
-    def _rotate_gemini_model(self) -> bool:
+    def _rotate_gemini_key(self) -> bool:
         """
-        Rotate to next Gemini model.
-        Returns False if all models exhausted.
+        Rotate to the next API key for the SAME model.
+        Returns False if all keys for this model are exhausted.
         """
-        self.current_gemini_model_index += 1
-        if self.current_gemini_model_index >= len(self.gemini_models):
-            logger.error("❌ All Gemini models exhausted")
+        if not self.gemini_clients:
             return False
         
-        model_name = self.gemini_models[self.current_gemini_model_index]
-        logger.info(f"🔄 Rotated to Gemini model: {model_name}")
+        next_key = self.current_gemini_key_index + 1
+        if next_key >= len(self.gemini_clients):
+            # All keys exhausted for this model
+            return False
+        
+        self.current_gemini_key_index = next_key
+        self.gemini_client = self.gemini_clients[next_key]
+        model = self.gemini_models[self.current_gemini_model_index]
+        logger.info(f"🔑 Rotated to key {next_key + 1}/{len(self.gemini_clients)} (same model: {model})")
         return True
+    
+    def _rotate_gemini_model(self) -> bool:
+        """
+        Move to the next model and reset keys to start from key 1.
+        Returns False if all models are exhausted.
+        """
+        next_model = self.current_gemini_model_index + 1
+        if next_model >= len(self.gemini_models):
+            logger.error("❌ All Gemini models × all keys exhausted")
+            return False
+        
+        self.current_gemini_model_index = next_model
+        self.current_gemini_key_index = 0  # Reset to first key
+        self.gemini_client = self.gemini_clients[0]
+        model = self.gemini_models[next_model]
+        logger.info(f"🔄 Advanced to next model: {model} (resetting to key 1/{len(self.gemini_clients)})")
+        return True
+
     def _validate_script(self, script: str) -> bool:
         """
         Smart validation that balances performance and visual quality.
@@ -3627,41 +3744,50 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
         return True
     def _call_gemini_with_rotation(self, prompt: str, generation_config: dict, task_name: str):
         """
-        Call Gemini with automatic model rotation on quota/hard errors.
+        Call Gemini with key-first-then-model rotation strategy.
+        
+        Order: Key1+Model1 → Key2+Model1 → Key3+Model1
+             → Key1+Model2 → Key2+Model2 → Key3+Model2
+             → Key1+Model3 → ...
+        
+        On temporary errors (503/overloaded): skip to next KEY, same model.
+        On quota errors (429/exhausted): skip to next KEY, same model.
+        Only when ALL keys fail for a model → advance to next model.
         """
         from google.genai import types
+        import time
         
-        while True:
+        max_total_attempts = len(self.gemini_models) * max(len(self.gemini_clients), 1) * 2
+        attempt = 0
+        
+        while attempt < max_total_attempts:
+            attempt += 1
             try:
                 model_name = self.gemini_models[self.current_gemini_model_index]
                 config = types.GenerateContentConfig(
                     temperature=generation_config.get('temperature', 0.7),
                     max_output_tokens=generation_config.get('max_output_tokens', 8192)
                 )
+                
+                # Use the current client (bound to current key)
                 response = self.gemini_client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=config
                 )
                 
-                # Validate that we got a valid response
+                # Validate response
                 if response is None:
-                    logger.warning(f"⚠️ Gemini returned None response for {task_name}")
-                    raise ValueError(f"Gemini returned None response")
-                
+                    raise ValueError("Gemini returned None response")
                 if not hasattr(response, 'text') or response.text is None:
-                    logger.warning(f"⚠️ Gemini response missing text attribute for {task_name}")
-                    logger.warning(f"   Response type: {type(response)}")
-                    if hasattr(response, '__dict__'):
-                        logger.warning(f"   Response attributes: {list(response.__dict__.keys())}")
-                    raise ValueError(f"Gemini response missing or None text")
+                    raise ValueError("Gemini response missing or None text")
                 
                 return response
+                
             except Exception as e:
                 error_str = str(e).lower()
                 error_type = type(e).__name__
                 
-                # Check if this is a quota/overload/rate limit error that should trigger rotation
                 is_rotation_error = (
                     "quota" in error_str or 
                     "429" in error_str or 
@@ -3676,12 +3802,31 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                 )
                 
                 if is_rotation_error:
-                    logger.warning(f"⚠️ Gemini error for {task_name}: {str(e)[:200]}")
-                    logger.info(f"🔄 Attempting model rotation...")
-                    if not self._rotate_gemini_model():
-                        raise RuntimeError(f"All Gemini models failed for {task_name}: {e}")
-                    logger.info(f"🔄 Retrying {task_name} with next model...")
-                    continue
+                    model = self.gemini_models[self.current_gemini_model_index]
+                    key_num = self.current_gemini_key_index + 1
+                    logger.warning(
+                        f"⚠️ {model} on key {key_num}/{len(self.gemini_clients)} "
+                        f"failed for {task_name}: {str(e)[:150]}"
+                    )
+                    
+                    # Try next KEY with same model
+                    if self._rotate_gemini_key():
+                        logger.info(f"🔑 Trying next key for same model ({model})...")
+                        time.sleep(2)
+                        continue
+                    
+                    # All keys exhausted for this model → try next MODEL
+                    if self._rotate_gemini_model():
+                        new_model = self.gemini_models[self.current_gemini_model_index]
+                        logger.info(f"🔄 All keys exhausted for {model}, advancing to {new_model}...")
+                        time.sleep(2)
+                        continue
+                    
+                    # All models × all keys exhausted
+                    raise RuntimeError(
+                        f"All Gemini models × all keys exhausted for {task_name}. "
+                        f"Models: {self.gemini_models}, Keys: {len(self.gemini_clients)}"
+                    )
                 else:
                     raise
         
@@ -4854,7 +4999,7 @@ Scene Direction: {direction}
 
     def _inject_premium_background(self, script: str, index: int, duration: float) -> str:
         """Inject premium background (GradientBackground, SubtleGrid, AmbientParticles,
-        progress bar, channel watermark) into legacy LLM-generated Manim scripts.
+        channel watermark) into legacy LLM-generated Manim scripts.
         
         This gives legacy pipeline the same professional look as the quality pipeline.
         """
@@ -4929,26 +5074,7 @@ class SubtleGrid(VGroup):
             _dx = random.uniform(-0.02, 0.02)
             _dy = random.uniform(0.01, 0.03)
             _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
-        # Progress bar
-        _pb_total_w = config.frame_width * 0.85
-        _pb_bg = Rectangle(width=_pb_total_w, height=0.06, fill_opacity=0.15,
-                           fill_color=WHITE, stroke_width=0)
-        _pb_bg.move_to(np.array([0, -config.frame_height/2 + 0.12, 0]))
-        self.add(_pb_bg)
-        _pb_bar = Rectangle(width=0.01, height=0.06, fill_opacity=0.6,
-                            fill_color={accent}, stroke_width=0)
-        _pb_bar.move_to(_pb_bg.get_center())
-        _pb_bar.align_to(_pb_bg, LEFT)
-        self.add(_pb_bar)
-        _pb_bar._pt = 0
-        _scene_dur = {duration:.1f}
-        def _pb_upd(m, dt):
-            m._pt += dt
-            frac = min(1.0, m._pt / max(0.1, _scene_dur))
-            new_w = max(0.01, _pb_total_w * frac)
-            m.stretch_to_fit_width(new_w)
-            m.align_to(_pb_bg, LEFT)
-        _pb_bar.add_updater(_pb_upd)
+
         # Channel watermark
         _wm = Text("Code Tapasya", font_size=14, color=WHITE,
                     font="sans-serif", fill_opacity=0.25)
@@ -5802,7 +5928,7 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="The Secret to TINY AI Models", 
+            topic="How to build a perfect website using Vibe Coding?", 
             duration=60,
         )
 
