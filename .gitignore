@@ -27,6 +27,7 @@ output/
 temp/
 cache/
 intro/
+data/
 
 # Media files (generated) - but allow initial_video folder
 *.mp4

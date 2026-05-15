@@ -286,7 +286,7 @@ class VideoGenerationPipeline:
         self.gemini_models = ["gemini-2.5-flash","gemini-3-flash-preview", "gemini-2.5-flash-lite"]
         self.current_gemini_model_index = 0
         self.current_gemini_key_index = 0
-        self.gemini_api_keys = []  # Loaded in _initialize_gemini_client
+        self.gemini_api_keys = []  # Loaded in _initialize_gemini_client    
         self.gemini_clients = []   # One genai.Client per key
         self.groq_correction_models = ["llama-3.1-8b-instant"]
         self.groq_client = None
@@ -5111,7 +5111,7 @@ class SubtleGrid(VGroup):
         return script
 
     def _validate_script_structure(self, script: str, index: int) -> bool:
-        """Validate that the script has all required components."""
+        """Validate that the script has all required components + structural safety."""
         # Core required elements (self.wait is optional - animations can fill duration)
         core_elements = [
             "from manim import",
@@ -5123,6 +5123,28 @@ class SubtleGrid(VGroup):
             if element not in script:
                 logger.warning(f"⚠️ Missing required element: {element}")
                 return False
+        
+        # STRUCTURAL VALIDATION — detect unsafe Manim patterns
+        try:
+            try:
+                from .pre_render_validator import validate_structural
+            except ImportError:
+                from generator.video_generator.pre_render_validator import validate_structural
+            
+            struct_result = validate_structural(script, index)
+            if not struct_result.is_valid:
+                logger.warning(
+                    f"❌ Structural validation FAILED for segment {index+1}: "
+                    f"{struct_result.errors}"
+                )
+                return False
+            if struct_result.warnings:
+                logger.info(
+                    f"⚠️ Structural warnings for segment {index+1}: "
+                    f"{struct_result.warnings[:3]}"
+                )
+        except Exception as e:
+            logger.debug(f"Structural validation skipped: {e}")
         
         # PERFORMANCE MONITORING: Detect per-frame updaters (slow)
         has_updater = False
@@ -5341,6 +5363,7 @@ class Segment{index:03d}(Scene):
                     duration=duration,
                     aspect_ratio=self.config.aspect_ratio,
                     visual_contract=None,
+                    model_name=self.gemini_models[self.current_gemini_model_index] if self.gemini_models else "",
                 )
                 
                 if not script:

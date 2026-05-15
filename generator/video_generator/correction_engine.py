@@ -35,7 +35,7 @@ try:
         ErrorClassification,
         AutoFixResult,
     )
-    from .pre_render_validator import validate_static, validate_semantic
+    from .pre_render_validator import validate_static, validate_structural, validate_semantic
     from .correction_memory import (
         CorrectionMemory,
         CorrectionEntry,
@@ -56,7 +56,7 @@ except ImportError:
         ErrorClassification,
         AutoFixResult,
     )
-    from pre_render_validator import validate_static, validate_semantic
+    from pre_render_validator import validate_static, validate_structural, validate_semantic
     from correction_memory import (
         CorrectionMemory,
         CorrectionEntry,
@@ -101,6 +101,7 @@ class ManimCorrectionEngine:
     ):
         self.memory = memory
         self.ollama = ollama
+        self._catastrophic_threshold = 4  # Score threshold for catastrophic bailout
         logger.info("✅ ManimCorrectionEngine initialized")
 
     def correct_script(
@@ -135,6 +136,29 @@ class ManimCorrectionEngine:
             f"(hash={classification.failure_hash[:12]}...)"
         )
 
+        # ── STEP 1.5: CATASTROPHIC DETECTION ──
+        catastrophic_score = self._catastrophic_score(script, error)
+        if catastrophic_score >= self._catastrophic_threshold:
+            logger.warning(
+                f"🚨 Catastrophic instability detected (score={catastrophic_score}) "
+                f"— skipping correction, signal regeneration"
+            )
+            self._store_result(
+                original=script, corrected="", error=error,
+                classification=classification, model_used="catastrophic_bailout",
+                scene_id=scene_id,
+                fix_summary=f"Catastrophic: score={catastrophic_score}, regenerate",
+                validation_passed=False, render_success=False, retry_count=0,
+            )
+            return CorrectionResult(
+                corrected_script=script,
+                success=False,
+                model_used="catastrophic_bailout",
+                error_type=classification.error_type,
+                method=f"Catastrophic instability (score={catastrophic_score}) — regenerate",
+                attempts=0,
+            )
+
         # ── STEP 2: HASH CACHE LOOKUP ──
         cached_fix = self.memory.lookup_by_hash(classification.failure_hash)
         if cached_fix and cached_fix.corrected_script:
@@ -154,11 +178,21 @@ class ManimCorrectionEngine:
             else:
                 logger.warning(f"⚠️ Cached fix failed static validation, proceeding to repair")
 
-        # ── STEP 3: DETERMINISTIC PRE-REPAIR ──
+        # ── STEP 3: DETERMINISTIC PRE-REPAIR (Escalation Level 1) ──
         auto_result = auto_fix_common_errors(script, error, segment_index)
         attempts += 1
 
         if auto_result.was_fixed:
+            # Run structural validation on auto-fixed script
+            struct_val = validate_structural(auto_result.script, segment_index)
+            if struct_val.auto_fixed_script:
+                auto_result = AutoFixResult(
+                    script=struct_val.auto_fixed_script,
+                    was_fixed=True,
+                    fixes_applied=auto_result.fixes_applied + ["structural_autofix"],
+                )
+                logger.info("🔧 Structural validator applied auto-fixes")
+            
             # Validate the auto-fix
             val = validate_static(auto_result.script, segment_index)
             if val.is_valid:
@@ -232,7 +266,7 @@ class ManimCorrectionEngine:
         if retrieval_hits:
             logger.info(f"🔍 Retrieved {retrieval_hits} similar fixes from memory")
 
-        # ── STEP 6: QWEN 3.5 CORRECTION ──
+        # ── STEP 6: PRIMARY LLM CORRECTION (Escalation Level 2) ──
         script_context = extract_script_context(
             script, classification.failing_line_number
         )
@@ -253,18 +287,23 @@ class ManimCorrectionEngine:
 
         if corrected:
             corrected = clean_correction_response(corrected)
+            # Run structural + static validation
+            struct_val = validate_structural(corrected, segment_index)
+            if struct_val.auto_fixed_script:
+                corrected = struct_val.auto_fixed_script
+                logger.info("🔧 Structural auto-fixes applied to primary LLM output")
             val = validate_static(corrected, segment_index)
 
             if val.is_valid:
-                logger.info("✅ Qwen 3.5 correction passed static validation")
+                logger.info("✅ Primary LLM correction passed validation")
                 self._store_result(
                     original=script,
                     corrected=corrected,
                     error=error,
                     classification=classification,
-                    model_used="qwen3.5:397b-cloud",
+                    model_used=self.ollama.MODELS.get('primary', 'primary'),
                     scene_id=scene_id,
-                    fix_summary=f"Qwen correction for {classification.error_type}",
+                    fix_summary=f"Primary LLM correction for {classification.error_type}",
                     validation_passed=True,
                     render_success=False,
                     retry_count=attempts,
@@ -272,19 +311,19 @@ class ManimCorrectionEngine:
                 return CorrectionResult(
                     corrected_script=val.auto_fixed_script or corrected,
                     success=True,
-                    model_used="qwen3.5:397b-cloud",
+                    model_used=self.ollama.MODELS.get('primary', 'primary'),
                     error_type=classification.error_type,
-                    method=f"Qwen 3.5 correction ({classification.error_type})",
+                    method=f"Primary LLM correction ({classification.error_type})",
                     attempts=attempts,
                     retrieval_hits=retrieval_hits,
                 )
             else:
                 logger.warning(
-                    f"⚠️ Qwen correction failed static validation: {val.errors}"
+                    f"⚠️ Primary LLM correction failed validation: {val.errors}"
                 )
 
-        # ── STEP 7: GEMMA 4 FALLBACK ──
-        logger.info("🔄 Qwen failed, falling back to Gemma 4...")
+        # ── STEP 7: SECONDARY LLM FALLBACK (Escalation Level 3) ──
+        logger.info("🔄 Primary failed, falling back to secondary LLM...")
         attempts += 1
         corrected = self.ollama.correct(prompt, model="secondary")
 
@@ -293,15 +332,15 @@ class ManimCorrectionEngine:
             val = validate_static(corrected, segment_index)
 
             if val.is_valid:
-                logger.info("✅ Gemma 4 fallback passed static validation")
+                logger.info("✅ Secondary LLM fallback passed validation")
                 self._store_result(
                     original=script,
                     corrected=corrected,
                     error=error,
                     classification=classification,
-                    model_used="gemma4:31b-cloud",
+                    model_used=self.ollama.MODELS.get('secondary', 'secondary'),
                     scene_id=scene_id,
-                    fix_summary=f"Gemma fallback for {classification.error_type}",
+                    fix_summary=f"Secondary LLM fallback for {classification.error_type}",
                     validation_passed=True,
                     render_success=False,
                     retry_count=attempts,
@@ -309,18 +348,18 @@ class ManimCorrectionEngine:
                 return CorrectionResult(
                     corrected_script=val.auto_fixed_script or corrected,
                     success=True,
-                    model_used="gemma4:31b-cloud",
+                    model_used=self.ollama.MODELS.get('secondary', 'secondary'),
                     error_type=classification.error_type,
-                    method=f"Gemma 4 fallback ({classification.error_type})",
+                    method=f"Secondary LLM fallback ({classification.error_type})",
                     attempts=attempts,
                     retrieval_hits=retrieval_hits,
                 )
             else:
                 logger.warning(
-                    f"❌ Gemma correction also failed static validation: {val.errors}"
+                    f"❌ Secondary LLM correction also failed validation: {val.errors}"
                 )
 
-        # ── STEP 8: ALL CORRECTIONS FAILED ──
+        # ── STEP 8: ALL CORRECTIONS FAILED (Escalation Level 4: Regenerate) ──
         logger.error(
             f"❌ Correction engine exhausted for segment {segment_index} "
             f"({classification.error_type}) after {attempts} attempts"
@@ -413,3 +452,80 @@ class ManimCorrectionEngine:
     def get_stats(self) -> dict:
         """Get correction memory statistics."""
         return self.memory.get_stats()
+
+    def _catastrophic_score(self, script: str, error: str) -> int:
+        """
+        Score a script's structural instability.
+        
+        High scores indicate the script needs regeneration, not repair.
+        Threshold is self._catastrophic_threshold (default 4).
+        
+        Scoring:
+          +3: Missing class/construct structure
+          +2: Excessive .add() ownership corruption (>5)
+          +2: Deep chained .animate mutations (>2 chains)
+          +2: Multiple NameErrors in traceback
+          +1: No self.play() calls at all
+          +1: Multiple SyntaxErrors
+        """
+        import re
+        score = 0
+        
+        # Missing basic structure
+        if "class" not in script or "def construct" not in script:
+            score += 3
+        
+        # Ownership corruption (.add() overuse)
+        add_count = len(re.findall(r'\.add\s*\(', script))
+        if add_count > 5:
+            score += 2
+        
+        # Deep chained .animate mutations (safe string scan)
+        chain_count = 0
+        for line in script.split('\n'):
+            if '.animate.' in line:
+                anim_pos = line.find('.animate.')
+                after = line[anim_pos + len('.animate'):]
+                dots = 0
+                ci = 0
+                while ci < len(after):
+                    if after[ci] == '.':
+                        dots += 1
+                        ci += 1
+                        while ci < len(after) and after[ci] != '(':
+                            ci += 1
+                        if ci < len(after) and after[ci] == '(':
+                            d = 1
+                            ci += 1
+                            while ci < len(after) and d > 0:
+                                if after[ci] == '(':
+                                    d += 1
+                                elif after[ci] == ')':
+                                    d -= 1
+                                ci += 1
+                    else:
+                        break
+                if dots >= 3:
+                    chain_count += 1
+        if chain_count > 2:
+            score += 2
+        
+        # Multiple NameErrors = too many undefined references
+        if error.count("NameError") > 2:
+            score += 2
+        
+        # No animations at all
+        if not re.search(r'self\.play\s*\(', script):
+            score += 1
+        
+        # Multiple distinct syntax errors
+        if error.count("SyntaxError") > 1:
+            score += 1
+        
+        if score >= self._catastrophic_threshold:
+            logger.debug(
+                f"🔍 Catastrophic score: {score} "
+                f"(add={add_count}, chains={len(deep_chains)})"
+            )
+        
+        return score

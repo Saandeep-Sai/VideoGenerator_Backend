@@ -288,6 +288,103 @@ def auto_fix_common_errors(
             script = re.sub(r'(?<!\w)Tex\s*\(', 'Text(', script)
             fixes.append("latex_fallback: MathTex/Tex → Text")
 
+    # ── STRUCTURAL AUTO-FIXES ──
+
+    # 11. Shape.add(text_var) → VGroup(shape, text_var)
+    # Detects: var = Rectangle(...).add(other_var) — line-by-line scan (no catastrophic regex)
+    shape_types = (
+        'Rectangle', 'Circle', 'Square', 'RoundedRectangle', 'Ellipse',
+        'Triangle', 'Polygon', 'Star', 'Arc', 'Sector', 'Arrow', 'Line',
+    )
+    for line in script.split('\n'):
+        stripped = line.strip()
+        if '.add(' not in stripped or '=' not in stripped:
+            continue
+        # Check if any shape type is in this line
+        has_shape = any(st + '(' in stripped for st in shape_types)
+        if not has_shape:
+            continue
+        
+        eq_pos = stripped.find('=')
+        add_pos = stripped.find('.add(')
+        if eq_pos < 1 or add_pos < eq_pos:
+            continue
+        
+        var_name = stripped[:eq_pos].strip()
+        if not var_name.isidentifier():
+            continue
+        
+        shape_expr = stripped[eq_pos+1:add_pos].strip()
+        # Extract child from .add(child_var)
+        rest = stripped[add_pos+5:]  # after '.add('
+        paren_depth = 1
+        child_end = 0
+        for ci, ch in enumerate(rest):
+            if ch == '(':
+                paren_depth += 1
+            elif ch == ')':
+                paren_depth -= 1
+                if paren_depth == 0:
+                    child_end = ci
+                    break
+        if child_end > 0:
+            child_var = rest[:child_end].strip()
+            if child_var.isidentifier():
+                indent = line[:len(line) - len(line.lstrip())]
+                new_line = (
+                    f"{indent}{var_name}_bg = {shape_expr}\n"
+                    f"{indent}{var_name} = VGroup({var_name}_bg, {child_var})"
+                )
+                script = script.replace(line, new_line, 1)
+                fixes.append(f"structural: {var_name} = Shape().add({child_var}) → VGroup")
+
+    # 12. Chained .animate.X().Y().Z() → split (replace with first mutation only)
+    # Safe line-by-line scan instead of catastrophic regex
+    for line in script.split('\n'):
+        if '.animate.' not in line:
+            continue
+        anim_pos = line.find('.animate.')
+        if anim_pos < 0:
+            continue
+        
+        after = line[anim_pos + len('.animate'):]
+        # Count chained .method() calls
+        chain_count = 0
+        first_end = 0
+        i = 0
+        while i < len(after):
+            if after[i] == '.':
+                chain_count += 1
+                i += 1
+                # Skip method name
+                while i < len(after) and after[i] != '(':
+                    i += 1
+                if i < len(after) and after[i] == '(':
+                    depth = 1
+                    i += 1
+                    while i < len(after) and depth > 0:
+                        if after[i] == '(':
+                            depth += 1
+                        elif after[i] == ')':
+                            depth -= 1
+                        i += 1
+                    if chain_count == 1:
+                        first_end = i  # End of first .method() call
+            else:
+                break
+        
+        if chain_count >= 3 and first_end > 0:
+            # Replace full chain with just first mutation
+            old_chain = line[anim_pos + len('.animate'):].rstrip()
+            first_mutation = after[:first_end]
+            new_line = line[:anim_pos + len('.animate')] + first_mutation
+            # Preserve any trailing content like ", run_time=1)"
+            script = script.replace(line.rstrip(), new_line, 1)
+            fixes.append(f"structural: split chained .animate (kept first mutation)")
+
+    # 13. Excessive concurrent animations — auto-detect but don't auto-split
+    # (This is logged as a warning rather than auto-fixed due to complexity)
+
     was_fixed = script != original
 
     if fixes:

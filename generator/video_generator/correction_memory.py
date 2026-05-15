@@ -27,6 +27,35 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# RETRIEVAL DOMAIN MAPPING
+# ═══════════════════════════════════════════════════════════════════
+
+# Error types mapped to retrieval domains for separation
+DOMAIN_MAP = {
+    "SyntaxError": "syntax",
+    "IndentationError": "syntax",
+    "ImportError": "syntax",
+    "NameError": "syntax",
+    "AttributeError": "structural",
+    "TypeError": "structural",
+    "AnimationConflict": "structural",
+    "LayoutOverflow": "visual",
+    "TimingMismatch": "semantic",
+    "RendererCrash": "structural",
+    "APICompatibilityError": "syntax",
+    "LaTeXError": "syntax",
+    "SemanticSceneFailure": "semantic",
+}
+
+ALL_DOMAINS = ["syntax", "structural", "semantic", "visual"]
+
+
+def _get_domain(error_type: str) -> str:
+    """Map error type to retrieval domain."""
+    return DOMAIN_MAP.get(error_type, "structural")
+
+
 @dataclass
 class CorrectionEntry:
     """A single correction record."""
@@ -160,30 +189,42 @@ class CorrectionMemory:
         conn.commit()
         conn.close()
 
-    def _get_chroma_collection(self):
-        """Lazy-init ChromaDB collection."""
-        if self._chroma_collection is not None:
-            return self._chroma_collection
+    def _get_chroma_collection(self, domain: str = "general"):
+        """
+        Lazy-init ChromaDB collection for a given domain.
+        
+        Domains: 'general', 'syntax', 'structural', 'semantic', 'visual'
+        Each domain gets a separate collection for precision retrieval.
+        """
+        if not hasattr(self, '_chroma_collections'):
+            self._chroma_collections = {}
+        
+        if domain in self._chroma_collections:
+            return self._chroma_collections[domain]
 
         try:
             import chromadb
-            self._chroma_client = chromadb.PersistentClient(path=self.chroma_path)
-            self._chroma_collection = self._chroma_client.get_or_create_collection(
-                name="manim_correction_memory",
+            if self._chroma_client is None:
+                self._chroma_client = chromadb.PersistentClient(path=self.chroma_path)
+            
+            collection_name = f"manim_corrections_{domain}"
+            collection = self._chroma_client.get_or_create_collection(
+                name=collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
+            self._chroma_collections[domain] = collection
             logger.info(
-                f"✅ ChromaDB collection ready: "
-                f"{self._chroma_collection.count()} entries"
+                f"✅ ChromaDB collection '{collection_name}' ready: "
+                f"{collection.count()} entries"
             )
         except ImportError:
             logger.warning("⚠️ chromadb not installed — retrieval disabled")
             return None
         except Exception as e:
-            logger.warning(f"⚠️ ChromaDB init failed: {e} — retrieval disabled")
+            logger.warning(f"⚠️ ChromaDB init failed for domain '{domain}': {e}")
             return None
 
-        return self._chroma_collection
+        return self._chroma_collections.get(domain)
 
     def store_correction(self, entry: CorrectionEntry) -> str:
         """
@@ -232,25 +273,28 @@ class CorrectionMemory:
         except Exception as e:
             logger.error(f"❌ SQLite store failed: {e}")
 
-        # Store embedding in ChromaDB
+        # Store embedding in ChromaDB (both general + domain-specific)
         if entry.retrieval_text:
-            try:
-                collection = self._get_chroma_collection()
-                if collection is not None:
-                    entry.embedding_id = entry.id
-                    collection.upsert(
-                        ids=[entry.id],
-                        documents=[entry.retrieval_text[:self.MAX_RETRIEVAL_CHARS]],
-                        metadatas=[{
-                            "error_type": entry.error_type,
-                            "render_success": entry.render_success,
-                            "validation_passed": entry.validation_passed,
-                            "failure_hash": entry.failure_hash or "",
-                            "model_used": entry.model_used,
-                        }],
-                    )
-            except Exception as e:
-                logger.warning(f"⚠️ ChromaDB store failed: {e}")
+            domain = _get_domain(entry.error_type)
+            for target_domain in ["general", domain]:
+                try:
+                    collection = self._get_chroma_collection(target_domain)
+                    if collection is not None:
+                        entry.embedding_id = entry.id
+                        collection.upsert(
+                            ids=[entry.id],
+                            documents=[entry.retrieval_text[:self.MAX_RETRIEVAL_CHARS]],
+                            metadatas=[{
+                                "error_type": entry.error_type,
+                                "render_success": entry.render_success,
+                                "validation_passed": entry.validation_passed,
+                                "failure_hash": entry.failure_hash or "",
+                                "model_used": entry.model_used,
+                                "domain": domain,
+                            }],
+                        )
+                except Exception as e:
+                    logger.warning(f"⚠️ ChromaDB store failed ({target_domain}): {e}")
 
         logger.debug(f"📦 Stored correction {entry.id[:8]}... ({entry.error_type})")
         return entry.id
@@ -268,62 +312,65 @@ class CorrectionMemory:
         Max results: 3. Similarity threshold: 0.65.
         """
         n_results = min(n_results, self.MAX_RETRIEVAL_RESULTS)
-        collection = self._get_chroma_collection()
-        if collection is None or collection.count() == 0:
-            return []
-
+        
+        # Determine domain for this error type
+        domain = _get_domain(error_type)
         query_text = f"Error: {error_type} | Traceback: {traceback_summary[:500]}"
+        
+        # Try domain-specific collection first, then fall back to general
+        for target_domain in [domain, "general"]:
+            collection = self._get_chroma_collection(target_domain)
+            if collection is None or collection.count() == 0:
+                continue
 
-        try:
-            # Primary: successful fixes within same error domain
-            results = collection.query(
-                query_texts=[query_text],
-                n_results=n_results,
-                where={
-                    "$and": [
-                        {"render_success": True},
-                        {"error_type": error_type},
-                    ]
-                },
-                include=["documents", "metadatas", "distances"],
-            )
-
-            # Fallback: any successful fix if domain-specific search empty
-            if not results["ids"][0]:
+            try:
+                # Primary: successful fixes within same error domain
                 results = collection.query(
                     query_texts=[query_text],
                     n_results=n_results,
-                    where={"render_success": True},
+                    where={
+                        "$and": [
+                            {"render_success": True},
+                            {"error_type": error_type},
+                        ]
+                    },
                     include=["documents", "metadatas", "distances"],
                 )
 
-            # Filter by similarity threshold (cosine distance)
-            entries = []
-            for i, doc_id in enumerate(results["ids"][0]):
-                distance = results["distances"][0][i] if results["distances"] else 1.0
-                similarity = 1.0 - distance  # cosine: distance 0 = identical
+                # Fallback: any successful fix if domain-specific search empty
+                if not results["ids"][0]:
+                    results = collection.query(
+                        query_texts=[query_text],
+                        n_results=n_results,
+                        where={"render_success": True},
+                        include=["documents", "metadatas", "distances"],
+                    )
 
-                if similarity < self.SIMILARITY_THRESHOLD:
-                    continue
+                # Filter by similarity threshold (cosine distance)
+                entries = []
+                for i, doc_id in enumerate(results["ids"][0]):
+                    distance = results["distances"][0][i] if results["distances"] else 1.0
+                    similarity = 1.0 - distance
 
-                # Fetch full record from SQLite
-                entry = self._fetch_from_sqlite(doc_id)
-                if entry:
-                    entries.append(entry)
+                    if similarity < self.SIMILARITY_THRESHOLD:
+                        continue
 
-            if entries:
-                logger.info(
-                    f"🔍 Retrieved {len(entries)} similar fixes "
-                    f"for {error_type} (top similarity: {1.0 - results['distances'][0][0]:.2f})"
-                )
-            else:
-                logger.debug(f"🔍 No similar fixes found for {error_type}")
+                    entry = self._fetch_from_sqlite(doc_id)
+                    if entry:
+                        entries.append(entry)
 
-            return entries[:self.MAX_RETRIEVAL_RESULTS]
+                if entries:
+                    logger.info(
+                        f"🔍 Retrieved {len(entries)} fixes from '{target_domain}' domain "
+                        f"for {error_type} (top similarity: {1.0 - results['distances'][0][0]:.2f})"
+                    )
+                    return entries[:self.MAX_RETRIEVAL_RESULTS]
 
-        except Exception as e:
-            logger.warning(f"⚠️ ChromaDB retrieval failed: {e}")
-            return []
+            except Exception as e:
+                logger.warning(f"⚠️ ChromaDB retrieval failed ({target_domain}): {e}")
+        
+        logger.debug(f"🔍 No similar fixes found for {error_type}")
+        return []
 
     def lookup_by_hash(self, failure_hash: str) -> Optional[CorrectionEntry]:
         """
@@ -392,17 +439,19 @@ class CorrectionMemory:
             ).fetchall())
             conn.close()
 
-            chroma_count = 0
-            collection = self._get_chroma_collection()
-            if collection:
-                chroma_count = collection.count()
+            # Domain-specific ChromaDB stats
+            chroma_stats = {}
+            for domain in ["general"] + ALL_DOMAINS:
+                collection = self._get_chroma_collection(domain)
+                if collection:
+                    chroma_stats[domain] = collection.count()
 
             return {
                 "total_corrections": total,
                 "successful_fixes": successful,
                 "success_rate": successful / max(total, 1),
                 "by_error_type": by_type,
-                "chroma_embeddings": chroma_count,
+                "chroma_domains": chroma_stats,
             }
         except Exception as e:
             logger.warning(f"⚠️ Stats fetch failed: {e}")

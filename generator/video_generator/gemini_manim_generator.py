@@ -264,6 +264,120 @@ config.background_color
 """
 
 # ═════════════════════════════════════════════════════════════════════
+# SAFE STRUCTURAL PATTERNS (injected into all prompts)
+# ═════════════════════════════════════════════════════════════════════
+
+SAFE_STRUCTURAL_PATTERNS = """
+## SAFE STRUCTURAL PATTERNS (CRITICAL — MUST FOLLOW)
+
+### Object Composition (THE #1 CRASH CAUSE)
+✅ GOOD: Create objects separately, then group:
+   box = Rectangle(width=3, height=1.5, color=BLUE, fill_opacity=0.2)
+   label = Text("Label", font_size=22)
+   card = VGroup(box, label).arrange(DOWN, buff=0.3)
+
+❌ BAD: Never use .add() to attach text to shapes:
+   card = Rectangle(...).add(text)  ← WILL CRASH during animation
+
+### Animation Safety
+✅ GOOD: One mutation per .animate chain:
+   self.play(obj.animate.move_to(UP*2), run_time=1)
+   self.play(obj.animate.set_opacity(0.5), run_time=0.5)
+
+❌ BAD: Multiple mutations in one chain (UNSTABLE):
+   self.play(obj.animate.move_to(UP*2).set_opacity(0.5).scale(2))
+
+### Object Lifecycle
+✅ GOOD: After FadeOut, stop referencing the object:
+   self.play(FadeOut(old_obj), run_time=0.5)
+   # old_obj is gone — use new objects now
+
+❌ BAD: Animating removed/faded objects:
+   self.remove(obj)
+   self.play(obj.animate.shift(UP))  ← obj is already removed!
+
+### Play Block Size
+✅ GOOD: Max 4 animations per self.play():
+   self.play(FadeIn(a), FadeIn(b), Create(arrow), run_time=1)
+
+❌ BAD: Too many concurrent animations (>6):
+   self.play(a, b, c, d, e, f, g, h)  ← animation conflict risk
+
+### Transform Safety
+✅ GOOD: ReplacementTransform between separate objects:
+   self.play(ReplacementTransform(old, new), run_time=1)
+   # After this, only reference 'new'
+
+❌ BAD: Transforming VGroup children independently:
+   group = VGroup(a, b)
+   self.play(Transform(a, c))  ← 'a' is inside group, conflict!
+
+### Arrow Safety
+✅ GOOD: Create arrows AFTER positioning source/target nodes:
+   node_a.move_to(UP*3)
+   node_b.move_to(DOWN*3)
+   arrow = Arrow(node_a.get_bottom(), node_b.get_top(), buff=0.1)
+
+❌ BAD: Creating arrows before nodes are positioned
+"""
+
+# ═════════════════════════════════════════════════════════════════════
+# COMPACT API REFERENCE (for STANDARD/LIGHTWEIGHT prompt tiers)
+# ═════════════════════════════════════════════════════════════════════
+
+SAFE_MANIM_API_COMPACT = """
+## MANIM v0.19.0 — ESSENTIAL SAFE API
+
+### Shapes
+Circle, Rectangle, RoundedRectangle, Square, Triangle, Polygon, Star,
+Arc, Arrow, DoubleArrow, Line, DashedLine, Dot, Cross
+
+### Text
+Text(text, font_size=24, color=WHITE, weight=BOLD/NORMAL)
+MarkupText(text) — Pango rich text
+IMPORTANT: Always use .scale_to_fit_width(config.frame_width * WIDTH_FACTOR)
+
+### Groups & Layout
+VGroup(*mobjects) — group VMobjects
+.arrange(direction, buff=0.5), .arrange_in_grid(rows, cols)
+
+### Animations — Essential
+Create, Write, FadeIn(mob, shift=UP*0.3), FadeOut(mob),
+ReplacementTransform(a, b), GrowFromCenter,
+Indicate(mob, color=YELLOW, scale_factor=1.2),
+AnimationGroup(*anims), LaggedStart(*anims, lag_ratio=0.15)
+
+### Mobject Methods
+.move_to(point), .next_to(mob, direction, buff=0.2), .shift(vector)
+.to_edge(direction), .scale(factor), .set_color(color)
+.set_fill(color, opacity), .set_opacity(alpha), .copy()
+.animate — property animator (e.g. mob.animate.shift(UP))
+
+### Scene
+self.play(*animations, run_time=1.0)
+self.wait(duration), self.add(*mobs), self.remove(*mobs)
+
+### Colors
+RED, BLUE, GREEN, YELLOW, WHITE, ORANGE, PURPLE, TEAL, PINK, GOLD, GREY
+
+### Constants
+UP, DOWN, LEFT, RIGHT, ORIGIN, UL, UR, DL, DR, PI, TAU
+
+## COMMON ERRORS TO AVOID
+- WRONG: Text("Hi", size=24) → RIGHT: Text("Hi", font_size=24)
+- WRONG: Text("Hi", bold=True) → RIGHT: Text("Hi", weight=BOLD)
+- WRONG: self.play(Create(mob), duration=2) → RIGHT: run_time=2
+- WRONG: FadeIn(mob, direction=UP) → RIGHT: FadeIn(mob, shift=UP)
+- WRONG: mob.move_to(3, 2) → RIGHT: mob.move_to([3, 2, 0])
+- ShowCreation is DEPRECATED → use Create
+
+## FORBIDDEN
+- ThreeDScene, Surface, Sphere, Cube (3D objects)
+- External I/O: PIL, requests, subprocess, os.system
+- HGroup — does NOT exist
+"""
+
+# ═════════════════════════════════════════════════════════════════════
 # GENERATION PROMPT
 # ═════════════════════════════════════════════════════════════════════
 
@@ -289,6 +403,10 @@ You have FULL CREATIVE FREEDOM. Make it visually compelling, educational, and al
 {visual_intent}
 
 {safe_api_reference}
+
+{structural_patterns}
+
+{blueprint_guidance}
 
 ## SPATIAL SAFETY BOUNDS (CRITICAL FOR {aspect_ratio})
 - Horizontal: LEFT*{safe_x} to RIGHT*{safe_x} (total usable width: {safe_x}*2 units)
@@ -633,6 +751,63 @@ def _get_layout_guidance(aspect_ratio: str) -> str:
 - Side-by-side comparisons work well"""
 
 
+def _select_prompt_components(
+    model_name: str,
+    scene_spec=None,
+    narration: str = "",
+) -> Tuple[str, str, str]:
+    """
+    Select prompt components based on model capability tier.
+    
+    Returns:
+        (api_reference, structural_patterns, blueprint_guidance)
+    """
+    try:
+        from .scene_complexity import get_model_tier
+        from .structural_blueprints import select_blueprint
+    except ImportError:
+        try:
+            from scene_complexity import get_model_tier
+            from structural_blueprints import select_blueprint
+        except ImportError:
+            # Fallback: use full API ref + structural patterns, no blueprint
+            return SAFE_MANIM_API, SAFE_STRUCTURAL_PATTERNS, ""
+
+    tier = get_model_tier(model_name) if model_name else "HIGH_INTELLIGENCE"
+    
+    # Select API reference based on tier
+    if tier == "HIGH_INTELLIGENCE":
+        api_ref = SAFE_MANIM_API
+    else:
+        api_ref = SAFE_MANIM_API_COMPACT
+    
+    # Structural patterns — ALWAYS included (the whole point of this change)
+    struct_patterns = SAFE_STRUCTURAL_PATTERNS
+    
+    # Blueprint guidance — more important for weaker models
+    try:
+        blueprint = select_blueprint(scene_spec, narration)
+        bp_guidance = blueprint.to_prompt_guidance()
+    except Exception:
+        bp_guidance = ""
+    
+    # For LIGHTWEIGHT tier, emphasize structure even more
+    if tier == "LIGHTWEIGHT":
+        struct_patterns = (
+            "## ⚠️ STRUCTURAL SAFETY IS YOUR TOP PRIORITY\n"
+            "Follow these patterns EXACTLY. Violation will cause render crashes.\n\n"
+            + struct_patterns
+        )
+    
+    logger.info(
+        f"📋 Prompt tier: {tier} (model={model_name or 'unknown'}) — "
+        f"API={'compact' if tier != 'HIGH_INTELLIGENCE' else 'full'}, "
+        f"blueprint={'yes' if bp_guidance else 'no'}"
+    )
+    
+    return api_ref, struct_patterns, bp_guidance
+
+
 def generate_manim_script(
     llm_client,
     narration: str,
@@ -641,6 +816,7 @@ def generate_manim_script(
     duration: float,
     aspect_ratio: str = "9:16",
     visual_contract: dict = None,
+    model_name: str = "",
 ) -> Optional[str]:
     """
     Generate a complete Manim script using Gemini (or compatible LLM).
@@ -653,6 +829,7 @@ def generate_manim_script(
         duration: Exact duration in seconds
         aspect_ratio: Video aspect ratio string
         visual_contract: Optional visual contract dict
+        model_name: Model name for prompt tier selection
     
     Returns:
         Cleaned Manim Python script string, or None on failure
@@ -677,6 +854,11 @@ def generate_manim_script(
     # Layout guidance based on aspect ratio
     layout_guidance = _get_layout_guidance(aspect_ratio)
     
+    # ── Model-tier-aware prompt selection ──
+    api_ref, struct_patterns, bp_guidance = _select_prompt_components(
+        model_name, scene_spec, narration
+    )
+    
     prompt = GEMINI_MANIM_PROMPT.format(
         index=index,
         duration=duration,
@@ -690,7 +872,9 @@ def generate_manim_script(
         narration=narration,
         scene_direction=scene_direction,
         visual_intent=visual_intent,
-        safe_api_reference=SAFE_MANIM_API,
+        safe_api_reference=api_ref,
+        structural_patterns=struct_patterns,
+        blueprint_guidance=bp_guidance,
         width_factor=width_factor,
         max_font=max_font,
         layout_guidance=layout_guidance,
@@ -729,6 +913,8 @@ config.pixel_width = {pixel_width}
 config.pixel_height = {pixel_height}
 
 {safe_api_reference}
+
+{structural_patterns}
 
 ## SPATIAL SAFETY BOUNDS
 - Horizontal: LEFT*{safe_x} to RIGHT*{safe_x}
@@ -791,6 +977,7 @@ def generate_manim_scripts_bulk(
     llm_client,
     segments: list,
     aspect_ratio: str = "9:16",
+    model_name: str = "",
 ) -> List[Optional[str]]:
     """
     Generate ALL Manim scripts in a SINGLE bulk LLM call.
@@ -850,6 +1037,11 @@ Scene Direction:
 
 """
     
+    # ── Model-tier-aware prompt selection ──
+    api_ref, struct_patterns, _ = _select_prompt_components(
+        model_name, None, ""
+    )
+    
     prompt = GEMINI_MANIM_BATCH_PROMPT.format(
         num_segments=len(segments),
         aspect_ratio=aspect_ratio,
@@ -859,7 +1051,8 @@ Scene Direction:
         pixel_height=config["pixel_height"],
         safe_x=config["safe_x"],
         safe_y=config["safe_y"],
-        safe_api_reference=SAFE_MANIM_API,
+        safe_api_reference=api_ref,
+        structural_patterns=struct_patterns,
         width_factor=width_factor,
         max_font=max_font,
         all_segments_block=all_segments_block,
