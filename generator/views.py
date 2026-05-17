@@ -25,8 +25,8 @@ class GenerateVideoView(APIView):
 
         topic = serializer.validated_data["topic"]
         duration = serializer.validated_data["duration"]
-        aspect_ratio = serializer.validated_data.get("aspect_ratio", "16:9")
-        video_type = serializer.validated_data.get("video_type", "regular")
+        aspect_ratio = serializer.validated_data.get("aspect_ratio", "9:16")
+        video_type = serializer.validated_data.get("video_type", "short")
         use_quality_pipeline = serializer.validated_data.get("use_quality_pipeline", True)
 
         doc_id = create_job(topic, duration, aspect_ratio, video_type, use_quality_pipeline)

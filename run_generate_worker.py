@@ -84,8 +84,8 @@ async def run():
                 job_id = job['id']
                 topic = job.get("topic", "")
                 duration = int(job.get("duration", 60))
-                aspect_ratio = job.get("aspect_ratio", "16:9")
-                video_type = job.get("video_type", "regular")
+                aspect_ratio = job.get("aspect_ratio", "9:16")
+                video_type = job.get("video_type", "short")
                 use_quality_pipeline = job.get("use_quality_pipeline", True)
 
                 logger.info("=" * 60)

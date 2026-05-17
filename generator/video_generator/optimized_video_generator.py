@@ -2386,9 +2386,17 @@ def render_single_video_worker(args):
                     f"🔧 Correction result: method={result.method}, "
                     f"model={result.model_used}, retrieval_hits={result.retrieval_hits}"
                 )
-                if not result.success:
-                    logger.warning(f"⚠️ Correction engine exhausted — breaking to regeneration")
+                # Only break immediately on catastrophic bailout (script needs full regeneration)
+                # For other failures, continue the loop — the engine still returns a modified
+                # script that may render successfully even if validation didn't pass.
+                if not result.success and result.model_used == "catastrophic_bailout":
+                    logger.warning(f"🚨 Catastrophic bailout — skipping remaining corrections, going to regeneration")
                     break
+                elif not result.success:
+                    logger.warning(
+                        f"⚠️ Correction engine returned success=False on attempt {correction_cycle}/{max_correction_attempts}, "
+                        f"but will still re-render the modified script before giving up"
+                    )
                 # Re-inject premium background (correction may have stripped it)
                 duration = segment_data.get('duration', 5.0)
                 script_content = _inject_premium_background_standalone(
