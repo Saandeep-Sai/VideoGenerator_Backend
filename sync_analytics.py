@@ -337,6 +337,21 @@ def main():
     args = parser.parse_args()
 
     success = sync_analytics(dry_run=args.dry_run)
+    
+    # Send weekly email report (only on real runs, not dry-run)
+    if success and not args.dry_run:
+        try:
+            from analytics.weekly_email_report import WeeklyReportGenerator
+            report = WeeklyReportGenerator()
+            if report.is_configured:
+                logger.info("📧 Sending weekly analytics email report...")
+                report.generate_and_send()
+            else:
+                logger.info("📧 SMTP not configured — skipping email report")
+        except Exception as e:
+            # Email failure should NEVER break the sync
+            logger.warning(f"⚠️ Weekly email report failed (non-fatal): {e}")
+    
     sys.exit(0 if success else 1)
 
 

@@ -467,6 +467,10 @@ Thanks to Code Tapasya for making coding fun!
             topic = self.get_next_topic()
             duration = 60
             
+            # Mark topic as used IMMEDIATELY to prevent repeats if pipeline fails
+            # (Previously this was done at Step 7, after the entire 20-min pipeline)
+            self.mark_topic_used(topic)
+            
             # Log topic source
             topic_source = "🤖 AI Generated" if AI_TOPIC_GENERATION and self.dynamic_content else "📝 Predefined"
             
@@ -515,19 +519,25 @@ Thanks to Code Tapasya for making coding fun!
                 except Exception as e:
                     logger.warning(f"⚠️ Analytics tracking failed (non-critical): {e}")
             
-            # Step 3: Upload to Instagram Reels
-            logger.info("📱 Step 3: Uploading to Instagram Reels...")
+            # Step 3: Upload to Oracle Storage (needed before Instagram — Graph API requires public URL)
+            logger.info("☁️ Step 3: Uploading to Oracle Object Storage...")
+            video_url = self.upload_to_oracle(video_path, job_id)
+            if not video_url:
+                raise RuntimeError("Oracle upload failed")
+            
+            # Step 4: Upload to Instagram Reels (via Graph API — needs public video URL)
+            logger.info("📱 Step 4: Uploading to Instagram Reels via Graph API...")
             instagram_media_id = None
             try:
-                # Generate metadata for Instagram (reuse YouTube metadata if available)
+                # Generate metadata for Instagram caption
                 metadata = None
-                if youtube_video_id:
-                    try:
-                        metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
-                    except:
-                        pass
+                try:
+                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
+                except:
+                    pass
                 
-                instagram_media_id = upload_reel_to_instagram(video_path, topic, metadata)
+                # Graph API uses the Oracle Storage public URL (not local file path)
+                instagram_media_id = upload_reel_to_instagram(video_url, topic, metadata)
                 if instagram_media_id:
                     logger.info(f"✅ Instagram Reel uploaded: {instagram_media_id}")
                 else:
@@ -535,19 +545,15 @@ Thanks to Code Tapasya for making coding fun!
             except Exception as e:
                 logger.warning(f"⚠️ Instagram upload failed: {e}")
             
-            # Step 4: Upload to Oracle Storage
-            logger.info("☁️ Step 4: Uploading to Oracle Object Storage...")
-            video_url = self.upload_to_oracle(video_path, job_id)
-            if not video_url:
-                raise RuntimeError("Oracle upload failed")
-            
             # Step 5: Update Firebase (SEPARATE COLLECTION - won't trigger workers)
             logger.info("🔥 Step 5: Updating Firebase (scheduled-videos collection)...")
             update_scheduled_job_status(
                 job_id, 
                 video_url, 
                 status="completed", 
-                youtube_video_id=youtube_video_id
+                youtube_video_id=youtube_video_id,
+                visual_theme=getattr(self.pipeline, 'visual_theme_name', 'unknown'),
+                voice=getattr(self.pipeline, 'selected_voice', 'unknown'),
             )
             logger.info("✅ Firebase updated in 'scheduled-videos' collection")
             logger.info("🔒 This job is isolated from worker queue")
@@ -566,10 +572,7 @@ Thanks to Code Tapasya for making coding fun!
             else:
                 logger.info("ℹ️ Step 6: Keeping video in Oracle (uploads failed)")
             
-            # Step 7: Mark topic as used
-            self.mark_topic_used(topic)
-            
-            # Step 8: Cleanup local file
+            # Step 7: Cleanup local file
             try:
                 Path(video_path).unlink()
                 logger.info("🧹 Local video cleaned up")

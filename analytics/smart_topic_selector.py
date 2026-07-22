@@ -389,17 +389,33 @@ class SmartTopicSelector:
         
         return cluster_topics.get(cluster, cluster_topics["general"])
     
-    def get_next_topic_suggestion(self) -> Tuple[str, str]:
+    def get_next_topic_suggestion(self, used_topics: set = None) -> Tuple[str, str]:
         """
         Get the next topic suggestion based on analytics.
+        Filters out recently used topics to prevent repeats.
+        
+        Args:
+            used_topics: Set of recently used topic strings (lowercase).
         
         Returns:
             Tuple of (cluster_name, suggested_topic)
         """
         cluster = self.select_cluster_for_next_video()
         suggestions = self.get_topic_suggestions_for_cluster(cluster)
-        topic = random.choice(suggestions)
         
+        # Filter out used topics (exact + semantic similarity)
+        if used_topics:
+            available = [
+                s for s in suggestions
+                if s.lower().strip() not in used_topics
+                and not _is_topic_similar(s, used_topics)
+            ]
+            if available:
+                suggestions = available
+            else:
+                logger.warning(f"⚠️ All topics in cluster '{cluster}' already used, picking least similar")
+        
+        topic = random.choice(suggestions)
         return cluster, topic
     
     def get_analytics_summary(self) -> Dict[str, Any]:
@@ -422,10 +438,63 @@ class SmartTopicSelector:
 # INTEGRATION WITH CONTENT GENERATOR
 # =============================================================================
 
-def get_smart_topic_from_clusters() -> str:
-    """Legacy: Get topic from cluster analytics (used as fallback)."""
+def _is_topic_similar(candidate: str, used_topics: set, threshold: float = 0.6) -> bool:
+    """
+    Check if a candidate topic is semantically similar to any used topic
+    using Jaccard word-overlap similarity.
+    
+    Catches near-duplicates like:
+      "Python Decorators Explained" vs "Understanding Python Decorators in 60s"
+    
+    Args:
+        candidate: The new topic string to check.
+        used_topics: Set of previously used topic strings (lowercase).
+        threshold: Similarity threshold (0.0-1.0). Default 0.6.
+    
+    Returns:
+        True if the candidate is too similar to any used topic.
+    """
+    # Normalize: lowercase, strip, remove common filler words
+    stop_words = {
+        "in", "the", "a", "an", "of", "for", "to", "and", "is", "are",
+        "was", "with", "on", "at", "by", "from", "how", "what", "why",
+        "this", "that", "it", "you", "your", "60s", "seconds", "explained",
+        "understanding", "quick", "guide", "tutorial", "learn", "about",
+    }
+    
+    def tokenize(text: str) -> set:
+        words = set(text.lower().strip().split())
+        return words - stop_words
+    
+    candidate_words = tokenize(candidate)
+    if not candidate_words:
+        return False
+    
+    for used in used_topics:
+        used_words = tokenize(used)
+        if not used_words:
+            continue
+        
+        # Jaccard similarity = |intersection| / |union|
+        intersection = candidate_words & used_words
+        union = candidate_words | used_words
+        similarity = len(intersection) / len(union) if union else 0
+        
+        if similarity >= threshold:
+            logger.debug(
+                f"Topic '{candidate}' similar to '{used}' "
+                f"(Jaccard={similarity:.2f} >= {threshold})"
+            )
+            return True
+    
+    return False
+
+def get_smart_topic_from_clusters(used_topics: set = None) -> str:
+    """Get topic from cluster analytics with dedup filtering."""
+    if used_topics is None:
+        used_topics = _load_used_topics(days=30)
     selector = SmartTopicSelector()
-    cluster, topic = selector.get_next_topic_suggestion()
+    cluster, topic = selector.get_next_topic_suggestion(used_topics=used_topics)
     logger.info(f"Cluster-based topic: [{cluster}] {topic}")
     return topic
 
@@ -507,7 +576,7 @@ Generate a topic that follows similar ENERGY and patterns — but on a DIFFERENT
     # Build exclusion list
     exclusion_text = ""
     if used_topics:
-        recent = list(used_topics)[:15]
+        recent = list(used_topics)[:50]  # Send full exclusion list (was [:15] — too few)
         exclusion_text = f"""
 DO NOT generate anything similar to these recently covered topics:
 {chr(10).join(f'  - {t}' for t in recent)}"""
@@ -551,26 +620,28 @@ Your topic:"""
         
         for attempt in range(3):
             response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config=config
             )
             
             if response and response.text:
                 topic = response.text.strip().replace('"', '').replace("'", "")
-                # Check it's not a repeat
-                if topic.lower().strip() not in used_topics:
+                # Check exact match AND semantic similarity
+                if topic.lower().strip() in used_topics:
+                    logger.warning(f"⚠️ Trending topic '{topic}' already used (exact match), retrying...")
+                elif _is_topic_similar(topic, used_topics):
+                    logger.warning(f"⚠️ Trending topic '{topic}' too similar to used topic, retrying...")
+                else:
                     logger.info(f"🔥 Trending topic: {topic}")
                     return topic
-                else:
-                    logger.warning(f"⚠️ Trending topic '{topic}' already used, retrying...")
         
         logger.warning("⚠️ Trending generation exhausted, falling back to clusters")
     except Exception as e:
         logger.warning(f"⚠️ Trending topic generation failed: {e}, falling back to clusters")
     
-    # Fallback to cluster-based selection
-    return get_smart_topic_from_clusters()
+    # Fallback to cluster-based selection (pass used_topics for filtering)
+    return get_smart_topic_from_clusters(used_topics=used_topics)
 
 
 def get_winning_patterns() -> list:

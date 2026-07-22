@@ -25,7 +25,7 @@ class DynamicContentGenerator:
             history_file: Path to topic history JSON file
         """
         self.history_file = Path(history_file)
-        self.gemini_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"]
+        self.gemini_models = ["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
         self.current_model_index = 0
         self.current_key_index = 0
         

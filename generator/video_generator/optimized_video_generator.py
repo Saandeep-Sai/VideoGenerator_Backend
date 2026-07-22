@@ -123,6 +123,7 @@ from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 from groq import Groq
 from pydub import AudioSegment
+import random
 
 # Import OpenRouterKeyManager with fallback for direct execution
 try:
@@ -279,11 +280,86 @@ class VideoGenerationPipeline:
     Production entry point: OptimizedVideoGenerationPipeline.generate_video_full_parallel()
     See: run_generate_worker.py
     """
+
+    # ═══════════════════════════════════════════════════════════════
+    # VISUAL THEMES — 6 distinct looks, randomly assigned per video
+    # ═══════════════════════════════════════════════════════════════
+    VISUAL_THEMES = {
+        "neon_cyber": {
+            "gradient_colors": ['"#0a0a1a"', '"#1a0a2e"', '"#0a0a1a"'],
+            "accent_cycle": ["PURPLE", "PINK", "BLUE", "TEAL", "MAROON", "BLUE_C"],
+            "particle_count": 8,
+            "particle_size_range": (0.02, 0.06),
+            "particle_speed_dy": (0.02, 0.05),
+            "grid_enabled": True,
+            "grid_opacity": 0.08,
+            "intro_flash_opacity": 0.05,
+        },
+        "ocean_deep": {
+            "gradient_colors": ['"#0a1628"', '"#0d2137"', '"#0a1628"'],
+            "accent_cycle": ["TEAL", "BLUE_C", "GREEN", "BLUE", "TEAL", "GREEN_C"],
+            "particle_count": 10,
+            "particle_size_range": (0.04, 0.09),
+            "particle_speed_dy": (0.005, 0.015),
+            "grid_enabled": True,
+            "grid_opacity": 0.05,
+            "intro_flash_opacity": 0.03,
+        },
+        "sunset_warm": {
+            "gradient_colors": ['"#1a0f0a"', '"#2d1810"', '"#1a0f0a"'],
+            "accent_cycle": ["ORANGE", "GOLD", "YELLOW", "RED", "ORANGE", "GOLD"],
+            "particle_count": 5,
+            "particle_size_range": (0.04, 0.10),
+            "particle_speed_dy": (0.015, 0.04),
+            "grid_enabled": False,
+            "grid_opacity": 0.0,
+            "intro_flash_opacity": 0.04,
+        },
+        "forest_code": {
+            "gradient_colors": ['"#0a1a0f"', '"#0f2418"', '"#0a1a0f"'],
+            "accent_cycle": ["GREEN", "TEAL", "YELLOW", "GREEN_C", "TEAL", "GREEN"],
+            "particle_count": 6,
+            "particle_size_range": (0.03, 0.07),
+            "particle_speed_dy": (0.01, 0.025),
+            "grid_enabled": True,
+            "grid_opacity": 0.04,
+            "intro_flash_opacity": 0.03,
+        },
+        "arctic_frost": {
+            "gradient_colors": ['"#0f1420"', '"#1a2030"', '"#0f1420"'],
+            "accent_cycle": ["WHITE", "BLUE_A", "TEAL", "BLUE_B", "WHITE", "BLUE_A"],
+            "particle_count": 12,
+            "particle_size_range": (0.01, 0.04),
+            "particle_speed_dy": (0.003, 0.012),
+            "grid_enabled": True,
+            "grid_opacity": 0.10,
+            "intro_flash_opacity": 0.06,
+        },
+        "midnight_purple": {
+            "gradient_colors": ['"#120a1e"', '"#1e1030"', '"#120a1e"'],
+            "accent_cycle": ["PURPLE", "MAROON", "RED", "PURPLE_B", "PINK", "PURPLE"],
+            "particle_count": 4,
+            "particle_size_range": (0.06, 0.12),
+            "particle_speed_dy": (0.005, 0.015),
+            "grid_enabled": False,
+            "grid_opacity": 0.0,
+            "intro_flash_opacity": 0.04,
+        },
+    }
+
+    # ═══════════════════════════════════════════════════════════════
+    # VOICE ARSENAL — randomly assigned per video (50/50)
+    # ═══════════════════════════════════════════════════════════════
+    VOICE_ARSENAL = [
+        "en-US-AndrewNeural",            # Confident, clear male
+        "en-US-BrianMultilingualNeural",  # Warm, versatile male
+    ]
+
     
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
         self.openrouter_key_manager = None
-        self.gemini_models = ["gemini-3-flash-preview","gemini-2.5-flash", "gemini-2.5-flash-lite"]
+        self.gemini_models = [ "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"]
         self.current_gemini_model_index = 0
         self.current_gemini_key_index = 0
         self.gemini_api_keys = []  # Loaded in _initialize_gemini_client    
@@ -292,6 +368,11 @@ class VideoGenerationPipeline:
         self.groq_client = None
         self.tts_model = None   
         self.tts_available = False
+        
+        # Select visual theme ONCE per video (consistent across all segments)
+        self.visual_theme_name = random.choice(list(self.VISUAL_THEMES.keys()))
+        self.visual_theme = self.VISUAL_THEMES[self.visual_theme_name]
+        self.selected_voice = None  # Set in _setup_tts
         
         # OpenRouter model names for different pipeline stages
         self.narration_model = "nvidia/nemotron-3-nano-30b-a3b:free"
@@ -439,11 +520,13 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
     def _setup_tts(self) -> None:
         try:
             from edge_tts import Communicate
-            # Use friendly voice for shorts, professional for regular videos
-            voice = "en-US-AndrewNeural" if getattr(self.config, 'video_type', 'regular') == 'short' else "en-US-AndrewNeural"
+            # Voice arsenal: randomly select one voice per video (50/50)
+            voice = random.choice(self.VOICE_ARSENAL)
+            self.selected_voice = voice
             self.tts_model = EdgeTTSWrapper(voice=voice)
             self.tts_available = True
             logger.info(f"✅ Edge TTS initialized with voice: {voice}")
+            logger.info(f"🎨 Visual theme: {self.visual_theme_name}")
         except ImportError:
             self.tts_model = None
             self.tts_available = False
@@ -2129,35 +2212,48 @@ def _safe_move_video(src_path: str, dest_path: str) -> None:
     shutil.move(str(src), str(dest))
 
 
-def _inject_premium_background_standalone(script: str, index: int, duration: float, aspect_ratio: str = "9:16") -> str:
+def _inject_premium_background_standalone(script: str, index: int, duration: float, aspect_ratio: str = "9:16", theme_name: str = None) -> str:
     """
     Standalone background injection for use in worker processes.
     
-    Injects premium background (GradientBackground, SubtleGrid, AmbientParticles,
-    channel watermark) into Manim scripts.
+    Injects themed premium background into Manim scripts.
+    Uses OptimizedVideoGenerationPipeline.VISUAL_THEMES for consistency.
     
-    This is a module-level copy of OptimizedVideoGenerationPipeline._inject_premium_background()
-    so that ProcessPoolExecutor workers can use it without access to the class instance.
+    This is a module-level function so ProcessPoolExecutor workers can use it
+    without access to the class instance.
     """
     # Skip if already has premium background
     if 'GradientBackground' in script or 'SubtleGrid' in script:
         return script
     
-    # Per-segment accent color rotation
-    accent_colors = ["BLUE", "TEAL", "PURPLE", "GOLD", "PINK", "GREEN"]
-    accent = accent_colors[index % len(accent_colors)]
+    # Get theme (use provided or pick random)
+    themes = OptimizedVideoGenerationPipeline.VISUAL_THEMES
+    if theme_name and theme_name in themes:
+        theme = themes[theme_name]
+    else:
+        theme_name = random.choice(list(themes.keys()))
+        theme = themes[theme_name]
+    
+    accent_cycle = theme["accent_cycle"]
+    accent = accent_cycle[index % len(accent_cycle)]
+    gradient_str = ", ".join(theme["gradient_colors"])
+    p_count = theme["particle_count"]
+    p_min, p_max = theme["particle_size_range"]
+    dy_min, dy_max = theme["particle_speed_dy"]
+    grid_opacity = theme["grid_opacity"]
+    flash_opacity = theme["intro_flash_opacity"]
     
     # PRIMITIVES BLOCK: inserted before the Scene class
     primitives_block = f'''
-# === PREMIUM BACKGROUND PRIMITIVES (auto-injected) ===
+# === PREMIUM BACKGROUND PRIMITIVES (auto-injected — theme: {theme_name}) ===
 
 class GradientBackground(VGroup):
-    """Dark gradient background with subtle color accent."""
+    """Themed gradient background with accent glow."""
     def __init__(self, accent_color=BLUE, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         base = Rectangle(width=fw + 1, height=fh + 1, fill_opacity=1.0, stroke_width=0)
-        base.set_fill(color=["#0a0a1a", "#0f1629", "#0a0a1a"])
+        base.set_fill(color=[{gradient_str}])
         self.add(base)
         glow = Circle(radius=fw * 0.06, fill_opacity=0.015, stroke_width=0, color=accent_color)
         glow.shift(UP * fh * 0.4 + RIGHT * fw * 0.35)
@@ -2165,14 +2261,14 @@ class GradientBackground(VGroup):
 
 
 class AmbientParticles(VGroup):
-    """Floating dots that drift slowly."""
-    def __init__(self, count=6, **kwargs):
+    """Themed floating particles."""
+    def __init__(self, count={p_count}, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         import random as _rng
         _rng.seed(42)
         for _ in range(count):
-            r = _rng.uniform(0.03, 0.07)
+            r = _rng.uniform({p_min}, {p_max})
             opacity = _rng.uniform(0.12, 0.25)
             dot = Dot(radius=r, fill_opacity=opacity, color=WHITE, stroke_width=0)
             x = _rng.uniform(-fw * 0.45, fw * 0.45)
@@ -2180,35 +2276,43 @@ class AmbientParticles(VGroup):
             dot.move_to([x, y, 0])
             self.add(dot)
 
-
+'''
+    # Conditionally add grid
+    if theme["grid_enabled"]:
+        primitives_block += f'''
 class SubtleGrid(VGroup):
-    """Very faint grid lines for visual structure."""
+    """Themed grid overlay."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         for i in range(-3, 4):
             x = i * fw / 6
-            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity={grid_opacity}, color=WHITE)
             self.add(line)
         for i in range(-5, 6):
             y = i * fh / 10
-            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity={grid_opacity}, color=WHITE)
             self.add(line)
 
 '''
     
-    # BACKGROUND SETUP CODE: inserted right after `def construct(self):`
+    # BACKGROUND SETUP CODE
     bg_setup = f'''
-        # === PREMIUM BACKGROUND (auto-injected) ===
+        # === PREMIUM BACKGROUND (theme: {theme_name}) ===
         _bg = GradientBackground(accent_color={accent})
-        self.add(_bg)
+        self.add(_bg)'''
+    
+    if theme["grid_enabled"]:
+        bg_setup += '''
         _grid = SubtleGrid()
-        self.add(_grid)
-        _particles = AmbientParticles(count=6)
+        self.add(_grid)'''
+    
+    bg_setup += f'''
+        _particles = AmbientParticles(count={p_count})
         self.add(_particles)
         for _dot in _particles:
             _dx = random.uniform(-0.02, 0.02)
-            _dy = random.uniform(0.01, 0.03)
+            _dy = random.uniform({dy_min}, {dy_max})
             _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
 
         # Channel watermark
@@ -2219,7 +2323,7 @@ class SubtleGrid(VGroup):
         self.add(_wm)
         # Scene intro flash
         _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
-                               fill_opacity=0.04, fill_color=WHITE, stroke_width=0)
+                               fill_opacity={flash_opacity}, fill_color=WHITE, stroke_width=0)
         self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
         self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
         self.remove(_flash_rect)
@@ -2643,7 +2747,7 @@ def _regenerate_script_from_scratch_enhanced(segment_data: dict, index: int, gem
         
         # Default models for rotation
         if gemini_models is None:
-            gemini_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+            gemini_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"]
         
         narration = segment_data.get('narration', "Educational content")
         visuals = segment_data.get('visuals', "Simple visuals")
@@ -5006,30 +5110,36 @@ Scene Direction: {direction}
             raise ValueError(f"Script cleaning failed for segment {index}: {e}")
 
     def _inject_premium_background(self, script: str, index: int, duration: float) -> str:
-        """Inject premium background (GradientBackground, SubtleGrid, AmbientParticles,
-        channel watermark) into legacy LLM-generated Manim scripts.
+        """Inject premium background using the video's selected visual theme.
         
-        This gives legacy pipeline the same professional look as the quality pipeline.
+        Theme is fixed per video (selected in __init__), ensuring visual consistency
+        across all segments while varying between different videos.
         """
         # Skip if already has premium background
         if 'GradientBackground' in script or 'SubtleGrid' in script:
             return script
         
-        # D4: Per-segment accent color rotation
-        accent_colors = ["BLUE", "TEAL", "PURPLE", "GOLD", "PINK", "GREEN"]
-        accent = accent_colors[index % len(accent_colors)]
+        theme = self.visual_theme
+        accent_cycle = theme["accent_cycle"]
+        accent = accent_cycle[index % len(accent_cycle)]
+        gradient_str = ", ".join(theme["gradient_colors"])
+        p_count = theme["particle_count"]
+        p_min, p_max = theme["particle_size_range"]
+        dy_min, dy_max = theme["particle_speed_dy"]
+        grid_opacity = theme["grid_opacity"]
+        flash_opacity = theme["intro_flash_opacity"]
         
         # --- PRIMITIVES BLOCK: inserted before the Scene class ---
         primitives_block = f'''
-# === PREMIUM BACKGROUND PRIMITIVES (auto-injected) ===
+# === PREMIUM BACKGROUND PRIMITIVES (auto-injected — theme: {self.visual_theme_name}) ===
 
 class GradientBackground(VGroup):
-    """Dark gradient background with subtle color accent."""
+    """Themed gradient background with accent glow."""
     def __init__(self, accent_color=BLUE, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         base = Rectangle(width=fw + 1, height=fh + 1, fill_opacity=1.0, stroke_width=0)
-        base.set_fill(color=["#0a0a1a", "#0f1629", "#0a0a1a"])
+        base.set_fill(color=[{gradient_str}])
         self.add(base)
         glow = Circle(radius=fw * 0.06, fill_opacity=0.015, stroke_width=0, color=accent_color)
         glow.shift(UP * fh * 0.4 + RIGHT * fw * 0.35)
@@ -5037,14 +5147,14 @@ class GradientBackground(VGroup):
 
 
 class AmbientParticles(VGroup):
-    """Floating dots that drift slowly."""
-    def __init__(self, count=6, **kwargs):
+    """Themed floating particles."""
+    def __init__(self, count={p_count}, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         import random as _rng
         _rng.seed(42)
         for _ in range(count):
-            r = _rng.uniform(0.03, 0.07)
+            r = _rng.uniform({p_min}, {p_max})
             opacity = _rng.uniform(0.12, 0.25)
             dot = Dot(radius=r, fill_opacity=opacity, color=WHITE, stroke_width=0)
             x = _rng.uniform(-fw * 0.45, fw * 0.45)
@@ -5052,35 +5162,43 @@ class AmbientParticles(VGroup):
             dot.move_to([x, y, 0])
             self.add(dot)
 
-
+'''
+        # Conditionally add grid based on theme
+        if theme["grid_enabled"]:
+            primitives_block += f'''
 class SubtleGrid(VGroup):
-    """Very faint grid lines for visual structure."""
+    """Themed grid overlay."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         fw, fh = config.frame_width, config.frame_height
         for i in range(-3, 4):
             x = i * fw / 6
-            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            line = Line([x, -fh/2, 0], [x, fh/2, 0], stroke_width=0.3, stroke_opacity={grid_opacity}, color=WHITE)
             self.add(line)
         for i in range(-5, 6):
             y = i * fh / 10
-            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity=0.06, color=WHITE)
+            line = Line([-fw/2, y, 0], [fw/2, y, 0], stroke_width=0.3, stroke_opacity={grid_opacity}, color=WHITE)
             self.add(line)
 
 '''
         
-        # --- BACKGROUND SETUP CODE: inserted right after `def construct(self):` ---
+        # --- BACKGROUND SETUP CODE ---
         bg_setup = f'''
-        # === PREMIUM BACKGROUND (auto-injected) ===
+        # === PREMIUM BACKGROUND (theme: {self.visual_theme_name}) ===
         _bg = GradientBackground(accent_color={accent})
-        self.add(_bg)
+        self.add(_bg)'''
+        
+        if theme["grid_enabled"]:
+            bg_setup += '''
         _grid = SubtleGrid()
-        self.add(_grid)
-        _particles = AmbientParticles(count=6)
+        self.add(_grid)'''
+        
+        bg_setup += f'''
+        _particles = AmbientParticles(count={p_count})
         self.add(_particles)
         for _dot in _particles:
             _dx = random.uniform(-0.02, 0.02)
-            _dy = random.uniform(0.01, 0.03)
+            _dy = random.uniform({dy_min}, {dy_max})
             _dot.add_updater(lambda m, dt, _dx=_dx, _dy=_dy: m.shift(np.array([_dx * dt, _dy * dt, 0])))
 
         # Channel watermark
@@ -5091,7 +5209,7 @@ class SubtleGrid(VGroup):
         self.add(_wm)
         # Scene intro flash
         _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
-                               fill_opacity=0.04, fill_color=WHITE, stroke_width=0)
+                               fill_opacity={flash_opacity}, fill_color=WHITE, stroke_width=0)
         self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
         self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
         self.remove(_flash_rect)
@@ -5959,8 +6077,9 @@ async def main_optimized():
         start_time = time.time()
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
-            topic="How to build a perfect website using Vibe Coding?", 
-            duration=60,
+            #topic="How to build a perfect website using Vibe Coding?", 
+            topic="Modern AI Assisted software development", 
+            duration=120,   
         )
 
         

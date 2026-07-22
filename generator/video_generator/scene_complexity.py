@@ -66,9 +66,11 @@ class ComplexityScore:
 
 MODEL_CAPABILITIES = {
     # model_name: (capability_tier, max_complexity)
+    "gemini-3.6-flash":          ("HIGH_INTELLIGENCE", 1.0),
     "gemini-3.1-pro-preview":    ("HIGH_INTELLIGENCE", 1.0),
     "gemini-3-flash-preview":    ("HIGH_INTELLIGENCE", 1.0),
     "gemini-2.5-flash":          ("STANDARD", 0.65),
+    "gemini-3.5-flash-lite":     ("LIGHTWEIGHT", 0.40),
     "gemini-2.5-flash-lite":     ("LIGHTWEIGHT", 0.40),
 }
 

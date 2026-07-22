@@ -68,12 +68,19 @@ class QualityPipelineConfig:
     max_scenes: int = 5
     target_scene_duration: float = 12.0
     
-    # TTS settings
-    tts_voice: str = "en-US-AndrewNeural"
+    # TTS settings — voice selected randomly from arsenal per video
+    tts_voice: str = ""
     
     def __post_init__(self):
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
+        # Voice arsenal rotation (50/50) — same pool as optimized pipeline
+        if not self.tts_voice:
+            import random as _rng
+            self.tts_voice = _rng.choice([
+                "en-US-AndrewNeural",
+                "en-US-BrianMultilingualNeural",
+            ])
 
 
 # =============================================================================

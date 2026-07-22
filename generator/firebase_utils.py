@@ -170,10 +170,13 @@ def create_scheduled_job(topic, duration, aspect_ratio="9:16", video_type="short
     return doc_ref.id
 
 # Update scheduled job status (uses 'scheduled-videos' collection)
-def update_scheduled_job_status(doc_id, video_url, status="completed", error=None, youtube_video_id=None):
+def update_scheduled_job_status(doc_id, video_url, status="completed", error=None, youtube_video_id=None, **extra_metadata):
     """
     Update a scheduled job in the 'scheduled-videos' collection.
     Separate from regular jobs to prevent worker pickup.
+    
+    Args:
+        extra_metadata: Additional fields to store (e.g., visual_theme, voice, hook_archetype)
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -198,6 +201,10 @@ def update_scheduled_job_status(doc_id, video_url, status="completed", error=Non
     
     if error:
         update_fields["error"] = error
+    
+    # Merge any extra metadata (visual_theme, voice, hook_archetype, etc.)
+    if extra_metadata:
+        update_fields.update(extra_metadata)
 
     # Update in separate collection
     doc_ref.update(update_fields)
@@ -205,6 +212,8 @@ def update_scheduled_job_status(doc_id, video_url, status="completed", error=Non
     logger.info(f"📹 Video URL: {video_url}")
     if youtube_video_id:
         logger.info(f"📺 YouTube: https://youtube.com/watch?v={youtube_video_id}")
+    if extra_metadata:
+        logger.info(f"📊 Metadata logged: {', '.join(extra_metadata.keys())}")
     logger.info(f"🔒 Stored in 'scheduled-videos' collection (won't be picked up by workers)")
 
 

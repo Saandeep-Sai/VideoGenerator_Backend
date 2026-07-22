@@ -247,12 +247,15 @@ Conversational, concise, curious.
 35-50 words per scene.
 Sound natural, not academic.
 
-Good: "Okay wait, have you ever wondered why..."
 Good: "So basically, think of it like this..."
 Good: "Boom! That's actually it. Simple, right?"
+Good: "Here's the thing nobody tells you about this..."
+Good: "Watch what happens when we change just ONE thing..."
 
 Bad: "Today we will explore the concept of..."
 Bad: "X is defined as a mechanism whereby..."
+Bad: "Hey there, ever wondered why..."
+Bad: "Have you ever thought about how..."
 
 ## OUTRO SIGN-OFF (MANDATORY for final scene)
 

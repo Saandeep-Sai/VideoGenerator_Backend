@@ -18,6 +18,159 @@ Produce cinematic educational storytelling — NOT animated slides.
 Every concept must MOVE or CHANGE. Labels are a last resort.
 """
 
+import random
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ===============================================================
+# HOOK VARIETY ENGINE — 12 Archetypes
+# ===============================================================
+
+HOOK_ARCHETYPES = [
+    {
+        "name": "CONTROVERSY",
+        "instruction": "Open with a bold controversial statement that challenges common belief.",
+        "example": "Most developers get this completely wrong...",
+    },
+    {
+        "name": "CHALLENGE",
+        "instruction": "Directly challenge the viewer's knowledge with a dare or test.",
+        "example": "I bet you can't explain why this works in 10 seconds...",
+    },
+    {
+        "name": "STORY",
+        "instruction": "Open with a mini real-world anecdote or scenario.",
+        "example": "Last week, a senior dev broke production because of this...",
+    },
+    {
+        "name": "COUNTDOWN",
+        "instruction": "Start with a numbered list tease — quick, punchy energy.",
+        "example": "3 things about {topic} that'll blow your mind. Let's go.",
+    },
+    {
+        "name": "MYTH_BUSTER",
+        "instruction": "Call out a popular misconception and promise to debunk it.",
+        "example": "Everyone says {topic} is hard. They're lying. Here's proof.",
+    },
+    {
+        "name": "HOT_TAKE",
+        "instruction": "Lead with a spicy opinion that makes the viewer want to argue or agree.",
+        "example": "Unpopular opinion: {topic} is the most underrated concept in coding.",
+    },
+    {
+        "name": "SPEED_RUN",
+        "instruction": "Set up a timed challenge — create urgency and excitement.",
+        "example": "{topic} in 60 seconds. Ready? GO.",
+    },
+    {
+        "name": "BEFORE_AFTER",
+        "instruction": "Show a dramatic before/after contrast to hook curiosity.",
+        "example": "Your code WITHOUT {topic}: messy. WITH it: chef's kiss. Watch.",
+    },
+    {
+        "name": "CONFESSION",
+        "instruction": "Start with a personal vulnerability or relatable struggle.",
+        "example": "I didn't understand {topic} for 2 years. Then someone explained it like THIS.",
+    },
+    {
+        "name": "QUESTION_FLIP",
+        "instruction": "Acknowledge the viewer knows WHAT it is, then flip to WHY or HOW.",
+        "example": "You know {topic} exists. But do you know WHY it exists?",
+    },
+    {
+        "name": "SHOCKING_FACT",
+        "instruction": "Lead with a surprising statistic, fact, or one-liner.",
+        "example": "This one line of code handles 90% of {topic}. Here's which one.",
+    },
+    {
+        "name": "DIRECT_TEACH",
+        "instruction": "Urgently demand attention — like breaking news the viewer NEEDS.",
+        "example": "Stop. Drop everything. You NEED to know this about {topic}.",
+    },
+]
+
+
+def select_hook_archetype() -> dict:
+    """Randomly select a hook archetype for this video."""
+    archetype = random.choice(HOOK_ARCHETYPES)
+    logger.info(f"🎣 Hook archetype selected: {archetype['name']}")
+    return archetype
+
+
+# ===============================================================
+# CONTENT FORMAT ENGINE — 5 Narrative Structures
+# ===============================================================
+
+CONTENT_FORMATS = [
+    {
+        "name": "CLASSIC_EXPLAINER",
+        "structure": "Hook → Build → Reveal → Simplify → Outro",
+        "energy": "Steady climb from curiosity to understanding.",
+        "instruction": "Structure as a classic explainer: build curiosity, reveal the core concept, simplify it, then wrap up.",
+        "keywords": [],  # default — matches everything
+        "weight": 40,
+    },
+    {
+        "name": "VERSUS_DEBATE",
+        "structure": "Hook → Side A → Side B → Verdict → Outro",
+        "energy": "Tension ping-pong — make the viewer pick a side.",
+        "instruction": "Structure as a debate/comparison: present two sides fairly, then deliver your verdict. Create tension between the options.",
+        "keywords": ["vs", "versus", "difference", "compare", "better", "or"],
+        "weight": 10,
+    },
+    {
+        "name": "SPEED_RUN",
+        "structure": "Hook → Point 1 → Point 2 → Point 3 → Rapid Recap → Outro",
+        "energy": "Fast, punchy, no wasted words. Machine-gun delivery.",
+        "instruction": "Structure as a speed run: deliver 3 key points rapid-fire with maximum energy. Each point gets a punchy one-liner. Recap at lightning speed.",
+        "keywords": ["tips", "tricks", "things", "ways", "reasons", "mistakes", "features"],
+        "weight": 20,
+    },
+    {
+        "name": "STORY_ARC",
+        "structure": "Hook (problem) → Struggle → Insight → Solution → Outro",
+        "energy": "Dramatic tension — build empathy, then release with the solution.",
+        "instruction": "Structure as a story arc: start with a relatable problem, show the struggle, deliver an 'aha' insight, then reveal the elegant solution.",
+        "keywords": ["why", "how", "works", "behind", "secret", "real", "actually"],
+        "weight": 20,
+    },
+    {
+        "name": "MYTH_BUSTER",
+        "structure": "Hook (common belief) → Evidence → Twist → Truth → Outro",
+        "energy": "Surprise-driven — shatter assumptions, then rebuild.",
+        "instruction": "Structure as a myth buster: state what everyone believes, show evidence, deliver a surprising twist, then reveal the real truth.",
+        "keywords": ["myth", "wrong", "mistake", "actually", "truth", "lie", "misconception"],
+        "weight": 10,
+    },
+]
+
+
+def select_content_format(topic: str = "") -> dict:
+    """
+    Select content format based on topic keywords, with weighted random fallback.
+    
+    Args:
+        topic: The video topic string.
+    
+    Returns:
+        Selected content format dict.
+    """
+    topic_lower = topic.lower()
+    
+    # Check keyword matches first
+    for fmt in CONTENT_FORMATS:
+        if fmt["keywords"] and any(kw in topic_lower for kw in fmt["keywords"]):
+            logger.info(f"🎬 Content format selected (keyword match): {fmt['name']}")
+            return fmt
+    
+    # Weighted random fallback
+    weights = [f["weight"] for f in CONTENT_FORMATS]
+    selected = random.choices(CONTENT_FORMATS, weights=weights, k=1)[0]
+    logger.info(f"🎬 Content format selected (random): {selected['name']}")
+    return selected
+
+
 # ===============================================================
 # LAYER 1 — NARRATIVE DIRECTOR
 # ===============================================================
@@ -38,17 +191,14 @@ CONSTRAINTS
 
 {winning_patterns_context}
 
+{content_format_directive}
+
 VIDEO STRUCTURE (BUILT-IN)
 - SEGMENT 1 (HOOK — SCROLL STOPPER):
-  The FIRST SENTENCE must stop the viewer from scrolling. Use ONE of these patterns:
-  • CONTROVERSY: "Most developers get this completely wrong..."
-  • SHOCKING FACT: "This one trick saved 10 hours of debugging..."
-  • DIRECT CHALLENGE: "I bet you can't explain why this works..."
-  • MYSTERY: "There's a hidden feature in {topic} nobody talks about..."
-  • URGENCY: "Stop doing this. Seriously. Here's why."
-  • BOLD CLAIM: "This will change how you code forever."
+  {hook_directive}
   
   NO "Hey everyone", NO "Today we'll learn", NO "Welcome back".
+  NO "Ever wondered", NO "Have you ever thought about".
   The FIRST WORD must grab attention. Talk AS IF revealing a secret.
 
 - MIDDLE SEGMENTS: Core educational content
@@ -631,6 +781,26 @@ def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16",
 {titles}
 Generate a topic and narration style that follows similar energy and patterns."""
 
+    # Select hook archetype and content format for this video
+    hook = select_hook_archetype()
+    content_format = select_content_format(topic)
+    
+    # Build hook directive (mandatory — forces unique openings)
+    hook_directive = (
+        f"MANDATORY HOOK STYLE: \"{hook['name']}\"\n"
+        f"  You MUST open with this style: {hook['instruction']}\n"
+        f"  Example: \"{hook['example'].format(topic=topic)}\"\n"
+        f"  DO NOT use any other hook style. This is NON-NEGOTIABLE."
+    )
+    
+    # Build content format directive
+    content_format_directive = (
+        f"CONTENT FORMAT: \"{content_format['name']}\"\n"
+        f"Structure: {content_format['structure']}\n"
+        f"Energy: {content_format['energy']}\n"
+        f"Instruction: {content_format['instruction']}"
+    )
+
     return NARRATIVE_DIRECTOR_PROMPT.format(
         topic=topic,
         duration=duration,
@@ -638,6 +808,8 @@ Generate a topic and narration style that follows similar energy and patterns.""
         seconds_per_segment=seconds_per_segment,
         aspect_ratio=aspect_ratio,
         winning_patterns_context=winning_patterns_context,
+        hook_directive=hook_directive,
+        content_format_directive=content_format_directive,
     )
 
 def format_narrative_retry_prompt(topic: str, duration: int) -> str:
