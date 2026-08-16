@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Content Planner (runs every Sunday 12:00 AM IST)
+Requires=weekly-planner.service
+
+[Timer]
+# Sunday 12:00 AM IST = Saturday 18:30 UTC
+OnCalendar=Sat *-*-* 18:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

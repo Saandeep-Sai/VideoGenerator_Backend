@@ -1,18 +1,19 @@
 
 [Unit]
-Description=Run YouTube Shorts Generator 4 times a day (9AM, 12PM, 3PM, 6PM IST)
+Description=Run YouTube Shorts Generator 4 times a day Mon-Sat (9AM, 12PM, 3PM, 6PM IST)
 Requires=youtube-shorts-scheduler.service
 
 [Timer]
-# Run 4 times daily at IST times (converted to UTC):
+# Run 4 times daily Monday-Saturday at IST times (converted to UTC):
 # 9:00 AM IST  = 03:30 UTC
 # 12:00 PM IST = 06:30 UTC
 # 3:00 PM IST  = 09:30 UTC
 # 6:00 PM IST  = 12:30 UTC
-OnCalendar=*-*-* 03:30:00
-OnCalendar=*-*-* 06:30:00
-OnCalendar=*-*-* 09:30:00
-OnCalendar=*-*-* 12:30:00
+# Mon-Sat only (Sunday is planning day — no video generation)
+OnCalendar=Mon..Sat *-*-* 03:30:00
+OnCalendar=Mon..Sat *-*-* 06:30:00
+OnCalendar=Mon..Sat *-*-* 09:30:00
+OnCalendar=Mon..Sat *-*-* 12:30:00
 Persistent=true
 
 [Install]

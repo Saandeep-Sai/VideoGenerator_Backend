@@ -24,78 +24,69 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ===============================================================
-# HOOK VARIETY ENGINE — 12 Archetypes
+# SERIES CONTEXT BUILDER — replaces hardcoded hook archetypes
 # ===============================================================
 
-HOOK_ARCHETYPES = [
-    {
-        "name": "CONTROVERSY",
-        "instruction": "Open with a bold controversial statement that challenges common belief.",
-        "example": "Most developers get this completely wrong...",
-    },
-    {
-        "name": "CHALLENGE",
-        "instruction": "Directly challenge the viewer's knowledge with a dare or test.",
-        "example": "I bet you can't explain why this works in 10 seconds...",
-    },
-    {
-        "name": "STORY",
-        "instruction": "Open with a mini real-world anecdote or scenario.",
-        "example": "Last week, a senior dev broke production because of this...",
-    },
-    {
-        "name": "COUNTDOWN",
-        "instruction": "Start with a numbered list tease — quick, punchy energy.",
-        "example": "3 things about {topic} that'll blow your mind. Let's go.",
-    },
-    {
-        "name": "MYTH_BUSTER",
-        "instruction": "Call out a popular misconception and promise to debunk it.",
-        "example": "Everyone says {topic} is hard. They're lying. Here's proof.",
-    },
-    {
-        "name": "HOT_TAKE",
-        "instruction": "Lead with a spicy opinion that makes the viewer want to argue or agree.",
-        "example": "Unpopular opinion: {topic} is the most underrated concept in coding.",
-    },
-    {
-        "name": "SPEED_RUN",
-        "instruction": "Set up a timed challenge — create urgency and excitement.",
-        "example": "{topic} in 60 seconds. Ready? GO.",
-    },
-    {
-        "name": "BEFORE_AFTER",
-        "instruction": "Show a dramatic before/after contrast to hook curiosity.",
-        "example": "Your code WITHOUT {topic}: messy. WITH it: chef's kiss. Watch.",
-    },
-    {
-        "name": "CONFESSION",
-        "instruction": "Start with a personal vulnerability or relatable struggle.",
-        "example": "I didn't understand {topic} for 2 years. Then someone explained it like THIS.",
-    },
-    {
-        "name": "QUESTION_FLIP",
-        "instruction": "Acknowledge the viewer knows WHAT it is, then flip to WHY or HOW.",
-        "example": "You know {topic} exists. But do you know WHY it exists?",
-    },
-    {
-        "name": "SHOCKING_FACT",
-        "instruction": "Lead with a surprising statistic, fact, or one-liner.",
-        "example": "This one line of code handles 90% of {topic}. Here's which one.",
-    },
-    {
-        "name": "DIRECT_TEACH",
-        "instruction": "Urgently demand attention — like breaking news the viewer NEEDS.",
-        "example": "Stop. Drop everything. You NEED to know this about {topic}.",
-    },
-]
+def build_series_context(
+    part_number: int = 0,
+    total_parts: int = 0,
+    subtitle: str = "",
+    outline: str = "",
+    previous_part_summary: str = None,
+) -> str:
+    """
+    Build series context for the narrative prompt.
+    
+    For Part 1: series opener with model-chosen hook.
+    For Part 2+: recap of previous part + continuation guidance.
+    For standalone (part_number=0): no series context.
+    """
+    if part_number <= 0:
+        # Standalone video — no series context, model decides hook freely
+        return """OPENING RULE:
+Create a natural, engaging hook that fits the topic. You decide the style.
+Do NOT use canned/template hooks. Make it feel authentic and specific to this topic."""
+    
+    if part_number == 1:
+        # Series opener
+        return f"""SERIES CONTEXT:
+This is Part {part_number} of {total_parts} on this topic.
+Subtitle: "{subtitle}"
 
+YOUR TASK FOR THIS PART:
+{outline}
 
-def select_hook_archetype() -> dict:
-    """Randomly select a hook archetype for this video."""
-    archetype = random.choice(HOOK_ARCHETYPES)
-    logger.info(f"🎣 Hook archetype selected: {archetype['name']}")
-    return archetype
+OPENING RULE:
+This is the series OPENER. Create a hook that naturally fits the topic
+and makes the viewer want to watch ALL {total_parts} parts.
+Do NOT use canned/template hooks. Make it authentic and topic-specific.
+Hint at the journey ahead: 'by the end of this series, you will...'"""
+    
+    # Part 2+ — recap + continuation
+    recap = ""
+    if previous_part_summary:
+        recap = f"""PREVIOUS PART RECAP (Part {part_number - 1}):
+{previous_part_summary}
+
+You MUST start with a 1-2 sentence recap of the above, then transition
+smoothly into this part's content.
+Example style: 'Last time we saw how [concept] works. But here is what makes it REALLY powerful...'"""
+    else:
+        recap = f"""NOTE: No recap available for Part {part_number - 1}.
+Start by briefly referencing what was covered before, then continue."""
+    
+    return f"""SERIES CONTEXT:
+This is Part {part_number} of {total_parts} on this topic.
+Subtitle: "{subtitle}"
+
+{recap}
+
+YOUR TASK FOR THIS PART:
+{outline}
+
+OPENING RULE:
+Do NOT use a generic hook. Start with a brief recap of the previous part,
+then transition naturally into this part's content."""
 
 
 # ===============================================================
@@ -193,9 +184,11 @@ CONSTRAINTS
 
 {content_format_directive}
 
+{series_context}
+
 VIDEO STRUCTURE (BUILT-IN)
-- SEGMENT 1 (HOOK — SCROLL STOPPER):
-  {hook_directive}
+- SEGMENT 1 (HOOK / RECAP):
+  Follow the OPENING RULE from the series context above.
   
   NO "Hey everyone", NO "Today we'll learn", NO "Welcome back".
   NO "Ever wondered", NO "Have you ever thought about".
@@ -769,7 +762,17 @@ def get_aspect_params(aspect_ratio: str) -> dict:
 # FORMAT FUNCTIONS
 # ===============================================================
 
-def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16", winning_patterns: list = None) -> str:
+def format_narrative_prompt(
+    topic: str,
+    duration: int,
+    aspect_ratio: str = "9:16",
+    winning_patterns: list = None,
+    part_number: int = 0,
+    total_parts: int = 0,
+    subtitle: str = "",
+    outline: str = "",
+    previous_part_summary: str = None,
+) -> str:
     num_segments = max(3, round(duration / 15))
     seconds_per_segment = duration // num_segments
 
@@ -781,25 +784,25 @@ def format_narrative_prompt(topic: str, duration: int, aspect_ratio: str="9:16",
 {titles}
 Generate a topic and narration style that follows similar energy and patterns."""
 
-    # Select hook archetype and content format for this video
-    hook = select_hook_archetype()
-    content_format = select_content_format(topic)
-    
-    # Build hook directive (mandatory — forces unique openings)
-    hook_directive = (
-        f"MANDATORY HOOK STYLE: \"{hook['name']}\"\n"
-        f"  You MUST open with this style: {hook['instruction']}\n"
-        f"  Example: \"{hook['example'].format(topic=topic)}\"\n"
-        f"  DO NOT use any other hook style. This is NON-NEGOTIABLE."
+    # Build series context (replaces hardcoded hooks)
+    series_context = build_series_context(
+        part_number=part_number,
+        total_parts=total_parts,
+        subtitle=subtitle,
+        outline=outline,
+        previous_part_summary=previous_part_summary,
     )
-    
-    # Build content format directive
+
+    # Content format directive
+    content_format = select_content_format(topic)
     content_format_directive = (
         f"CONTENT FORMAT: \"{content_format['name']}\"\n"
         f"Structure: {content_format['structure']}\n"
         f"Energy: {content_format['energy']}\n"
         f"Instruction: {content_format['instruction']}"
     )
+
+    logger.info(f"📝 Prompt: part={part_number}/{total_parts}, format={content_format['name']}")
 
     return NARRATIVE_DIRECTOR_PROMPT.format(
         topic=topic,
@@ -808,7 +811,7 @@ Generate a topic and narration style that follows similar energy and patterns.""
         seconds_per_segment=seconds_per_segment,
         aspect_ratio=aspect_ratio,
         winning_patterns_context=winning_patterns_context,
-        hook_directive=hook_directive,
+        series_context=series_context,
         content_format_directive=content_format_directive,
     )
 

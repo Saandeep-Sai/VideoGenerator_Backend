@@ -594,13 +594,22 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
         
         Uses centralized prompt registry for narration generation.
         Outputs structured segments with narration, visual_intent, emotion, layout.
+        Series context is injected from self._series_context if available.
         """
         import json as _json
+        
+        # Extract series context if set by scheduler
+        sc = getattr(self, '_series_context', None) or {}
         
         prompt = format_narrative_prompt(
             topic=topic,
             duration=duration,
             aspect_ratio=self.config.aspect_ratio,
+            part_number=sc.get('part_number', 0),
+            total_parts=sc.get('total_parts', 0),
+            subtitle=sc.get('subtitle', ''),
+            outline=sc.get('outline', ''),
+            previous_part_summary=sc.get('previous_part_summary'),
         )
 
         try:
@@ -632,6 +641,13 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
             
             if not segments:
                 raise ValueError("No valid narration segments parsed.")
+            
+            # Capture narration summary for series continuity
+            all_narration = " ".join(s.narration for s in segments if s.narration)
+            # Condense to ~150 words for recap context
+            words = all_narration.split()
+            self._last_narration_summary = " ".join(words[:150]) if words else ""
+            
             return segments
 
         except Exception as e:

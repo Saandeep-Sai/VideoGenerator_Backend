@@ -42,6 +42,10 @@ from youtube_upload import upload_short_with_metadata
 from instagram_upload import upload_reel_to_instagram
 from generator.firebase_utils import create_scheduled_job, update_scheduled_job_status
 from resource_monitor import resource_monitor
+from weekly_planner import (
+    get_next_planned_video, mark_slot_completed, mark_slot_failed,
+    is_plan_active, load_weekly_plan,
+)
 from dotenv import load_dotenv
 
 # Load environment
@@ -261,7 +265,25 @@ class StandaloneYouTubeShortsGenerator:
             return None
     
     def get_next_topic(self) -> str:
-        """Get next topic with priority: Smart Analytics → AI → Predefined."""
+        """Get next topic with priority: Weekly Plan → Smart Analytics → AI → Predefined."""
+        
+        # Priority 0: Weekly plan (structured series)
+        if is_plan_active():
+            planned = get_next_planned_video()
+            if planned:
+                # Store the full planned context for later use
+                self._current_planned_video = planned
+                topic = planned['topic']
+                part = planned['part_number']
+                total = planned['total_parts']
+                logger.info(f"📚 Weekly plan topic: {topic} — Part {part}/{total}")
+                return topic
+            else:
+                logger.info("✅ All planned slots for today are done!")
+                self._current_planned_video = None
+                return None  # Signal: nothing to generate
+        else:
+            self._current_planned_video = None
         
         # Priority 1: Smart topic selection based on viewership analytics
         if SMART_TOPICS_ENABLED and get_smart_topic:
@@ -383,10 +405,30 @@ class StandaloneYouTubeShortsGenerator:
             resource_monitor.cleanup_memory()
             return None
     
-    def upload_to_youtube(self, video_path: str, topic: str, duration: int) -> Optional[str]:
-        """Upload video to YouTube with dynamic metadata"""
+    def upload_to_youtube(self, video_path: str, topic: str, duration: int, planned_video: dict = None) -> Optional[str]:
+        """Upload video to YouTube with dynamic metadata (series-aware titles)"""
         try:
             logger.info(f"📤 Uploading to YouTube...")
+            
+            # Build series-aware title
+            if planned_video and planned_video.get('total_parts', 0) > 1:
+                part_n = planned_video['part_number']
+                total = planned_video['total_parts']
+                subtitle = planned_video.get('subtitle', '')
+                title = f"{topic} — Part {part_n}: {subtitle} #Shorts"
+                if len(title) > 100:
+                    title = f"{topic} Part {part_n}/{total} #Shorts"
+            elif self.dynamic_content:
+                try:
+                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration)
+                    title = metadata['title']
+                except Exception:
+                    title = f"Wait, THIS is {topic}?! 🤯 #Shorts"
+            else:
+                title = f"{topic} Explained! 🔥 #Shorts"
+            
+            if len(title) > 100:
+                title = title[:97] + "..."
             
             # Generate dynamic metadata if available
             if self.dynamic_content:
@@ -465,16 +507,29 @@ Thanks to Code Tapasya for making coding fun!
             
             # Get next topic
             topic = self.get_next_topic()
+            if topic is None:
+                logger.info("✅ No pending videos — all slots done for today!")
+                return True, None  # Success, but nothing to do
             duration = 60
             
+            # Get planned video context (if from weekly plan)
+            planned = getattr(self, '_current_planned_video', None)
+            
             # Mark topic as used IMMEDIATELY to prevent repeats if pipeline fails
-            # (Previously this was done at Step 7, after the entire 20-min pipeline)
             self.mark_topic_used(topic)
             
             # Log topic source
-            topic_source = "🤖 AI Generated" if AI_TOPIC_GENERATION and self.dynamic_content else "📝 Predefined"
+            if planned:
+                topic_source = f"📚 Series: Part {planned['part_number']}/{planned['total_parts']}"
+            elif AI_TOPIC_GENERATION and self.dynamic_content:
+                topic_source = "🤖 AI Generated"
+            else:
+                topic_source = "📝 Predefined"
             
             logger.info(f"📋 Topic: {topic} ({topic_source})")
+            if planned:
+                logger.info(f"   Subtitle: {planned.get('subtitle', '')}")
+                logger.info(f"   Outline: {planned.get('outline', '')[:80]}...")
             logger.info(f"⏱️ Duration: {duration}s")
             logger.info(f"📅 Time: {datetime.now().isoformat()}")
             logger.info("=" * 70)
@@ -488,6 +543,13 @@ Thanks to Code Tapasya for making coding fun!
             logger.info("🎬 Step 1: Generating video locally...")
             logger.info("⚠️ NOTE: This may take 10-20 minutes on E2.Micro (1 vCPU)")
             logger.info("🔄 Generating narration → scripts → rendering → final assembly...")
+            
+            # Pass series context to the pipeline if from weekly plan
+            if planned:
+                self.pipeline._series_context = planned
+            else:
+                self.pipeline._series_context = None
+            
             try:
                 video_path = await asyncio.wait_for(
                     self.generate_video(topic, duration),
@@ -498,11 +560,16 @@ Thanks to Code Tapasya for making coding fun!
                 logger.error("💡 Consider upgrading instance type or reducing video duration")
                 raise RuntimeError("Video generation timeout")
             if not video_path:
+                if planned:
+                    mark_slot_failed(planned['topic_id'], planned['part_number'], 'generation_failed')
                 raise RuntimeError("Video generation failed")
             
-            # Step 2: Upload to YouTube
+            # Capture narration summary for series continuity
+            narration_summary = getattr(self.pipeline, '_last_narration_summary', None)
+            
+            # Step 2: Upload to YouTube with series-aware title
             logger.info("📺 Step 2: Uploading to YouTube...")
-            youtube_video_id = self.upload_to_youtube(video_path, topic, duration)
+            youtube_video_id = self.upload_to_youtube(video_path, topic, duration, planned_video=planned)
             if not youtube_video_id:
                 logger.warning("⚠️ YouTube upload failed, but continuing with Oracle")
             else:
@@ -554,7 +621,19 @@ Thanks to Code Tapasya for making coding fun!
                 youtube_video_id=youtube_video_id,
                 visual_theme=getattr(self.pipeline, 'visual_theme_name', 'unknown'),
                 voice=getattr(self.pipeline, 'selected_voice', 'unknown'),
+                series_id=planned['topic_id'] if planned else None,
+                part_number=planned['part_number'] if planned else None,
             )
+            
+            # Step 5b: Mark weekly plan slot as completed
+            if planned:
+                mark_slot_completed(
+                    topic_id=planned['topic_id'],
+                    part_number=planned['part_number'],
+                    narration_summary=narration_summary or '',
+                    youtube_video_id=youtube_video_id,
+                )
+                logger.info(f"✅ Plan updated: {planned['topic_id']} Part {planned['part_number']} completed")
             logger.info("✅ Firebase updated in 'scheduled-videos' collection")
             logger.info("🔒 This job is isolated from worker queue")
             
