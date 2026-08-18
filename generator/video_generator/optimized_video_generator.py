@@ -610,6 +610,7 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
             subtitle=sc.get('subtitle', ''),
             outline=sc.get('outline', ''),
             previous_part_summary=sc.get('previous_part_summary'),
+            next_part_subtitle=sc.get('next_part_subtitle'),
         )
 
         try:

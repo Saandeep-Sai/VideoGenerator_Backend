@@ -410,14 +410,25 @@ class StandaloneYouTubeShortsGenerator:
         try:
             logger.info(f"📤 Uploading to YouTube...")
             
-            # Build series-aware title
-            if planned_video and planned_video.get('total_parts', 0) > 1:
+            # Build series-aware title — part number always visible
+            if planned_video and planned_video.get('total_parts', 0) > 0:
                 part_n = planned_video['part_number']
                 total = planned_video['total_parts']
                 subtitle = planned_video.get('subtitle', '')
-                title = f"{topic} — Part {part_n}: {subtitle} #Shorts"
-                if len(title) > 100:
-                    title = f"{topic} Part {part_n}/{total} #Shorts"
+
+                if total > 1:
+                    # Multi-part series: "Topic (Part 1/4): Subtitle #Shorts"
+                    title = f"{topic} (Part {part_n}/{total}): {subtitle} #Shorts"
+                    if len(title) > 100:
+                        # Fallback: shorter version still keeps part number
+                        title = f"{topic} - Part {part_n}/{total} #Shorts"
+                else:
+                    # Single-part (standalone from plan) — use AI title
+                    try:
+                        metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else {}
+                        title = metadata.get('title', f"{topic} Explained! 🔥 #Shorts")
+                    except Exception:
+                        title = f"{topic} Explained! 🔥 #Shorts"
             elif self.dynamic_content:
                 try:
                     metadata = self.dynamic_content.generate_youtube_metadata(topic, duration)

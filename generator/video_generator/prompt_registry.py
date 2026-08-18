@@ -33,20 +33,39 @@ def build_series_context(
     subtitle: str = "",
     outline: str = "",
     previous_part_summary: str = None,
+    next_part_subtitle: str = None,
 ) -> str:
     """
     Build series context for the narrative prompt.
-    
-    For Part 1: series opener with model-chosen hook.
-    For Part 2+: recap of previous part + continuation guidance.
+
+    For Part 1: series opener with model-chosen hook + teaser outro.
+    For Part 2+: recap of previous part + continuation + teaser outro.
+    For the final part: normal outro, no teaser.
     For standalone (part_number=0): no series context.
     """
+    # Build the outro rule based on whether a next part exists
+    is_last_part = (part_number >= total_parts) or (not next_part_subtitle)
+    if is_last_part:
+        outro_rule = """OUTRO RULE:
+Wrap up this part naturally. This is the FINAL part of the series.
+End with a warm sign-off like: "That wraps up our full series on [topic]!
+If this helped, subscribe to Code Tapasya for more!" """
+    else:
+        outro_rule = f"""OUTRO RULE (MANDATORY — DO NOT SKIP):
+In the FINAL segment, after delivering the content, you MUST tease the next part.
+The next part is: "{next_part_subtitle}"
+Use a natural, exciting teaser. Examples:
+- "In Part {part_number + 1}, we are going to cover {next_part_subtitle} — trust me, it gets even better. Stay tuned!"
+- "That is it for Part {part_number}! Next up: {next_part_subtitle}. You do not want to miss it — subscribe so you do not miss it!"
+- "Coming up in Part {part_number + 1}: {next_part_subtitle}. Hit subscribe and I will see you there!"
+Make the teaser feel natural and conversational, not forced."""
+
     if part_number <= 0:
-        # Standalone video — no series context, model decides hook freely
+        # Standalone video — model decides hook freely, no teaser needed
         return """OPENING RULE:
 Create a natural, engaging hook that fits the topic. You decide the style.
 Do NOT use canned/template hooks. Make it feel authentic and specific to this topic."""
-    
+
     if part_number == 1:
         # Series opener
         return f"""SERIES CONTEXT:
@@ -60,10 +79,11 @@ OPENING RULE:
 This is the series OPENER. Create a hook that naturally fits the topic
 and makes the viewer want to watch ALL {total_parts} parts.
 Do NOT use canned/template hooks. Make it authentic and topic-specific.
-Hint at the journey ahead: 'by the end of this series, you will...'"""
-    
+Hint at the journey ahead: 'by the end of this series, you will...'
+
+{outro_rule}"""
+
     # Part 2+ — recap + continuation
-    recap = ""
     if previous_part_summary:
         recap = f"""PREVIOUS PART RECAP (Part {part_number - 1}):
 {previous_part_summary}
@@ -74,7 +94,7 @@ Example style: 'Last time we saw how [concept] works. But here is what makes it 
     else:
         recap = f"""NOTE: No recap available for Part {part_number - 1}.
 Start by briefly referencing what was covered before, then continue."""
-    
+
     return f"""SERIES CONTEXT:
 This is Part {part_number} of {total_parts} on this topic.
 Subtitle: "{subtitle}"
@@ -86,7 +106,9 @@ YOUR TASK FOR THIS PART:
 
 OPENING RULE:
 Do NOT use a generic hook. Start with a brief recap of the previous part,
-then transition naturally into this part's content."""
+then transition naturally into this part's content.
+
+{outro_rule}"""
 
 
 # ===============================================================
@@ -772,6 +794,7 @@ def format_narrative_prompt(
     subtitle: str = "",
     outline: str = "",
     previous_part_summary: str = None,
+    next_part_subtitle: str = None,
 ) -> str:
     num_segments = max(3, round(duration / 15))
     seconds_per_segment = duration // num_segments
@@ -791,6 +814,7 @@ Generate a topic and narration style that follows similar energy and patterns.""
         subtitle=subtitle,
         outline=outline,
         previous_part_summary=previous_part_summary,
+        next_part_subtitle=next_part_subtitle,
     )
 
     # Content format directive

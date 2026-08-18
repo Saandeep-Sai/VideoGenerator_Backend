@@ -398,6 +398,9 @@ def get_next_planned_video() -> Optional[Dict]:
             # Load previous part's narration summary for continuity
             previous_summary = _get_previous_part_summary(plan, topic["topic_id"], part["part_number"])
 
+            # Look up the next part's subtitle for the outro teaser
+            next_subtitle = _get_next_part_subtitle(plan, topic["topic_id"], part["part_number"])
+
             result = {
                 "topic": topic["title"],
                 "topic_id": topic["topic_id"],
@@ -406,12 +409,15 @@ def get_next_planned_video() -> Optional[Dict]:
                 "subtitle": part.get("subtitle", ""),
                 "outline": part.get("outline", ""),
                 "previous_part_summary": previous_summary,
+                "next_part_subtitle": next_subtitle,
                 "series_id": topic["topic_id"],
                 "scheduled_day": part.get("scheduled_day"),
                 "scheduled_slot": part.get("scheduled_slot"),
             }
 
             logger.info(f"📌 Next video: {result['topic']} — Part {result['part_number']}/{result['total_parts']}")
+            if next_subtitle:
+                logger.info(f"   Outro teaser: Part {result['part_number'] + 1} — {next_subtitle}")
             return result
 
     logger.info("✅ All slots for today (and earlier) are completed!")
@@ -429,6 +435,16 @@ def _get_previous_part_summary(plan: Dict, topic_id: str, current_part: int) -> 
                 if part["part_number"] == current_part - 1:
                     return part.get("narration_summary")
     return None
+
+
+def _get_next_part_subtitle(plan: Dict, topic_id: str, current_part: int) -> Optional[str]:
+    """Get the subtitle of the next part in the same series (for outro teaser)."""
+    for topic in plan.get("topics", []):
+        if topic["topic_id"] == topic_id:
+            for part in topic.get("parts", []):
+                if part["part_number"] == current_part + 1:
+                    return part.get("subtitle")
+    return None  # Returns None for the final part — no teaser needed
 
 
 def mark_slot_completed(
