@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/VideoGenerator_Backend
-ExecStart=/home/ubuntu/VideoGenerator_Backend/.venv/bin/python /home/ubuntu/VideoGenerator_Backend/weekly_planner.py
-Environment="PATH=/home/ubuntu/VideoGenerator_Backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/ubuntu/VideoGenerator_Backend/venv/bin/python3 /home/ubuntu/VideoGenerator_Backend/weekly_planner.py
+Environment="PATH=/home/ubuntu/VideoGenerator_Backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
 TimeoutStartSec=300
 
 [Install]
