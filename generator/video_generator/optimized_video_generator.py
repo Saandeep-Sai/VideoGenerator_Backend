@@ -359,7 +359,7 @@ class VideoGenerationPipeline:
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
         self.openrouter_key_manager = None
-        self.gemini_models = [ "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"]
+        self.gemini_models = [ "gemini-3.8-flash", "gemini-3.7-flash","gemini-3.6-flash","gemini-3.1-flash-lite","gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash",  "gemini-2.5-flash-lite"]
         self.current_gemini_model_index = 0
         self.current_gemini_key_index = 0
         self.gemini_api_keys = []  # Loaded in _initialize_gemini_client    

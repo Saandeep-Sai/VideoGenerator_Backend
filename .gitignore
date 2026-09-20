@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+#test files
+test.py
+
 # Credentials (NEVER commit these!)
 client_secret.json
 token.json
