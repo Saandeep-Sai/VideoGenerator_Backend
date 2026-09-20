@@ -6081,7 +6081,7 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="9:16",
+        aspect_ratio="16:9",
         use_quality_pipeline=True  
     )
     
@@ -6095,8 +6095,8 @@ async def main_optimized():
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
             #topic="How to build a perfect website using Vibe Coding?", 
-            topic="Modern AI Assisted software development", 
-            duration=120,   
+            topic="Place value of larger numbers", 
+            duration=60,   
         )
 
         

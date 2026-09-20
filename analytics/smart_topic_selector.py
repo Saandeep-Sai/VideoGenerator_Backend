@@ -17,8 +17,12 @@ Upload Video → Track Analytics → Learn What Works → Generate Better Topics
 """
 
 import os
+import json
 import logging
-from datetime import datetime, timezone
+import urllib.request
+import urllib.parse
+import urllib.error
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 import random
@@ -546,59 +550,337 @@ def _load_used_topics(days: int = 30) -> set:
         logger.debug(f"Could not load topic history: {e}")
     return used
 
+# =============================================================================
+# LIVE TREND FETCHING
+# =============================================================================
+
+# Niche keywords used across all trend sources
+_TREND_KEYWORDS = [
+    "programming", "coding", "developer", "javascript", "python",
+    "react", "AI", "software engineering", "web development", "rust",
+    "typescript", "golang", "kubernetes", "docker", "LLM",
+]
+
+_TREND_CACHE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "trend_cache.json"
+)
+
+_TREND_CACHE_TTL_HOURS = 6  # Refresh every 6 hours (scheduler fires 4x/day)
+
+
+def _load_trend_cache() -> Optional[dict]:
+    """Load cached trend signals if they exist and are within TTL."""
+    try:
+        if not os.path.exists(_TREND_CACHE_PATH):
+            return None
+        with open(_TREND_CACHE_PATH, 'r') as f:
+            cache = json.load(f)
+        fetched_at = datetime.fromisoformat(cache.get("fetched_at", ""))
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
+        if age_hours < _TREND_CACHE_TTL_HOURS:
+            signals = cache.get("signals", [])
+            if signals:
+                logger.info(f"📦 Trend cache hit: {len(signals)} signals, {age_hours:.1f}h old")
+                return cache
+        logger.info(f"⏰ Trend cache expired ({age_hours:.1f}h old), will refresh")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not load trend cache: {e}")
+    return None
+
+
+def _save_trend_cache(signals: list) -> None:
+    """Persist trend signals to disk."""
+    cache = {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "ttl_hours": _TREND_CACHE_TTL_HOURS,
+        "signals": signals,
+    }
+    try:
+        with open(_TREND_CACHE_PATH, 'w') as f:
+            json.dump(cache, f, indent=2)
+        logger.info(f"💾 Saved {len(signals)} trend signals to cache")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not save trend cache: {e}")
+
+
+def _fetch_youtube_trends() -> list:
+    """Fetch trending tech videos from YouTube Data API using existing OAuth creds.
+    
+    Uses the youtube.readonly scope already set up in youtube_oauth_analytics.py.
+    Returns items ranked by viewCount (rank 1 = most viewed in last 48h).
+    """
+    signals = []
+    try:
+        try:
+            from .youtube_oauth_analytics import get_authenticated_services
+        except ImportError:
+            from analytics.youtube_oauth_analytics import get_authenticated_services
+
+        youtube_data, _ = get_authenticated_services()
+        if not youtube_data:
+            logger.warning("⚠️ YouTube OAuth not available, skipping YouTube trends")
+            return []
+
+        published_after = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        query = "programming OR coding OR developer OR software engineering"
+
+        response = youtube_data.search().list(
+            part="snippet",
+            q=query,
+            type="video",
+            order="viewCount",
+            publishedAfter=published_after,
+            maxResults=15,
+            relevanceLanguage="en",
+        ).execute()
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for rank, item in enumerate(response.get("items", []), start=1):
+            snippet = item.get("snippet", {})
+            title = snippet.get("title", "").strip()
+            video_id = item.get("id", {}).get("videoId", "")
+            if title:
+                signals.append({
+                    "title": title,
+                    "source": "youtube",
+                    "rank": rank,
+                    "url": f"https://youtube.com/watch?v={video_id}" if video_id else "",
+                    "fetched_at": now_iso,
+                })
+
+        logger.info(f"📺 YouTube: fetched {len(signals)} trending videos")
+    except Exception as e:
+        logger.warning(f"⚠️ YouTube trend fetch failed (non-fatal): {e}")
+    return signals
+
+
+def _fetch_hackernews_trends() -> list:
+    """Fetch trending tech stories from HackerNews Algolia API.
+    
+    No auth required. Most reliable source — designated fallback.
+    Uses /search (relevance+recency) with points>50 filter.
+    
+    Note: numericFilters uses raw > which must NOT be URL-encoded,
+    so we build that part of the URL manually.
+    """
+    signals = []
+    try:
+        query = urllib.parse.quote("programming OR coding OR javascript OR python OR AI")
+        # Build URL manually — Algolia needs literal > in numericFilters, not %3E
+        url = (
+            f"https://hn.algolia.com/api/v1/search"
+            f"?query={query}"
+            f"&tags=story"
+            f"&numericFilters=points>50"
+            f"&hitsPerPage=15"
+        )
+
+        req = urllib.request.Request(url, headers={"User-Agent": "CodeTapasya/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for hit in data.get("hits", []):
+            title = hit.get("title", "").strip()
+            if title:
+                signals.append({
+                    "title": title,
+                    "source": "hackernews",
+                    "score": hit.get("points", 0),
+                    "url": hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}",
+                    "fetched_at": now_iso,
+                })
+
+        logger.info(f"🟠 HackerNews: fetched {len(signals)} trending stories")
+    except Exception as e:
+        logger.warning(f"⚠️ HackerNews trend fetch failed (non-fatal): {e}")
+    return signals
+
+
+def _fetch_reddit_trends() -> list:
+    """Fetch hot posts from r/programming and r/webdev via public JSON endpoints.
+    
+    No auth required. Supplementary signal — failure is non-fatal.
+    Reddit requires a descriptive User-Agent and Accept header.
+    """
+    signals = []
+    subreddits = ["programming", "webdev"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    headers = {
+        "User-Agent": "script:CodeTapasya:v1.0 (trend fetch for content planning)",
+        "Accept": "application/json",
+    }
+
+    for sub in subreddits:
+        try:
+            url = f"https://www.reddit.com/r/{sub}/hot.json?limit=10&raw_json=1"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            for child in data.get("data", {}).get("children", []):
+                post = child.get("data", {})
+                title = post.get("title", "").strip()
+                if title and not post.get("stickied", False):
+                    signals.append({
+                        "title": title,
+                        "source": "reddit",
+                        "score": post.get("ups", 0),
+                        "url": f"https://reddit.com{post.get('permalink', '')}",
+                        "fetched_at": now_iso,
+                    })
+            # Small delay between subreddits to avoid rate-limiting
+            import time
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"⚠️ Reddit r/{sub} fetch failed (non-fatal): {e}")
+
+    logger.info(f"🔴 Reddit: fetched {len(signals)} trending posts")
+    return signals
+
+
+def fetch_live_trend_signals(force_refresh: bool = False) -> list:
+    """Fetch and cache live trend signals from YouTube, HackerNews, and Reddit.
+    
+    Returns a flat list of normalized trend items. Uses cached data if within
+    the 6-hour TTL window, unless force_refresh is True.
+    
+    Degrades gracefully: if one or more sources fail, returns whatever succeeded.
+    If all sources fail AND cache is available (even expired), returns cached data.
+    If absolutely nothing is available, returns an empty list.
+    """
+    # Check cache first
+    if not force_refresh:
+        cached = _load_trend_cache()
+        if cached:
+            return cached.get("signals", [])
+
+    logger.info("🌐 Fetching live trend signals...")
+
+    # Fetch from all sources — each one is independently fault-tolerant
+    all_signals = []
+    all_signals.extend(_fetch_hackernews_trends())  # Most reliable — fetch first
+    all_signals.extend(_fetch_youtube_trends())
+    all_signals.extend(_fetch_reddit_trends())
+
+    if all_signals:
+        _save_trend_cache(all_signals)
+        logger.info(f"✅ Fetched {len(all_signals)} total trend signals")
+    else:
+        # All sources failed — try expired cache as last resort
+        logger.warning("⚠️ All trend sources failed, checking expired cache...")
+        try:
+            if os.path.exists(_TREND_CACHE_PATH):
+                with open(_TREND_CACHE_PATH, 'r') as f:
+                    expired = json.load(f)
+                all_signals = expired.get("signals", [])
+                if all_signals:
+                    logger.info(f"📦 Using expired cache ({len(all_signals)} signals)")
+        except Exception:
+            pass
+
+    return all_signals
+
+
+def _format_trend_signals_for_prompt(signals: list) -> str:
+    """Format trend signals into a readable block for the Gemini prompt.
+    
+    YouTube items show rank (1 = most viewed); HN/Reddit items show points/upvotes.
+    """
+    if not signals:
+        return "(No live trend data available)"
+
+    lines = []
+    for i, s in enumerate(signals, 1):
+        source = s.get("source", "unknown")
+        title = s.get("title", "")
+        if source == "youtube":
+            metric = f"rank #{s.get('rank', '?')} by views"
+        else:
+            metric = f"{s.get('score', 0)} points"
+        lines.append(f"  {i}. [{source.upper()}] \"{title}\" ({metric})")
+
+    return "\n".join(lines)
+
 
 def get_smart_topic() -> str:
     """
-    Get a smart topic using trending-NOW generation + winning patterns feedback.
+    Get a smart topic using LIVE trend signals + winning patterns feedback.
     
     Strategy:
-    1. Load winning title patterns from past performance
-    2. Ask Gemini for a trending tech topic RIGHT NOW
-    3. Cross-reference against used topics to avoid repeats
-    4. Fall back to cluster-based selection if Gemini fails
+    1. Fetch real trending data from YouTube, HackerNews, Reddit (cached 6h)
+    2. Load winning title patterns from past performance
+    3. Ask Gemini to SELECT + REFRAME from real signals (not guess)
+    4. Cross-reference against used topics to avoid repeats
+    5. Fall back to cluster-based selection if Gemini fails
     """
-    import json
-    
     # Load context
     winners = _load_winning_patterns()
     used_topics = _load_used_topics(days=30)
-    
+
+    # Step 1: Fetch live trend signals (deterministic, separate from LLM)
+    trend_signals = fetch_live_trend_signals()
+    trend_block = _format_trend_signals_for_prompt(trend_signals)
+
+    cache = _load_trend_cache()
+    cache_age_desc = "unknown"
+    if cache:
+        try:
+            fetched_at = datetime.fromisoformat(cache.get("fetched_at", ""))
+            if fetched_at.tzinfo is None:
+                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+            hours_ago = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
+            cache_age_desc = f"{hours_ago:.0f}"
+        except Exception:
+            pass
+
     # Build winning context for Gemini
     winning_context = ""
     if winners:
         winner_titles = [w["title"] for w in winners[:8]]
         winning_context = f"""
-These recent video titles performed BEST with our audience:
+WINNING PATTERNS (titles that performed well with our audience):
 {chr(10).join(f'  - "{t}"' for t in winner_titles)}
 
-Generate a topic that follows similar ENERGY and patterns — but on a DIFFERENT subject."""
+Select a topic that follows similar ENERGY and patterns — but on a DIFFERENT subject."""
 
     # Build exclusion list
     exclusion_text = ""
     if used_topics:
-        recent = list(used_topics)[:50]  # Send full exclusion list (was [:15] — too few)
+        recent = list(used_topics)[:50]
         exclusion_text = f"""
-DO NOT generate anything similar to these recently covered topics:
+DO NOT select or generate anything similar to these recently covered topics:
 {chr(10).join(f'  - {t}' for t in recent)}"""
 
     prompt = f"""You are a YouTube Shorts content strategist for a programming/tech channel called "Code Tapasya".
 
-Generate ONE specific topic for a 60-second YouTube Short that is:
-1. TRENDING RIGHT NOW in tech/programming (March 2026)
-2. Highly searchable — something developers are actively Googling
-3. Perfect for a punchy, scroll-stopping 60-second explainer
-4. Beginner to intermediate level
+Below is a list of REAL trending topics from YouTube, HackerNews, and Reddit,
+fetched in the last {cache_age_desc} hours. YouTube items are ranked by view count
+(rank 1 = most viewed); HackerNews and Reddit items show engagement points.
 
+TRENDING SIGNALS:
+{trend_block}
 {winning_context}
 {exclusion_text}
 
-THINK about what's hot in tech RIGHT NOW:
-- New framework releases, language updates, AI tool launches
-- Viral dev debates (tabs vs spaces, is X dead, etc.)
-- Emerging trends that developers are buzzing about
-- Security incidents or breaking changes developers need to know about
+YOUR TASK:
+1. Review the trending signals above.
+2. Select the ONE topic that would make the best 60-second YouTube Short for
+   a programming education channel aimed at beginners-to-intermediate developers.
+3. Reframe it into a specific, curiosity-driven, click-worthy topic title
+   (not a copy-paste of the headline — make it your own).
+4. If none of the signals fit (too niche, not educational, already covered),
+   you may generate ONE original topic inspired by the general themes you see.
 
-OUTPUT: Return ONLY the topic title. Make it specific, curiosity-driven, and click-worthy.
+REQUIREMENTS:
+- Beginner to intermediate level
+- Perfect for a punchy, scroll-stopping 60-second explainer
+- Specific and curiosity-driven
+
+OUTPUT: Return ONLY the topic title. No explanation, no quotes.
 Example good outputs:
 "Why Every Developer is Switching to Bun in 2026"
 "The AI Coding Tool That's Replacing Stack Overflow"
@@ -606,40 +888,41 @@ Example good outputs:
 
 Your topic:"""
 
-    # Try Gemini for trending topic
+    # Try Gemini for topic selection from real signals
     try:
         from google import genai
         from google.genai import types
-        
+
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("No GEMINI_API_KEY")
-        
+
         client = genai.Client(api_key=api_key)
         config = types.GenerateContentConfig(temperature=0.8, max_output_tokens=200)
-        
+
         for attempt in range(3):
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
                 contents=prompt,
                 config=config
             )
-            
+
             if response and response.text:
                 topic = response.text.strip().replace('"', '').replace("'", "")
-                # Check exact match AND semantic similarity
+                # Check exact match AND semantic similarity (existing dedup — unchanged)
                 if topic.lower().strip() in used_topics:
-                    logger.warning(f"⚠️ Trending topic '{topic}' already used (exact match), retrying...")
+                    logger.warning(f"⚠️ Selected topic '{topic}' already used (exact match), retrying...")
                 elif _is_topic_similar(topic, used_topics):
-                    logger.warning(f"⚠️ Trending topic '{topic}' too similar to used topic, retrying...")
+                    logger.warning(f"⚠️ Selected topic '{topic}' too similar to used topic, retrying...")
                 else:
-                    logger.info(f"🔥 Trending topic: {topic}")
+                    source_count = len(set(s.get("source") for s in trend_signals)) if trend_signals else 0
+                    logger.info(f"🔥 Trend-grounded topic: {topic} (from {source_count} live sources)")
                     return topic
-        
-        logger.warning("⚠️ Trending generation exhausted, falling back to clusters")
+
+        logger.warning("⚠️ Trend-grounded selection exhausted, falling back to clusters")
     except Exception as e:
-        logger.warning(f"⚠️ Trending topic generation failed: {e}, falling back to clusters")
-    
+        logger.warning(f"⚠️ Trend-grounded topic selection failed: {e}, falling back to clusters")
+
     # Fallback to cluster-based selection (pass used_topics for filtering)
     return get_smart_topic_from_clusters(used_topics=used_topics)
 
@@ -658,8 +941,21 @@ if __name__ == "__main__":
     
     print("=== Smart Topic Selector ===\n")
     
-    # Test trending topic
-    print("--- Trending Topic (Gemini) ---")
+    # Test live trend fetching
+    print("--- Live Trend Signals ---")
+    signals = fetch_live_trend_signals(force_refresh=True)
+    for s in signals[:10]:
+        source = s.get("source", "?")
+        title = s.get("title", "?")
+        if source == "youtube":
+            metric = f"rank #{s.get('rank', '?')}"
+        else:
+            metric = f"{s.get('score', 0)} pts"
+        print(f"  [{source.upper():^11}] {title[:60]:60} ({metric})")
+    print(f"  ... {len(signals)} total signals\n")
+    
+    # Test topic selection from real signals
+    print("--- Trend-Grounded Topic (Gemini) ---")
     topic = get_smart_topic()
     print(f"  → {topic}")
     
