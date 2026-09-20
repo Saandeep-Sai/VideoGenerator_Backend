@@ -1551,12 +1551,23 @@ class GeneratedAnimation{segment_number}(Scene):
             
             return None, f"❌ Expected video not found at {expected_path} or Scene.mp4"
 
-        # Fallback: find any mp4 in media
+        # Fallback: find any mp4 in media — but ONLY files created during THIS run
+        # to prevent picking up stale segments from a crashed previous run.
         video_files = list((temp_path / "media").glob("**/*.mp4"))
         if not video_files:
             return None, "❌ Manim ran but no video file was found."
-        latest = max(video_files, key=os.path.getctime)
-        logger.warning(f"⚠️ Using fallback video path: {latest}")
+        
+        # Filter to files created within the last 30 minutes (current run only)
+        import time
+        now = time.time()
+        fresh_files = [f for f in video_files if (now - os.path.getctime(f)) < 1800]
+        
+        if not fresh_files:
+            logger.error("❌ Found mp4 files in media/ but ALL are stale (from a previous run). Rejecting.")
+            return None, "❌ Manim ran but only stale video files found (from previous run)."
+        
+        latest = max(fresh_files, key=os.path.getctime)
+        logger.warning(f"⚠️ Using fallback video path (freshness-checked): {latest}")
         return str(latest), None
 
     def _get_intro_video(self) -> Optional[Path]:
@@ -3563,10 +3574,23 @@ def stitch_segment_worker_no_sync(args):
 def recover_missing_video_paths(segments: List[NarrationSegment]) -> int:
     """
     Scan output folders to recover missing video paths.
+    Only recovers files created within the last 30 minutes to avoid
+    picking up stale segments from a crashed previous run.
     Returns number of paths recovered.
     """
+    import time as _time
+    
     logger.info("🔍 Scanning output folders for missing video paths...")
     recovered_count = 0
+    now = _time.time()
+    max_age_seconds = 1800  # 30 minutes — a single segment can't take longer
+    
+    def _is_fresh(path: Path) -> bool:
+        """Check if a file was created during the current run (within 30 min)."""
+        try:
+            return (now - path.stat().st_ctime) < max_age_seconds
+        except OSError:
+            return False
     
     for i, segment in enumerate(segments):
         # Check if video_path is missing
@@ -3580,11 +3604,13 @@ def recover_missing_video_paths(segments: List[NarrationSegment]) -> int:
             ]
             
             for possible_path in possible_paths:
-                if possible_path.exists():
+                if possible_path.exists() and _is_fresh(possible_path):
                     segment.video_path = str(possible_path.resolve())
                     recovered_count += 1
                     logger.warning(f"⚠️ Recovered missing video path for segment {i}: {segment.video_path}")
                     break
+                elif possible_path.exists() and not _is_fresh(possible_path):
+                    logger.warning(f"⚠️ Found stale video for segment {i} at {possible_path} — SKIPPING (from previous run)")
             else:
                 logger.error(f"❌ Could not recover video path for segment {i} - file not found in any expected location")
         
@@ -3596,11 +3622,13 @@ def recover_missing_video_paths(segments: List[NarrationSegment]) -> int:
             ]
             
             for possible_path in possible_audio_paths:
-                if possible_path.exists():
+                if possible_path.exists() and _is_fresh(possible_path):
                     segment.audio_path = str(possible_path.resolve())
                     recovered_count += 1
                     logger.warning(f"⚠️ Recovered missing audio path for segment {i}: {segment.audio_path}")
                     break
+                elif possible_path.exists() and not _is_fresh(possible_path):
+                    logger.warning(f"⚠️ Found stale audio for segment {i} at {possible_path} — SKIPPING (from previous run)")
             else:
                 logger.error(f"❌ Could not recover audio path for segment {i} - file not found in any expected location")
     
@@ -3966,6 +3994,15 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
             output_filename = f"{self.config.output_dir}/{safe_topic}_final_video.mp4"
 
         logger.info(f"🚀 Starting FULL PARALLEL video generation for topic: {topic} [{duration}s]")
+
+        # *** PRE-RUN CLEANUP: Wipe stale temp files from any previous run ***
+        # If the previous run crashed (OOM, timeout), its segment files survive
+        # in temp/ and can contaminate the new video via recovery/fallback logic.
+        self.cleanup_temp_files()
+        Path(self.config.temp_dir).mkdir(parents=True, exist_ok=True)
+        import time as _time
+        self._generation_start_time = _time.time()
+        logger.info("🧹 Pre-run cleanup complete — temp directory is clean")
 
         try:
             # Check if quality pipeline is enabled
