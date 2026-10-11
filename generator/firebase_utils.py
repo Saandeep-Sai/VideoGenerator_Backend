@@ -125,12 +125,13 @@ def split_base64_string(b64_string, segment_size=950000):  # just under 1MB limi
     }
 
 # Create a new job in Firestore with 'pending' status (for API/manual requests)
-def create_job(topic, duration, aspect_ratio="9:16", video_type="short", use_quality_pipeline=True):
+def create_job(topic, duration, aspect_ratio="9:16", video_type="short", use_quality_pipeline=True,
+               part_number=None, total_parts=None, subtitle=None):
     initialize_firebase()
     db = firestore.client()
 
     doc_ref = db.collection("videos").document()
-    doc_ref.set({
+    job_data = {
         "topic": topic,
         "duration": duration,
         "aspect_ratio": aspect_ratio,
@@ -139,7 +140,16 @@ def create_job(topic, duration, aspect_ratio="9:16", video_type="short", use_qua
         "status": "pending",
         "created_at": firestore.SERVER_TIMESTAMP,
         "source": "manual_api"
-    })
+    }
+    # Add series metadata if present
+    if part_number is not None:
+        job_data["part_number"] = part_number
+    if total_parts is not None:
+        job_data["total_parts"] = total_parts
+    if subtitle:
+        job_data["subtitle"] = subtitle
+    
+    doc_ref.set(job_data)
     return doc_ref.id
 
 # Create a scheduled job record (SEPARATE COLLECTION - won't be picked up by workers)

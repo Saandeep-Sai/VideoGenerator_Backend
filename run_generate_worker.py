@@ -129,7 +129,15 @@ async def run():
                         
                         # Generate dynamic metadata for better YouTube performance
                         try:
-                            metadata = dynamic_content.generate_youtube_metadata(topic, duration)
+                            part_number = job.get("part_number")
+                            total_parts = job.get("total_parts")
+                            subtitle = job.get("subtitle")
+                            metadata = dynamic_content.generate_youtube_metadata(
+                                topic, duration,
+                                part_number=part_number,
+                                total_parts=total_parts,
+                                subtitle=subtitle
+                            )
                             logger.info(f"📈 Generated metadata - Title: {metadata['title'][:50]}...")
                         except Exception as e:
                             logger.warning(f"⚠️ Failed to generate metadata, using fallback: {e}")

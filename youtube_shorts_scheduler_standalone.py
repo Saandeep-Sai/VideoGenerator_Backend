@@ -441,10 +441,16 @@ class StandaloneYouTubeShortsGenerator:
             if len(title) > 100:
                 title = title[:97] + "..."
             
-            # Generate dynamic metadata if available
+            # Generate dynamic metadata (description + tags) if available
             if self.dynamic_content:
                 try:
-                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration)
+                    _pn = planned_video.get('part_number') if planned_video else None
+                    _tp = planned_video.get('total_parts') if planned_video else None
+                    _sub = planned_video.get('subtitle') if planned_video else None
+                    metadata = self.dynamic_content.generate_youtube_metadata(
+                        topic, duration,
+                        part_number=_pn, total_parts=_tp, subtitle=_sub
+                    )
                     title = metadata['title']
                     description = metadata['description']
                     tags = metadata['tags']
@@ -587,7 +593,12 @@ Thanks to Code Tapasya for making coding fun!
                 # Track video for analytics (enables viewership-based topic selection)
                 try:
                     from analytics.integrated_analytics import track_uploaded_video
-                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
+                    metadata = self.dynamic_content.generate_youtube_metadata(
+                        topic, duration,
+                        part_number=planned.get('part_number') if planned else None,
+                        total_parts=planned.get('total_parts') if planned else None,
+                        subtitle=planned.get('subtitle') if planned else None
+                    ) if self.dynamic_content else None
                     track_uploaded_video(
                         youtube_video_id=youtube_video_id,
                         topic=topic,
@@ -610,7 +621,12 @@ Thanks to Code Tapasya for making coding fun!
                 # Generate metadata for Instagram caption
                 metadata = None
                 try:
-                    metadata = self.dynamic_content.generate_youtube_metadata(topic, duration) if self.dynamic_content else None
+                    metadata = self.dynamic_content.generate_youtube_metadata(
+                        topic, duration,
+                        part_number=planned.get('part_number') if planned else None,
+                        total_parts=planned.get('total_parts') if planned else None,
+                        subtitle=planned.get('subtitle') if planned else None
+                    ) if self.dynamic_content else None
                 except:
                     pass
                 
