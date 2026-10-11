@@ -258,6 +258,10 @@ OUTPUT JSON
      "layout_strategy":
      "comparison | process_flow | hierarchy | definition | cause_effect",
 
+     "sound_effects":[
+       {{"trigger_word":"exact word from narration", "type":"impact|whoosh|reveal|pop|glitch|ding|click|swoosh|snap|success|warning", "intensity":"soft|medium|strong"}}
+     ],
+
      "transition_reason":""
    }}
  ]
@@ -269,6 +273,7 @@ RULES
 - Talk TO the viewer, not AT them.
 - Concepts accumulate visually.
 - Durations sum EXACTLY to {duration}s.
+- Each segment MUST include 2-3 sound_effects with trigger_word matching an EXACT word from the narration. Use sparingly: impact for emphasis, whoosh for transitions, reveal for unveils, pop for new concepts, ding for takeaways.
 
 Return JSON only.
 """

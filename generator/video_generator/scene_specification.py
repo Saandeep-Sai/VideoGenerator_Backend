@@ -341,6 +341,8 @@ class Narration:
     """Narration with semantic beat mapping."""
     text: str                                   # The spoken narration
     semantic_beats: List[SemanticBeat] = field(default_factory=list)
+    emotion: Optional[str] = None               # Emotional beat (curiosity, tension, etc.)
+    sound_effects: Optional[List[Dict[str, str]]] = None  # SFX cues [{trigger_word, type, intensity}]
     
     def validate(self, element_ids: set) -> List[str]:
         """Validate narration and beat mappings."""

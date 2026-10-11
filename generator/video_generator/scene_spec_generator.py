@@ -349,6 +349,10 @@ Return a JSON array. Each scene object:
     }},
     "narration": {{
       "text": "35-50 words, conversational tone",
+      "emotion": "curiosity|tension|surprise|clarity|satisfaction|excited|dramatic|confident",
+      "sound_effects": [
+        {{"trigger_word": "exact word from narration text", "type": "impact|whoosh|reveal|pop|glitch|ding|click|swoosh|snap|success|warning", "intensity": "soft|medium|strong"}}
+      ],
       "semantic_beats": [
         {{"beat_phrase": "3-6 word phrase from narration", "visual_sync": "what visual event happens and why", "target_elements": ["elem1"]}}
       ]
@@ -384,6 +388,8 @@ Generate {num_scenes} scenes for "{topic}".
 Focus on visual intent and meaning. VisualDirector handles the rest.
 
 REMINDER: The FINAL scene (OUTRO) narration MUST end with "Code Tapasya" sign-off and subscribe CTA!
+
+MANDATORY: Each scene's narration MUST include 2-3 sound_effects with trigger_word matching an EXACT word from the narration text. Use: impact for emphasis, whoosh for transitions, reveal for unveils, pop for concepts, ding for takeaways.
 '''
 
 
@@ -1100,7 +1106,9 @@ class SceneSpecGenerator:
             ),
             narration=Narration(
                 text=data.get("narration", {}).get("text", ""),
-                semantic_beats=semantic_beats
+                semantic_beats=semantic_beats,
+                emotion=data.get("narration", {}).get("emotion", None),
+                sound_effects=data.get("narration", {}).get("sound_effects", None),
             ),
             timing=Timing(
                 cognitive_duration_estimate_seconds=data.get("timing", {}).get(

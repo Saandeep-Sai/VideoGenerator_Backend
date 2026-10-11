@@ -186,6 +186,7 @@ class NarrationSegment:
     emotion: Optional[str] = None  # Emotional beat from narrative director
     layout_strategy: Optional[str] = None  # Layout type from narrative director
     visual_contract: Optional[str] = None  # GLOBAL: Frozen visual authority (JSON), persists through all stages
+    sound_effects: Optional[list] = None  # SFX cues from narrative director [{trigger_word, type, intensity}]
 
 class EdgeTTSWrapper:
     """Enhanced Edge TTS wrapper with retry logic and custom headers."""
@@ -194,15 +195,17 @@ class EdgeTTSWrapper:
         self.max_retries = 2  # Reduced from 5 to 2 for faster failures
         self.retry_delay = 2  # Reduced from 3 to 2 seconds
 
-    async def synthesize(self, text: str, output_path: str):
+    async def synthesize(self, text: str, output_path: str,
+                         rate: str = "+0%", pitch: str = "+0Hz", volume: str = "+0%"):
         import edge_tts
         import asyncio
         import random
         
         for attempt in range(self.max_retries):
             try:
-                # Use the latest edge-tts API with custom settings
-                communicate = edge_tts.Communicate(text, self.voice)
+                # Use the latest edge-tts API with emotion-driven prosody
+                communicate = edge_tts.Communicate(text, self.voice,
+                                                    rate=rate, pitch=pitch, volume=volume)
                 await communicate.save(output_path)
                 return  # Success
             except Exception as e:
@@ -351,15 +354,47 @@ class VideoGenerationPipeline:
     # VOICE ARSENAL — randomly assigned per video (50/50)
     # ═══════════════════════════════════════════════════════════════
     VOICE_ARSENAL = [
-        "en-US-AndrewNeural",            # Confident, clear male
-        "en-US-BrianMultilingualNeural",  # Warm, versatile male
+        "en-US-GuyNeural",               # Casual, friendly male
+        "en-US-ChristopherNeural",        # Deep, authoritative male
+        "en-US-AndrewNeural",             # Confident, clear male
     ]
+
+    # ═══════════════════════════════════════════════════════════════
+    # EMOTION → TTS PROSODY MAPPING
+    # ═══════════════════════════════════════════════════════════════
+    EMOTION_PROSODY = {
+        "excited":    {"rate": "+25%",  "pitch": "+5Hz",  "volume": "+10%"},
+        "curious":    {"rate": "+10%",  "pitch": "+4Hz",  "volume": "+0%"},
+        "dramatic":   {"rate": "-20%",  "pitch": "-4Hz",  "volume": "+10%"},
+        "urgent":     {"rate": "+35%",  "pitch": "+6Hz",  "volume": "+10%"},
+        "reflective": {"rate": "-15%",  "pitch": "-3Hz",  "volume": "-10%"},
+        "confident":  {"rate": "+10%",  "pitch": "+2Hz",  "volume": "+10%"},
+        "curiosity":  {"rate": "+10%",  "pitch": "+4Hz",  "volume": "+0%"},
+        "tension":    {"rate": "-10%",  "pitch": "-2Hz",  "volume": "+5%"},
+        "surprise":   {"rate": "+20%",  "pitch": "+5Hz",  "volume": "+10%"},
+        "clarity":    {"rate": "+5%",   "pitch": "+1Hz",  "volume": "+5%"},
+        "satisfaction":{"rate": "-5%",   "pitch": "+1Hz",  "volume": "+0%"},
+        "neutral":    {"rate": "+0%",   "pitch": "+0Hz",  "volume": "+0%"},
+    }
+
+    # ═══════════════════════════════════════════════════════════════
+    # SFX FILE MAPPING — maps SFX type names to files in assets/sfx/
+    # ═══════════════════════════════════════════════════════════════
+    SFX_MAP = {
+        "impact": "soft-impact.mp3", "whoosh": "whoosh.mp3", "reveal": "reveal.mp3",
+        "pop": "bubble.mp3", "glitch": "glitch.mp3", "ding": "ding.mp3",
+        "click": "click.mp3", "swoosh": "swoosh.mp3", "snap": "snap.mp3",
+        "typing": "keyboard.mp3", "keyboard": "keyboard.mp3", "success": "success.mp3",
+        "warning": "warning.mp3", "transition": "whoosh.mp3", "boom": "soft-impact.mp3",
+        "rise": "reveal.mp3", "bubble": "bubble.mp3", "chime": "ding.mp3",
+        "error": "glitch.mp3", "alert": "warning.mp3",
+    }
 
     
     def __init__(self, config: VideoGenerationConfig):
         self.config = config
         self.openrouter_key_manager = None
-        self.gemini_models = [ "gemini-3.8-flash", "gemini-3.7-flash","gemini-3.6-flash","gemini-3.1-flash-lite","gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash",  "gemini-2.5-flash-lite"]
+        self.gemini_models = [ "gemini-3.8-flash", "gemini-3.7-flash","gemini-3.6-flash","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-pro","gemini-2.5-flash",  "gemini-2.5-flash-lite"]
         self.current_gemini_model_index = 0
         self.current_gemini_key_index = 0
         self.gemini_api_keys = []  # Loaded in _initialize_gemini_client    
@@ -553,10 +588,15 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
                 if i > 0:
                     await asyncio.sleep(2)  # 2 second delay between segments
 
-                # Try Edge TTS first
+                # Try Edge TTS first — with emotion-driven prosody
                 try:
-                    await self.tts_model.synthesize(text, str(mp3_path))
-                    logger.info(f"✅ Edge TTS: Segment {i+1}")
+                    emotion = getattr(segment, 'emotion', 'neutral') or 'neutral'
+                    prosody = self.EMOTION_PROSODY.get(emotion.lower(), self.EMOTION_PROSODY.get("neutral", {"rate": "+0%", "pitch": "+0Hz", "volume": "+0%"}))
+                    await self.tts_model.synthesize(
+                        text, str(mp3_path),
+                        rate=prosody["rate"], pitch=prosody["pitch"], volume=prosody["volume"]
+                    )
+                    logger.info(f"✅ Edge TTS: Segment {i+1} (emotion={emotion}, rate={prosody['rate']})")
                 except Exception as edge_error:
                     # Fallback to gTTS if Edge TTS fails
                     logger.warning(f"⚠️ Edge TTS failed for segment {i+1}, using gTTS fallback")
@@ -708,6 +748,7 @@ config.flush_cache = False         # Keep cache between renders (CRITICAL for sp
                 idea=s.get('idea', ''),
                 emotion=s.get('emotion', 'clarity'),
                 layout_strategy=s.get('layout_strategy', 'process_flow'),
+                sound_effects=s.get('sound_effects', []),
             )
             segments.append(segment)
             current_time += seg_duration
@@ -1515,19 +1556,19 @@ class GeneratedAnimation{segment_number}(Scene):
             full_output = '\n'.join(output_lines) if output_lines else "No output captured"
             return None, f"❌ Manim failed with code {process.returncode}:\n{full_output}"
 
-        # Expected output file path - 1080p60 quality (-qm flag) outputs to 1080p60 folder
+        # Expected output file path - Medium quality: 720p30 (-qm flag) outputs to 720p30 folder
         if segment_index is not None:
             # Manim outputs video with the class name as filename
             # Expected: Segment000.mp4, Segment001.mp4, etc.
             class_name = f"Segment{segment_index:03d}"
-            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / f"{class_name}.mp4"
+            expected_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / f"{class_name}.mp4"
             
             if expected_path.exists():
                 logger.info(f"✅ Found video: {expected_path}")
                 return str(expected_path), None
             
             # Fallback 1: Check if it was saved as Scene.mp4 (shouldn't happen with correct class name)
-            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "1080p60" / "Scene.mp4"
+            scene_path = temp_path / "media" / "videos" / f"segment_{segment_index:03d}" / "720p30" / "Scene.mp4"
             if scene_path.exists():
                 logger.info(f"✅ Found as Scene.mp4, renaming to {class_name}.mp4")
                 scene_path.rename(expected_path)
@@ -2349,12 +2390,7 @@ class SubtleGrid(VGroup):
         _wm.move_to(np.array([config.frame_width/2 - 1.2,
                               -config.frame_height/2 + 0.35, 0]))
         self.add(_wm)
-        # Scene intro flash
-        _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
-                               fill_opacity={flash_opacity}, fill_color=WHITE, stroke_width=0)
-        self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
-        self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
-        self.remove(_flash_rect)
+        # Scene intro flash REMOVED — caused strobe at segment boundaries
 '''
     
     # Ensure numpy is imported
@@ -4089,12 +4125,30 @@ class OptimizedVideoGenerationPipeline(VideoGenerationPipeline):
                     # Convert quality segments to regular NarrationSegment format
                     segments = []
                     for qs in quality_segments:
+                        # Extract emotion and SFX from the spec's narration object
+                        _emotion = 'clarity'
+                        _sfx = []
+                        if qs.scene_spec and hasattr(qs.scene_spec, 'narration'):
+                            _narr = qs.scene_spec.narration
+                            if hasattr(_narr, 'emotion') and _narr.emotion:
+                                _emotion = _narr.emotion
+                            if hasattr(_narr, 'sound_effects') and _narr.sound_effects:
+                                _sfx = _narr.sound_effects
+                            # Also try raw spec data dict
+                            if not _sfx and hasattr(qs.scene_spec, '_raw_data'):
+                                _raw_narr = qs.scene_spec._raw_data.get('narration', {})
+                                _sfx = _raw_narr.get('sound_effects', [])
+                                if not _emotion or _emotion == 'clarity':
+                                    _emotion = _raw_narr.get('emotion', 'clarity')
+                        
                         seg = NarrationSegment(
                             start_time=qs.start_time,
                             end_time=qs.end_time,
                             duration=qs.duration,
                             text=qs.text,
-                            visual_description=qs.visual_description
+                            visual_description=qs.visual_description,
+                            emotion=_emotion,
+                            sound_effects=_sfx if isinstance(_sfx, list) else [],
                         )
                         # Store spec in segment for later retrieval
                         seg._quality_spec = qs.scene_spec
@@ -5261,12 +5315,7 @@ class SubtleGrid(VGroup):
         _wm.move_to(np.array([config.frame_width/2 - 1.2,
                               -config.frame_height/2 + 0.35, 0]))
         self.add(_wm)
-        # Scene intro flash
-        _flash_rect = Rectangle(width=config.frame_width + 2, height=config.frame_height + 2,
-                               fill_opacity={flash_opacity}, fill_color=WHITE, stroke_width=0)
-        self.play(FadeIn(_flash_rect, run_time=0.06), rate_func=rate_functions.ease_out_cubic)
-        self.play(FadeOut(_flash_rect, run_time=0.1), rate_func=rate_functions.ease_in_cubic)
-        self.remove(_flash_rect)
+        # Scene intro flash REMOVED — caused strobe at segment boundaries
 '''
         
         # Ensure numpy is imported
@@ -6082,6 +6131,14 @@ class Segment{index:03d}(Scene):
             final_output_complete = self._add_intro_with_ffmpeg(final_output_path)
             logger.info(f"✅ Final video complete: {final_output_complete}")
             
+            # ── POST-PROCESSING: Karaoke Captions + SFX ──
+            try:
+                final_output_complete = self._post_process_captions_and_sfx(
+                    final_output_complete, segments, temp_dir
+                )
+            except Exception as pp_err:
+                logger.warning(f"⚠️ Post-processing (captions/SFX) failed, using video without: {pp_err}")
+            
             # Cleanup temporary files
             self.cleanup_temp_files()
             
@@ -6096,6 +6153,268 @@ class Segment{index:03d}(Scene):
             except:
                 pass
             
+    # ═══════════════════════════════════════════════════════════════
+    # POST-PROCESSING: Karaoke Captions + SFX
+    # ═══════════════════════════════════════════════════════════════
+
+    def _post_process_captions_and_sfx(self, video_path: str, segments, temp_dir) -> str:
+        """
+        Final post-processing pass:
+        1. Transcribe audio with faster-whisper → word timestamps
+        2. Generate karaoke-style ASS subtitles
+        3. Collect SFX cues from segments, match to word timestamps
+        4. One FFmpeg pass: burn captions + mix SFX
+        
+        Returns the path to the enhanced video (or original on failure).
+        """
+        import shutil
+        
+        logger.info("🎬 POST-PROCESSING: Adding captions and SFX...")
+        
+        temp_dir_path = Path(temp_dir) if not isinstance(temp_dir, Path) else temp_dir
+        
+        # Step 1: Extract audio and transcribe
+        try:
+            words = self._transcribe_for_captions(video_path, temp_dir_path)
+            if not words:
+                logger.warning("⚠️ No words transcribed, skipping captions")
+                return video_path
+        except Exception as e:
+            logger.warning(f"⚠️ Transcription failed: {e}")
+            return video_path
+        
+        # Step 2: Generate karaoke ASS subtitles
+        ass_path = str(temp_dir_path / "karaoke_captions.ass")
+        self._generate_karaoke_ass(words, ass_path)
+        logger.info(f"✅ Generated karaoke ASS: {len(words)} words")
+        
+        # Step 3: Collect and match SFX cues
+        sfx_placements = self._collect_and_match_sfx(segments, words, temp_dir_path)
+        logger.info(f"✅ SFX placements: {len(sfx_placements)} effects")
+        
+        # Step 4: Final FFmpeg pass — burn captions + mix SFX
+        enhanced_path = video_path.replace(".mp4", "_enhanced.mp4")
+        try:
+            self._apply_captions_and_sfx(video_path, ass_path, sfx_placements, enhanced_path)
+            
+            # Verify enhanced video
+            if Path(enhanced_path).exists() and Path(enhanced_path).stat().st_size > 1024:
+                # Replace original with enhanced
+                shutil.move(enhanced_path, video_path)
+                logger.info(f"✅ Post-processing complete: captions + {len(sfx_placements)} SFX applied")
+                return video_path
+            else:
+                logger.warning("⚠️ Enhanced video invalid, keeping original")
+                return video_path
+        except Exception as e:
+            logger.warning(f"⚠️ FFmpeg post-processing failed: {e}")
+            # Clean up failed output
+            if Path(enhanced_path).exists():
+                Path(enhanced_path).unlink()
+            return video_path
+
+    def _transcribe_for_captions(self, video_path: str, temp_dir: Path) -> list:
+        """Extract audio and transcribe with faster-whisper for word timestamps."""
+        from faster_whisper import WhisperModel
+        
+        # Extract audio as WAV
+        audio_path = str(temp_dir / "caption_audio.wav")
+        cmd = [
+            "ffmpeg", "-y", "-i", video_path,
+            "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            audio_path,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+        
+        # Transcribe with tiny.en model (lightweight, fast)
+        logger.info("🎤 Loading faster-whisper tiny.en for captions...")
+        model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+        segments_iter, info = model.transcribe(audio_path, word_timestamps=True)
+        
+        words = []
+        for seg in segments_iter:
+            for word in seg.words:
+                words.append({
+                    "word": word.word.strip(),
+                    "start": round(word.start, 3),
+                    "end": round(word.end, 3),
+                })
+        
+        # Free model memory before Manim/FFmpeg steps
+        del model
+        logger.info(f"🎤 Transcribed {len(words)} words")
+        
+        # Clean up audio file
+        try:
+            Path(audio_path).unlink()
+        except:
+            pass
+        
+        return words
+
+    def _generate_karaoke_ass(self, words: list, output_path: str,
+                               video_width: int = 1080, video_height: int = 1920):
+        """Generate ASS subtitles with karaoke-style word highlighting."""
+        HIGHLIGHT_COLOR = "\\c&H0000FFFF&"   # Yellow (BGR in ASS)
+        NORMAL_COLOR = "\\c&H00FFFFFF&"       # White
+        GROUP_SIZE = 4
+        
+        def ass_ts(seconds):
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            cs = int((seconds % 1) * 100)
+            return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+        
+        header = f"""[Script Info]
+Title: Karaoke Captions
+ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,40,40,180,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        
+        events = []
+        for i in range(0, len(words), GROUP_SIZE):
+            chunk = words[i:i + GROUP_SIZE]
+            for j, active in enumerate(chunk):
+                word_start = active["start"]
+                word_end = chunk[j + 1]["start"] if j < len(chunk) - 1 else active["end"]
+                
+                parts = []
+                for k, w in enumerate(chunk):
+                    if k == j:
+                        parts.append(f"{{{HIGHLIGHT_COLOR}\\b1}}{w['word'].upper()}")
+                    else:
+                        parts.append(f"{{{NORMAL_COLOR}\\b1}}{w['word'].upper()}")
+                
+                styled = " ".join(parts)
+                events.append(
+                    f"Dialogue: 0,{ass_ts(word_start)},{ass_ts(word_end)},"
+                    f"Default,,0,0,0,,{styled}"
+                )
+        
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(header)
+            f.write("\n".join(events))
+
+    def _collect_and_match_sfx(self, segments, words: list, temp_dir: Path) -> list:
+        """Collect SFX cues from all segments and match trigger words to timestamps."""
+        all_cues = []
+        for seg in segments:
+            sfx_list = getattr(seg, 'sound_effects', None) or []
+            if isinstance(sfx_list, list):
+                all_cues.extend(sfx_list)
+        
+        if not all_cues:
+            return []
+        
+        # Match trigger words to word timestamps
+        placements = []
+        used_indices = set()
+        
+        for cue in all_cues:
+            trigger = str(cue.get("trigger_word", "")).lower().strip().rstrip(".,!?;:'\"")
+            sfx_type = cue.get("type", "pop").lower()
+            intensity = cue.get("intensity", "medium").lower()
+            
+            if not trigger:
+                continue
+            
+            # Find the word in the transcript
+            for i, w in enumerate(words):
+                if i in used_indices:
+                    continue
+                word_clean = w["word"].lower().strip().rstrip(".,!?;:'\"")
+                if word_clean == trigger:
+                    # Resolve SFX file path
+                    sfx_filename = self.SFX_MAP.get(sfx_type, "bubble.mp3")
+                    sfx_dir = Path(__file__).parent.parent.parent / "assets" / "sfx"
+                    sfx_path = sfx_dir / sfx_filename
+                    
+                    if sfx_path.exists():
+                        vol_map = {"soft": 0.08, "medium": 0.14, "strong": 0.20}
+                        placements.append({
+                            "timestamp": w["start"],
+                            "sfx_path": str(sfx_path),
+                            "volume": vol_map.get(intensity, 0.10),
+                            "type": sfx_type,
+                            "word": w["word"],
+                        })
+                    used_indices.add(i)
+                    break
+        
+        placements.sort(key=lambda x: x["timestamp"])
+        return placements
+
+    def _apply_captions_and_sfx(self, video_path: str, ass_path: str,
+                                  sfx_placements: list, output_path: str):
+        """One FFmpeg pass: burn ASS captions + mix SFX at timestamps."""
+        
+        ass_dir = os.path.dirname(os.path.abspath(ass_path))
+        ass_name = os.path.basename(ass_path)
+        
+        # Build inputs
+        inputs = ["-i", os.path.abspath(video_path)]
+        for p in sfx_placements:
+            inputs.extend(["-i", p["sfx_path"]])
+        
+        if sfx_placements:
+            # Build audio filter: delay + volume each SFX, then mix with original
+            filter_parts = []
+            mix_labels = ["[0:a]"]
+            
+            for i, p in enumerate(sfx_placements):
+                delay_ms = int(p["timestamp"] * 1000)
+                vol = p["volume"]
+                label = f"[sfx{i}]"
+                filter_parts.append(
+                    f"[{i + 1}:a]atrim=start=0:end=1.0,afade=t=out:st=0.7:d=0.3,"
+                    f"adelay={delay_ms}|{delay_ms},volume={vol}{label}"
+                )
+                mix_labels.append(label)
+            
+            mix_input = "".join(mix_labels)
+            filter_parts.append(
+                f"{mix_input}amix=inputs={len(mix_labels)}:duration=first:normalize=0[aout]"
+            )
+            audio_filter = ";".join(filter_parts)
+            
+            cmd = [
+                "ffmpeg", "-y",
+                *inputs,
+                "-filter_complex", f"{audio_filter}",
+                "-vf", f"ass={ass_name}",
+                "-map", "0:v", "-map", "[aout]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "192k",
+                "-shortest", "-movflags", "+faststart",
+                os.path.abspath(output_path),
+            ]
+        else:
+            # No SFX, just burn captions
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", os.path.abspath(video_path),
+                "-vf", f"ass={ass_name}",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                os.path.abspath(output_path),
+            ]
+        
+        subprocess.run(
+            cmd, check=True, capture_output=True, text=True,
+            timeout=self.config.ffmpeg_timeout, cwd=ass_dir
+        )
+
     def generate_video_optimized(self, topic: str, duration: int, output_filename: Optional[str] = None) -> str:
         """Synchronous wrapper for async pipeline."""
         return asyncio.run(self.generate_video_async(topic, duration, output_filename))
@@ -6118,7 +6437,7 @@ async def main_optimized():
         openrouter_api_key=openrouter_key,
         batch_size=5,  # Larger batches for efficiency
         max_correction_attempts=3,  # Fewer attempts for speed
-        aspect_ratio="16:9",
+        aspect_ratio="9:16",
         use_quality_pipeline=True  
     )
     
@@ -6132,7 +6451,7 @@ async def main_optimized():
         # Using the chunked method for better memory management
         result = await pipeline.generate_video_full_parallel(
             #topic="How to build a perfect website using Vibe Coding?", 
-            topic="Place value of larger numbers", 
+            topic="Git and Github", 
             duration=60,   
         )
 

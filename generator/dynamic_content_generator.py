@@ -313,13 +313,26 @@ Generate ONE unique topic now:"""
             logger.warning(f"⚠️ All topics used, creating variation: {variation}")
             return variation
     
-    def generate_youtube_metadata(self, topic: str, duration: int) -> Dict[str, str]:
+    def generate_youtube_metadata(self, topic: str, duration: int,
+                                    part_number: int = None, total_parts: int = None,
+                                    subtitle: str = None) -> Dict[str, str]:
         """Generate optimized YouTube title, description, and tags"""
         
+        # Build series context for the prompt
+        series_context = ""
+        if part_number and part_number > 0:
+            series_context = f"""
+SERIES INFO (MANDATORY — title MUST reflect this):
+- This is Part {part_number} of {total_parts or '?'} in the "{topic}" series.
+- Subtitle for this part: "{subtitle or ''}"
+- The title MUST include the series tag. Format: "{topic} Part {part_number}" or "Day {part_number}: {subtitle or topic}"
+- Do NOT generate a standalone title — this is part of a series!
+"""
+
         prompt = f"""Generate YouTube Shorts metadata for this topic: "{topic}"
 
 The video is {duration} seconds long and explains {topic} in a fun, friendly way - like a friend teaching a friend!
-
+{series_context}
 Generate:
 1. TITLE (under 100 chars, catchy, includes #Shorts)
 2. DESCRIPTION (fun, engaging, includes hashtags, credits "Code Tapasya")
@@ -330,7 +343,8 @@ TITLE REQUIREMENTS:
 - Include #Shorts
 - Catchy and fun - NOT boring/academic
 - Use casual language when possible
-- Good examples: "Wait, THIS is How APIs Work?! 🤯 #Shorts", "I Learned {topic} in 60 Seconds! #Shorts"
+{f'- MUST include "Part {part_number}" or "Day {part_number}" in the title since this is a series!' if part_number else ''}\
+{f'- Good examples: "{topic} Part {part_number} 🔥 #Shorts", "Day {part_number}: {subtitle or topic} 💡 #Shorts"' if part_number else f'- Good examples: "Wait, THIS is How APIs Work?! 🤯 #Shorts", "I Learned {topic} in 60 Seconds! #Shorts"'}
 - Bad examples: "Introduction to {topic}" (boring), "Understanding {topic}" (too formal)
 
 DESCRIPTION REQUIREMENTS:
@@ -339,6 +353,7 @@ DESCRIPTION REQUIREMENTS:
 - Credit "Code Tapasya" with a fun shoutout
 - Encourage comments/engagement
 - Use emojis for visual appeal
+{f'- Mention this is Part {part_number}/{total_parts} of the series' if part_number else ''}
 
 Example good description:
 "Ever wondered how {topic} actually works? I got you! 💡 This quick breakdown makes it SO much easier to understand.
@@ -369,13 +384,29 @@ Generate the metadata now:"""
             
             # Parse the response
             metadata = self._parse_metadata_response(content, topic)
+            
+            # Enforce series tag in title if part_number is set
+            if part_number and part_number > 0:
+                title = metadata.get('title', '')
+                has_part = f"Part {part_number}" in title or f"Day {part_number}" in title or f"part {part_number}" in title.lower()
+                if not has_part:
+                    # Inject series tag before #Shorts
+                    clean_topic = topic.replace('"', '').replace("'", "")
+                    if subtitle:
+                        metadata['title'] = f"{clean_topic} Part {part_number}: {subtitle} #Shorts"
+                    else:
+                        metadata['title'] = f"{clean_topic} Part {part_number} #Shorts"
+                    # Truncate if needed
+                    if len(metadata['title']) > 100:
+                        metadata['title'] = f"{clean_topic} Part {part_number} #Shorts"[:100]
+            
             logger.info(f"✅ Generated metadata for: {topic}")
             return metadata
             
         except Exception as e:
             logger.error(f"❌ Failed to generate metadata: {e}")
             # Fallback metadata
-            return self._generate_fallback_metadata(topic, duration)
+            return self._generate_fallback_metadata(topic, duration, part_number, total_parts, subtitle)
     
     def _parse_metadata_response(self, content: str, topic: str) -> Dict[str, str]:
         """Parse Gemini response into structured metadata"""
@@ -423,25 +454,43 @@ Generate the metadata now:"""
         logger.info(f"📋 Parsed metadata - Title: {metadata['title'][:50]}...")
         return metadata
     
-    def _generate_fallback_metadata(self, topic: str, duration: int) -> Dict[str, str]:
+    def _generate_fallback_metadata(self, topic: str, duration: int,
+                                      part_number: int = None, total_parts: int = None,
+                                      subtitle: str = None) -> Dict[str, str]:
         """Generate fallback metadata if Gemini fails"""
         
         # Clean topic for title
         clean_topic = topic.replace('"', '').replace("'", "")
         
-        # Friendly title variations
-        title_templates = [
-            f"Wait, THIS is {clean_topic}?! 🤯 #Shorts",
-            f"I Learned {clean_topic} in {duration}s! #Shorts",
-            f"{clean_topic} Made SO Simple! 💡 #Shorts",
-            f"POV: You Finally Get {clean_topic} 😮 #Shorts",
-            f"Why Nobody Explained {clean_topic} Like THIS #Shorts"
-        ]
+        if part_number and part_number > 0:
+            # Series-style titles
+            title_templates = [
+                f"{clean_topic} Part {part_number} 🔥 #Shorts",
+                f"Day {part_number}: {subtitle or clean_topic} 💡 #Shorts",
+                f"{clean_topic} Part {part_number}: {subtitle or ''} #Shorts",
+                f"{clean_topic} — Part {part_number}/{total_parts or '?'} 🚀 #Shorts",
+            ]
+        else:
+            # Standalone titles
+            title_templates = [
+                f"Wait, THIS is {clean_topic}?! 🤯 #Shorts",
+                f"I Learned {clean_topic} in {duration}s! #Shorts",
+                f"{clean_topic} Made SO Simple! 💡 #Shorts",
+                f"POV: You Finally Get {clean_topic} 😮 #Shorts",
+                f"Why Nobody Explained {clean_topic} Like THIS #Shorts"
+            ]
         
         import random
         title = random.choice(title_templates)
         if len(title) > 100:
-            title = f"{clean_topic} Explained! 🔥 #Shorts"
+            if part_number:
+                title = f"{clean_topic} Part {part_number} #Shorts"[:100]
+            else:
+                title = f"{clean_topic} Explained! 🔥 #Shorts"
+        
+        series_note = ""
+        if part_number and total_parts:
+            series_note = f"\n\n📚 This is Part {part_number}/{total_parts} in the {clean_topic} series!"
         
         description = f"""Okay so I tried to explain {clean_topic} like I'm telling a friend... and honestly? It's way simpler than it sounds! 💡
 
@@ -449,7 +498,7 @@ If this actually made sense to you, drop a 🔥 in the comments!
 
 Wanna learn more cool stuff like this? Hit that subscribe button - we're making coding actually fun here 😄
 
-Huge shoutout to Code Tapasya for the amazing content! 🙌
+Huge shoutout to Code Tapasya for the amazing content! 🙌{series_note}
 
 #Programming #Coding #Tutorial #LearnToCode #Developer #TechTips #Shorts"""
 
